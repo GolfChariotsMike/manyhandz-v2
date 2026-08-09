@@ -103,3 +103,55 @@ export async function getUsage(customerId: string) {
   return supabaseRest("mh_usage_v2", `customer_id=eq.${customerId}&select=*&order=period_start.desc`);
 }
 
+// Email (DraftPilot) APIs
+export async function getEmailAccounts(customerId: string) {
+  return supabaseRest("mh_email_accounts", `customer_id=eq.${customerId}&select=*&is_active=eq.true`);
+}
+
+export async function getEmails(customerId: string) {
+  return supabaseRest("mh_emails", `customer_id=eq.${customerId}&select=*&order=received_at.desc&limit=100`);
+}
+
+export async function getEmailDrafts(customerId: string) {
+  return supabaseRest("mh_email_drafts", `customer_id=eq.${customerId}&select=*&order=created_at.desc`);
+}
+
+export async function connectGmail(customerId: string) {
+  return callFn("mhv2-gmail-connect", "", "POST", { customer_id: customerId });
+}
+
+export async function connectOutlook(customerId: string) {
+  return callFn("mhv2-outlook-connect", "", "POST", { customer_id: customerId });
+}
+
+export async function syncEmails(customerId: string) {
+  return callFn("mhv2-sync-emails", "", "POST", { customer_id: customerId });
+}
+
+export async function generateDraft(emailId: string, customerId: string, tone?: string) {
+  return callFn("mhv2-generate-draft", "", "POST", { email_id: emailId, customer_id: customerId, tone });
+}
+
+// Chat APIs
+export async function getChatConfig(customerId: string) {
+  return supabaseRest("mh_chat_config", `customer_id=eq.${customerId}&select=*`);
+}
+
+export async function saveChatConfig(id: string, updates: Record<string, unknown>) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_chat_config?id=eq.${id}`, {
+    method: "PATCH",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+      "Prefer": "return=representation",
+    },
+    body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
+  });
+  return res.json();
+}
+
+export async function getChatSessions(customerId: string) {
+  return supabaseRest("mh_chat_sessions", `customer_id=eq.${customerId}&select=*&order=last_message_at.desc&limit=50`);
+}
+

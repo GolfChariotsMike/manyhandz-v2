@@ -634,9 +634,13 @@ export default function Onboarding() {
 
               <button
                 className="w-full aurora-card p-5 flex items-center gap-4 hover:bg-white/5 transition-all mb-4"
-                onClick={() => {
-                  // Placeholder — show toast
-                  alert("Gmail integration coming soon! We'll notify you when it's ready.");
+                onClick={async () => {
+                  try {
+                    const { connectGmail } = await import("../lib/api");
+                    const me = await (await import("../lib/api")).getMe();
+                    const result = await connectGmail(me.customer.id);
+                    if (result.url) window.location.href = result.url;
+                  } catch (e) { alert("Failed to connect Gmail. Please try again."); }
                 }}
               >
                 <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
@@ -645,6 +649,27 @@ export default function Onboarding() {
                 <div className="text-left flex-1">
                   <div className="font-semibold">Connect Gmail</div>
                   <div className="text-xs text-white/40">Sign in with Google to connect</div>
+                </div>
+                <ChevronRight size={18} className="text-white/30" />
+              </button>
+
+              <button
+                className="w-full aurora-card p-5 flex items-center gap-4 hover:bg-white/5 transition-all mb-4"
+                onClick={async () => {
+                  try {
+                    const { connectOutlook } = await import("../lib/api");
+                    const me = await (await import("../lib/api")).getMe();
+                    const result = await connectOutlook(me.customer.id);
+                    if (result.url) window.location.href = result.url;
+                  } catch (e) { alert("Failed to connect Outlook. Please try again."); }
+                }}
+              >
+                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
+                  <span className="text-lg">📨</span>
+                </div>
+                <div className="text-left flex-1">
+                  <div className="font-semibold">Connect Outlook</div>
+                  <div className="text-xs text-white/40">Sign in with Microsoft to connect</div>
                 </div>
                 <ChevronRight size={18} className="text-white/30" />
               </button>

@@ -7,6 +7,8 @@ import Dashboard from "./pages/Dashboard";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Voice from "./pages/Voice";
 import Usage from "./pages/Usage";
+import Email from "./pages/Email";
+import Chat from "./pages/Chat";
 import Layout from "./components/Layout";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -25,6 +27,8 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="voice" element={<Voice />} />
+          <Route path="email" element={<Email />} />
+          <Route path="chat" element={<Chat />} />
           <Route path="usage" element={<Usage />} />
         </Route>
       </Routes>

@@ -17,11 +17,11 @@ export default function Dashboard() {
     },
     {
       id: "email", icon: Mail, name: "DraftPilot", desc: "AI email drafts",
-      status: "Coming soon", link: "#", color: "from-blue-500/20 to-cyan-500/20",
+      status: "Setup required", link: "/email", color: "from-blue-500/20 to-cyan-500/20",
     },
     {
       id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI website chat",
-      status: "Coming soon", link: "#", color: "from-purple-500/20 to-pink-500/20",
+      status: "Setup required", link: "/chat", color: "from-purple-500/20 to-pink-500/20",
     },
   ];
 
