@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { login } from "../lib/api";
+import { login, getMe } from "../lib/api";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -14,7 +14,15 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
+      const data = await login(email, password);
+      // Check onboarding status
+      try {
+        const { customer } = await getMe();
+        if (!customer?.onboarding_complete) {
+          navigate("/onboarding");
+          return;
+        }
+      } catch {}
       navigate("/");
     } catch (err: any) {
       setError(err.message);
