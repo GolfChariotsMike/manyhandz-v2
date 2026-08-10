@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMe, scrapeWebsite, updateKnowledgeBase, getKnowledgeBase } from "../lib/api";
 import { Check, Loader2, Phone, Mail, MessageSquare, Plus, X, Copy, ChevronRight } from "lucide-react";

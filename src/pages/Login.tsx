@@ -14,7 +14,7 @@ export default function Login() {
     setError("");
     setLoading(true);
     try {
-      const data = await login(email, password);
+      await login(email, password);
       // Check onboarding status
       try {
         const { customer } = await getMe();
