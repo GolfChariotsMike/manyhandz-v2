@@ -27,13 +27,25 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   const token = getToken();
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${FN_URL}/${fn}/${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  let res: Response;
+  try {
+    res = await fetch(`${FN_URL}/${fn}/${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new Error("Connection error — please check your internet and try again.");
+  }
+  let data: any;
+  try { data = await res.json(); } catch { data = {}; }
+  if (!res.ok) {
+    const msg = data.error || "";
+    if (res.status === 401) throw new Error(msg || "Incorrect email or password.");
+    if (res.status === 409 || msg.includes("already")) throw new Error("An account with this email already exists.");
+    if (res.status >= 500) throw new Error("Server error — please try again in a moment.");
+    throw new Error(msg || "Something went wrong. Please try again.");
+  }
   return data;
 }
 

@@ -6,22 +6,46 @@ export default function Voice() {
   const [numbers, setNumbers] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
+  const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const { customer } = await getMe();
-      const [nums, cfg, callLog] = await Promise.all([
-        getVoiceNumbers(customer.id),
-        getVoiceConfig(customer.id),
-        getVoiceCalls(customer.id),
-      ]);
-      setNumbers(nums);
-      setConfig(cfg?.[0] || null);
-      setCalls(callLog);
-      setLoading(false);
-    })();
-  }, []);
+  const loadData = async () => {
+    const { customer: c } = await getMe();
+    setCustomer(c);
+    const [nums, cfg, callLog] = await Promise.all([
+      getVoiceNumbers(c.id),
+      getVoiceConfig(c.id),
+      getVoiceCalls(c.id),
+    ]);
+    setNumbers(nums);
+    setConfig(cfg?.[0] || null);
+    setCalls(callLog);
+    setLoading(false);
+  };
+
+  useEffect(() => { loadData(); }, []);
+
+  async function handleProvision() {
+    if (!customer?.id) return;
+    setProvisioning(true);
+    setProvisionError("");
+    try {
+      const res = await fetch("https://provision.manyhandz.ai/provision-number", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: customer.id, country: "AU" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to provision number");
+      await loadData();
+    } catch (e: any) {
+      setProvisionError(e.message || "Could not provision a number. Please contact support.");
+    } finally {
+      setProvisioning(false);
+    }
+  }
 
   if (loading) return <div className="text-white/50">Loading...</div>;
 
@@ -41,7 +65,14 @@ export default function Voice() {
           ) : (
             <div>
               <p className="text-white/50 text-sm mb-3">No number provisioned yet.</p>
-              <button className="btn-primary text-sm">Provision a number</button>
+              <button
+                className="btn-primary text-sm"
+                onClick={handleProvision}
+                disabled={provisioning}
+              >
+                {provisioning ? "Provisioning..." : "Provision a number"}
+              </button>
+              {provisionError && <p className="text-red-400 text-xs mt-2">{provisionError}</p>}
             </div>
           )}
         </div>
@@ -53,7 +84,7 @@ export default function Voice() {
             <div className={`w-3 h-3 rounded-full ${config?.active ? "bg-green-400" : "bg-red-400"}`} />
             <span className="text-lg">{config?.active ? "Active" : "Paused"}</span>
           </div>
-          <p className="text-sm text-white/40 mt-2">AI persona: {config?.ai_name || "Emma"}</p>
+          <p className="text-sm text-white/40 mt-2">AI persona: {config?.ai_name || (customer?.business_name ? customer.business_name + " AI" : "AI Assistant")}</p>
         </div>
       </div>
 
