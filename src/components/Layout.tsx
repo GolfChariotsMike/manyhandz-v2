@@ -19,7 +19,7 @@ export default function Layout() {
       {/* Sidebar */}
       <aside className="w-64 border-r border-white/10 p-6 flex flex-col">
         <div className="mb-10">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
             ManyHandz
           </h1>
           <p className="text-xs text-white/40 mt-1">Your AI team</p>

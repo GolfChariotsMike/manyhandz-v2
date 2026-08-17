@@ -67,7 +67,7 @@ export default function Usage() {
         </div>
         <div className="aurora-card p-6">
           <div className="flex items-center gap-2 mb-3">
-            <MessageSquare size={18} className="text-purple-400" />
+            <MessageSquare size={18} className="text-yellow-400" />
             <h3 className="font-semibold">Chat</h3>
           </div>
           <p className="text-2xl font-bold">{chatUsage.reduce((s, u) => s + (u.units || 0), 0)} chats</p>
@@ -80,7 +80,7 @@ export default function Usage() {
         <div className="flex items-center justify-between">
           <div>
             <p className="text-sm text-white/50">Total this month</p>
-            <p className="text-3xl font-bold text-indigo-400">${totalCost.toFixed(2)}</p>
+            <p className="text-3xl font-bold text-yellow-400">${totalCost.toFixed(2)}</p>
           </div>
         </div>
       </div>

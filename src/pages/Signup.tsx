@@ -35,7 +35,7 @@ export default function Signup() {
   return (
     <div className="min-h-screen aurora-bg flex items-center justify-center p-4">
       <div className="aurora-card aurora-glow p-8 w-full max-w-lg">
-        <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+        <h1 className="text-3xl font-bold mb-2 bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
           Get started free
         </h1>
         <p className="text-white/50 mb-8">Set up your AI team in under 5 minutes</p>
@@ -76,7 +76,7 @@ export default function Signup() {
 
         <p className="text-white/40 text-sm mt-6 text-center">
           Already have an account?{" "}
-          <Link to="/login" className="text-indigo-400 hover:text-indigo-300">Sign in</Link>
+          <Link to="/login" className="text-yellow-400 hover:text-yellow-400">Sign in</Link>
         </p>
       </div>
     </div>

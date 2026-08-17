@@ -116,7 +116,7 @@ export default function Email() {
                 Connect Gmail
               </button>
               <button onClick={handleConnectOutlook}
-                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-blue-500/20 to-indigo-500/20 border border-blue-500/30 hover:border-blue-500/50 text-sm font-medium transition-all">
+                className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-yellow-600/20 to-yellow-400/20 border border-yellow-500/30 hover:border-yellow-500/50 text-sm font-medium transition-all">
                 Connect Outlook
               </button>
             </div>
@@ -143,7 +143,7 @@ export default function Email() {
           {["all", "needs_reply", "important", "marketing", "newsletter", "automated"].map(f => (
             <button key={f} onClick={() => setFilter(f)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                filter === f ? "bg-indigo-500/30 text-indigo-300 border border-indigo-500/40" : "bg-white/5 text-white/40 hover:text-white/60"
+                filter === f ? "bg-yellow-500/30 text-yellow-400 border border-yellow-500/40" : "bg-white/5 text-white/40 hover:text-white/60"
               }`}>
               {f === "all" ? "All" : f.replace("_", " ")}
               {f !== "all" && ` (${emails.filter(e => e.category === f).length})`}
@@ -197,7 +197,7 @@ export default function Email() {
                           {draft.body}
                         </div>
                         <div className="flex gap-2 mt-3">
-                          <button className="px-4 py-2 rounded-lg bg-indigo-500/20 text-indigo-300 text-xs font-medium hover:bg-indigo-500/30 transition-all flex items-center gap-1">
+                          <button className="px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-400 text-xs font-medium hover:bg-yellow-500/30 transition-all flex items-center gap-1">
                             <Send size={12} /> Approve & Send
                           </button>
                           <button onClick={() => handleGenerateDraft(email.id)}
@@ -209,7 +209,7 @@ export default function Email() {
                     ) : (
                       <button onClick={() => handleGenerateDraft(email.id)}
                         disabled={generatingDraft === email.id}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-500/20 text-indigo-300 text-sm font-medium hover:bg-indigo-500/30 transition-all disabled:opacity-50">
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-50">
                         {generatingDraft === email.id ? (
                           <><Loader2 size={14} className="animate-spin" /> Generating draft...</>
                         ) : (

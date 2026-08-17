@@ -21,7 +21,7 @@ export default function Dashboard() {
     },
     {
       id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI website chat",
-      status: "Setup required", link: "/chat", color: "from-purple-500/20 to-pink-500/20",
+      status: "Setup required", link: "/chat", color: "from-yellow-600/20 to-yellow-400/20",
     },
   ];
 
@@ -49,7 +49,7 @@ export default function Dashboard() {
               <span className={`text-xs px-2 py-1 rounded-full ${
                 p.status === "Coming soon"
                   ? "bg-white/5 text-white/30"
-                  : "bg-indigo-500/20 text-indigo-300"
+                  : "bg-yellow-500/20 text-yellow-400"
               }`}>
                 {p.status}
               </span>
@@ -64,7 +64,7 @@ export default function Dashboard() {
         <h2 className="font-semibold mb-4">This month</h2>
         <div className="grid grid-cols-3 gap-6">
           <div>
-            <p className="text-3xl font-bold text-indigo-400">0</p>
+            <p className="text-3xl font-bold text-yellow-400">0</p>
             <p className="text-sm text-white/50">Calls handled</p>
           </div>
           <div>
@@ -72,7 +72,7 @@ export default function Dashboard() {
             <p className="text-sm text-white/50">Emails drafted</p>
           </div>
           <div>
-            <p className="text-3xl font-bold text-purple-400">0</p>
+            <p className="text-3xl font-bold text-yellow-400">0</p>
             <p className="text-sm text-white/50">Chats answered</p>
           </div>
         </div>

@@ -66,11 +66,11 @@ export default function KnowledgeBase() {
           <h3 className="font-semibold mb-3">Services</h3>
           <div className="flex flex-wrap gap-2 mb-3">
             {(kb.services || []).map((s: string, i: number) => (
-              <span key={i} className="bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">
+              <span key={i} className="bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm flex items-center gap-2">
                 {s}
                 <button
                   onClick={() => setKb({ ...kb, services: kb.services.filter((_: any, j: number) => j !== i) })}
-                  className="text-indigo-300/50 hover:text-white"
+                  className="text-yellow-400/50 hover:text-white"
                 >×</button>
               </span>
             ))}

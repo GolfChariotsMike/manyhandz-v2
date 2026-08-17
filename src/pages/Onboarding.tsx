@@ -55,12 +55,12 @@ function ProgressBar({ step }: { step: Step }) {
             <div key={i} className="flex flex-col items-center flex-1">
               <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300 ${
                 done ? "bg-green-500 text-white" :
-                active ? "bg-gradient-to-br from-indigo-500 to-purple-500 text-white shadow-lg shadow-indigo-500/30" :
+                active ? "bg-gradient-to-br from-yellow-600 to-yellow-400 text-white shadow-lg shadow-yellow-500/30" :
                 "bg-white/10 text-white/30"
               }`}>
                 {done ? <Check size={16} /> : s}
               </div>
-              <span className={`text-xs mt-1.5 hidden sm:block transition-colors ${active ? "text-indigo-300" : done ? "text-white/50" : "text-white/20"}`}>
+              <span className={`text-xs mt-1.5 hidden sm:block transition-colors ${active ? "text-yellow-400" : done ? "text-white/50" : "text-white/20"}`}>
                 {label}
               </span>
             </div>
@@ -69,7 +69,7 @@ function ProgressBar({ step }: { step: Step }) {
       </div>
       <div className="h-1 bg-white/10 rounded-full overflow-hidden">
         <div
-          className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full transition-all duration-500"
+          className="h-full bg-gradient-to-r from-yellow-600 to-yellow-400 rounded-full transition-all duration-500"
           style={{ width: `${((step - 1) / (stepLabels.length - 1)) * 100}%` }}
         />
       </div>
@@ -320,7 +320,7 @@ export default function Onboarding() {
   if (loading) {
     return (
       <div className="min-h-screen aurora-bg flex items-center justify-center">
-        <Loader2 className="w-10 h-10 text-indigo-400 animate-spin" />
+        <Loader2 className="w-10 h-10 text-yellow-400 animate-spin" />
       </div>
     );
   }
@@ -328,7 +328,7 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen aurora-bg flex flex-col items-center justify-start px-4 pt-12 pb-16">
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-center bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">
+        <h1 className="text-2xl font-bold text-center bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
           ManyHandz
         </h1>
       </div>
@@ -349,7 +349,7 @@ export default function Onboarding() {
             <div>
               <label className="text-sm text-white/60 mb-1 block">Website URL <span className="text-white/30">(optional)</span></label>
               <input value={website} onChange={e => setWebsite(e.target.value)} placeholder="yoursite.com.au" />
-              <p className="text-xs text-indigo-300/60 mt-1">We'll scan your website to set up your AI automatically</p>
+              <p className="text-xs text-yellow-400/60 mt-1">We'll scan your website to set up your AI automatically</p>
             </div>
             <div>
               <label className="text-sm text-white/60 mb-1 block">Industry</label>
@@ -379,9 +379,9 @@ export default function Onboarding() {
       {step === 2 && (
         <div className="aurora-card aurora-glow p-12 w-full max-w-xl text-center animate-fade-in">
           <div className="relative w-20 h-20 mx-auto mb-6">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-indigo-500/20 to-purple-500/20 animate-pulse" />
-            <div className="absolute inset-2 rounded-full bg-gradient-to-br from-indigo-500/30 to-purple-500/30 animate-ping" style={{ animationDuration: "2s" }} />
-            <Loader2 className="w-20 h-20 text-indigo-400 animate-spin relative z-10" />
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-yellow-600/20 to-yellow-400/20 animate-pulse" />
+            <div className="absolute inset-2 rounded-full bg-gradient-to-br from-yellow-600/30 to-yellow-400/30 animate-ping" style={{ animationDuration: "2s" }} />
+            <Loader2 className="w-20 h-20 text-yellow-400 animate-spin relative z-10" />
           </div>
           <h2 className="text-2xl font-bold mb-3">Setting up your AI</h2>
           <p className="text-white/50 text-lg transition-all duration-500">
@@ -389,7 +389,7 @@ export default function Onboarding() {
           </p>
           <div className="flex justify-center gap-2 mt-6">
             {scrapeMessages.map((_, i) => (
-              <div key={i} className={`w-2 h-2 rounded-full transition-all duration-300 ${i <= scrapePhase ? "bg-indigo-400" : "bg-white/15"}`} />
+              <div key={i} className={`w-2 h-2 rounded-full transition-all duration-300 ${i <= scrapePhase ? "bg-yellow-500" : "bg-white/15"}`} />
             ))}
           </div>
         </div>
@@ -404,7 +404,7 @@ export default function Onboarding() {
           <div className="space-y-6">
             {/* About */}
             <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-indigo-300 mb-2 block">About your business</label>
+              <label className="text-sm font-semibold text-yellow-400 mb-2 block">About your business</label>
               <textarea
                 rows={3}
                 value={about}
@@ -415,10 +415,10 @@ export default function Onboarding() {
 
             {/* Services */}
             <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-indigo-300 mb-2 block">Your services</label>
+              <label className="text-sm font-semibold text-yellow-400 mb-2 block">Your services</label>
               <div className="flex flex-wrap gap-2 mb-3">
                 {services.map((s, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-indigo-500/20 text-indigo-300 px-3 py-1 rounded-full text-sm">
+                  <span key={i} className="inline-flex items-center gap-1 bg-yellow-500/20 text-yellow-400 px-3 py-1 rounded-full text-sm">
                     {s}
                     <button onClick={() => removeService(i)} className="hover:text-red-400 transition-colors">
                       <X size={14} />
@@ -442,7 +442,7 @@ export default function Onboarding() {
 
             {/* FAQs */}
             <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-indigo-300 mb-2 block">FAQs</label>
+              <label className="text-sm font-semibold text-yellow-400 mb-2 block">FAQs</label>
               <div className="space-y-3">
                 {faqs.map((faq, i) => (
                   <div key={i} className="bg-white/5 rounded-xl p-4 relative group">
@@ -472,7 +472,7 @@ export default function Onboarding() {
 
             {/* Business Hours */}
             <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-indigo-300 mb-2 block">Business hours</label>
+              <label className="text-sm font-semibold text-yellow-400 mb-2 block">Business hours</label>
               <div className="space-y-2">
                 {hours.map((h, i) => (
                   <div key={i} className="flex items-center gap-3 text-sm">
@@ -482,7 +482,7 @@ export default function Onboarding() {
                         type="checkbox"
                         checked={h.closed}
                         onChange={e => updateHour(i, "closed", e.target.checked)}
-                        className="w-4 h-4 accent-indigo-500"
+                        className="w-4 h-4 accent-yellow-500"
                         style={{ width: "16px", height: "16px" }}
                       />
                       <span className="text-white/40 text-xs">Closed</span>
@@ -511,7 +511,7 @@ export default function Onboarding() {
 
             {/* Tone */}
             <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-indigo-300 mb-3 block">Tone of voice</label>
+              <label className="text-sm font-semibold text-yellow-400 mb-3 block">Tone of voice</label>
               <div className="flex gap-3">
                 {[
                   { id: "professional", label: "Professional", desc: "Formal and businesslike" },
@@ -522,7 +522,7 @@ export default function Onboarding() {
                     key={t.id}
                     onClick={() => setTone(t.id)}
                     className={`flex-1 aurora-card p-4 text-center transition-all ${
-                      tone === t.id ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/10" : "hover:bg-white/5"
+                      tone === t.id ? "border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/30" : "hover:bg-white/5"
                     }`}
                   >
                     <div className="font-semibold text-sm">{t.label}</div>
@@ -549,14 +549,14 @@ export default function Onboarding() {
             {[
               { id: "voice", icon: Phone, name: "Voice", desc: "AI answers your calls 24/7", tag: "Most popular", color: "from-green-500/20 to-emerald-500/20" },
               { id: "email", icon: Mail, name: "DraftPilot", desc: "AI drafts your email replies", color: "from-blue-500/20 to-cyan-500/20" },
-              { id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI chat for your website", color: "from-purple-500/20 to-pink-500/20" },
+              { id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI chat for your website", color: "from-yellow-600/20 to-yellow-400/20" },
             ].map(p => (
               <button
                 key={p.id}
                 onClick={() => setSelectedProduct(p.id)}
                 className={`w-full aurora-card p-6 flex items-center gap-4 text-left transition-all group relative ${
                   selectedProduct === p.id
-                    ? "border-indigo-500 bg-indigo-500/10 shadow-lg shadow-indigo-500/10"
+                    ? "border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/30"
                     : "hover:bg-white/5"
                 }`}
               >
@@ -573,7 +573,7 @@ export default function Onboarding() {
                   </span>
                 )}
                 {selectedProduct === p.id && (
-                  <div className="w-6 h-6 rounded-full bg-indigo-500 flex items-center justify-center flex-shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center flex-shrink-0">
                     <Check size={14} className="text-white" />
                   </div>
                 )}
@@ -605,14 +605,14 @@ export default function Onboarding() {
               </div>
 
               <div className="aurora-card p-6 text-center mb-6">
-                <div className="text-3xl font-bold text-indigo-300 tracking-wider mb-2">
+                <div className="text-3xl font-bold text-yellow-400 tracking-wider mb-2">
                   {provisionedNumber || "+61 4XX XXX XXX"}
                 </div>
                 <p className="text-xs text-white/40">Your dedicated AI phone number</p>
               </div>
 
               <div className="aurora-card p-5 mb-6">
-                <h3 className="font-semibold text-sm mb-3 text-indigo-300">How to forward your calls:</h3>
+                <h3 className="font-semibold text-sm mb-3 text-yellow-400">How to forward your calls:</h3>
                 <div className="space-y-2 text-sm text-white/60">
                   <p>📱 <strong className="text-white/80">iPhone:</strong> Settings → Phone → Call Forwarding → Enter number above</p>
                   <p>📱 <strong className="text-white/80">Android:</strong> Phone app → Settings → Call Forwarding → Enter number above</p>
@@ -681,15 +681,15 @@ export default function Onboarding() {
           {selectedProduct === "chat" && (
             <>
               <div className="text-center mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-purple-500/20 to-pink-500/20 flex items-center justify-center mx-auto mb-4">
-                  <MessageSquare className="text-purple-400" size={28} />
+                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-yellow-600/20 to-yellow-400/20 flex items-center justify-center mx-auto mb-4">
+                  <MessageSquare className="text-yellow-400" size={28} />
                 </div>
                 <h2 className="text-2xl font-bold mb-1">Add chat to your website</h2>
                 <p className="text-white/50 text-sm">Copy this code and paste it before the closing &lt;/body&gt; tag.</p>
               </div>
 
               <div className="aurora-card p-4 mb-4 relative group">
-                <pre className="text-xs text-indigo-300 font-mono overflow-x-auto whitespace-pre-wrap break-all">
+                <pre className="text-xs text-yellow-400 font-mono overflow-x-auto whitespace-pre-wrap break-all">
                   {embedCode}
                 </pre>
                 <button

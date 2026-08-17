@@ -1,9 +1,12 @@
 @import "tailwindcss";
 
 :root {
-  --aurora-1: #0f0c29;
-  --aurora-2: #302b63;
-  --aurora-3: #24243e;
+  --aurora-1: #0a1628;
+  --aurora-2: #0f1f3d;
+  --aurora-3: #162b52;
+  --gold: #c9a84c;
+  --gold-dark: #b8963e;
+  --gold-light: #e8c97a;
 }
 
 body {
@@ -14,7 +17,7 @@ body {
 }
 
 .aurora-bg {
-  background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+  background: linear-gradient(135deg, #0a1628 0%, #0f1f3d 50%, #162b52 100%);
 }
 
 .aurora-card {
@@ -25,12 +28,12 @@ body {
 }
 
 .aurora-glow {
-  box-shadow: 0 0 30px rgba(99, 102, 241, 0.15), 0 0 60px rgba(139, 92, 246, 0.1);
+  box-shadow: 0 0 30px rgba(201, 168, 76, 0.15), 0 0 60px rgba(201, 168, 76, 0.08);
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #6366f1, #8b5cf6);
-  color: white;
+  background: linear-gradient(135deg, #c9a84c, #e8c97a);
+  color: #0f1f3d;
   padding: 0.75rem 1.5rem;
   border-radius: 12px;
   font-weight: 600;
@@ -40,7 +43,7 @@ body {
 }
 .btn-primary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 4px 20px rgba(201, 168, 76, 0.4);
 }
 
 .btn-secondary {
@@ -83,5 +86,5 @@ input, textarea, select {
   transition: border 0.2s;
 }
 input:focus, textarea:focus, select:focus {
-  border-color: #6366f1;
+  border-color: #c9a84c;
 }
