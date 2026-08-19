@@ -183,6 +183,8 @@ export default function Onboarding() {
   const [hours, setHours] = useState<HoursRow[]>((saved?.hours as HoursRow[]) || defaultHours);
   const [tone, setTone] = useState<string>((saved?.tone as string) || "friendly");
 
+  const [noWebsite, setNoWebsite] = useState<boolean>((saved?.noWebsite as boolean) || false);
+
   // Step 4/5
   const [selectedProduct, setSelectedProduct] = useState<string>((saved?.selectedProduct as string) || "");
   const [provisionedNumber, setProvisionedNumber] = useState<string>((saved?.provisionedNumber as string) || "");
@@ -225,7 +227,7 @@ export default function Onboarding() {
   // Persist state
   useEffect(() => {
     if (!loading) {
-      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber });
+      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite });
     }
   }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, loading]);
 
@@ -439,8 +441,20 @@ export default function Onboarding() {
             </div>
             <div>
               <label className="text-sm text-white/60 mb-1 block">Website URL <span className="text-white/30">(optional)</span></label>
-              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder="yoursite.com.au" />
-              <p className="text-xs text-yellow-400/60 mt-1">We'll scan your website to set up your AI automatically</p>
+              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder="yoursite.com.au" disabled={noWebsite} className={noWebsite ? "opacity-40" : ""} />
+              <div className="flex items-center gap-3 mt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={noWebsite}
+                    onChange={e => { setNoWebsite(e.target.checked); if (e.target.checked) setWebsite(""); }}
+                    className="w-4 h-4 accent-yellow-500"
+                    style={{ width: "16px", height: "16px" }}
+                  />
+                  <span className="text-xs text-white/50">I don't have a website</span>
+                </label>
+              </div>
+              {!noWebsite && <p className="text-xs text-yellow-400/60 mt-1">We'll scan your website to set up your AI automatically</p>}
             </div>
             <div>
               <label className="text-sm text-white/60 mb-1 block">Industry</label>
@@ -624,9 +638,14 @@ export default function Onboarding() {
             </div>
           </div>
 
-          <button className="btn-primary w-full mt-8 flex items-center justify-center gap-2" onClick={handleSaveKB}>
-            Looks good <ChevronRight size={18} />
-          </button>
+          <div className="flex gap-3 mt-8">
+            <button className="btn-primary flex-1 flex items-center justify-center gap-2" onClick={handleSaveKB}>
+              Looks good <ChevronRight size={18} />
+            </button>
+            <button className="btn-secondary px-5 text-sm text-white/50 hover:text-white/70" onClick={() => goStep(4)}>
+              Skip for now
+            </button>
+          </div>
         </div>
       )}
 
@@ -679,6 +698,9 @@ export default function Onboarding() {
             disabled={!selectedProduct || provisioning}
           >
             {provisioning ? "Setting up your number..." : <> Continue <ChevronRight size={18} /></>}
+          </button>
+          <button className="w-full mt-2 text-sm text-white/30 hover:text-white/50 transition-colors py-2" onClick={() => goStep(6)}>
+            Skip — I'll set this up from the dashboard
           </button>
         </div>
       )}
@@ -798,9 +820,14 @@ export default function Onboarding() {
             </>
           )}
 
-          <button className="btn-primary w-full mt-4 flex items-center justify-center gap-2" onClick={handleFinish}>
-            Done — go to dashboard <ChevronRight size={18} />
-          </button>
+          <div className="flex gap-3 mt-4">
+            <button className="btn-primary flex-1 flex items-center justify-center gap-2" onClick={handleFinish}>
+              Done — go to dashboard <ChevronRight size={18} />
+            </button>
+            <button className="btn-secondary px-5 text-sm text-white/50 hover:text-white/70" onClick={handleFinish}>
+              Skip
+            </button>
+          </div>
         </div>
       )}
 
