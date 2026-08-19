@@ -104,11 +104,12 @@ export default function Voice() {
   }
 
   async function handleSaveVoice() {
-    if (!config?.el_agent_id) return;
+    const agentId = config?.el_agent_id || customer?.el_agent_id;
+    if (!agentId) return;
     setSavingVoice(true);
     try {
       // Update EL agent voice
-      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${config.el_agent_id}`, {
+      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
         method: "PATCH",
         headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
         body: JSON.stringify({ conversation_config: { tts: { voice_id: activeVoiceId } } }),
@@ -175,7 +176,7 @@ export default function Voice() {
           </div>
           <button
             onClick={handleSaveVoice}
-            disabled={savingVoice || !config?.el_agent_id}
+            disabled={savingVoice || (!config?.el_agent_id && !customer?.el_agent_id)}
             className="btn-primary text-sm flex items-center gap-2"
           >
             {savingVoice ? <Loader size={14} className="animate-spin" /> : voiceSaved ? <Check size={14} /> : null}
@@ -226,7 +227,7 @@ export default function Voice() {
             );
           })}
         </div>
-        {!config?.el_agent_id && (
+        {!config?.el_agent_id && !customer?.el_agent_id && (
           <p className="text-xs text-white/30 mt-4">Voice selection will be available once your number is provisioned.</p>
         )}
       </div>
