@@ -30,7 +30,6 @@ export default function KnowledgeBase() {
   const save = async () => {
     if (!kb) return;
     setSaving(true);
-    const token = localStorage.getItem("mh_token") || SUPABASE_ANON_KEY;
     await Promise.all([
       updateKnowledgeBase(kb.id, {
         services: kb.services, faqs: kb.faqs, hours: kb.hours,
@@ -38,7 +37,7 @@ export default function KnowledgeBase() {
       }),
       voiceConfig?.id ? fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${voiceConfig.id}`, {
         method: "PATCH",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ system_prompt: aiPrompt }),
       }) : Promise.resolve(),
       // Push updated prompt to ElevenLabs agent
