@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getMe } from "../lib/api";
-import { BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare } from "lucide-react";
+import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 const STEPS = [
