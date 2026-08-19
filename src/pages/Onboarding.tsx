@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getMe, scrapeWebsite, updateKnowledgeBase, getKnowledgeBase } from "../lib/api";
+import { getMe, scrapeWebsite, updateKnowledgeBase, upsertKnowledgeBase, getKnowledgeBase } from "../lib/api";
 import { Check, Loader2, Plus, X, ChevronRight } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -318,9 +318,10 @@ export default function Onboarding() {
   const [provisionError, setProvisionError] = useState("");
 
   async function handleSaveKB() {
-    if (kbId) {
+    if (customer?.id) {
       try {
-        await updateKnowledgeBase(kbId, {
+        // Upsert KB — creates if missing, updates if exists
+        await upsertKnowledgeBase(customer.id, {
           about,
           services,
           faqs,
@@ -329,8 +330,8 @@ export default function Onboarding() {
         });
       } catch {}
     }
-    // Auto-provision voice number
-    if (customer?.id) {
+    // Auto-provision voice number — skip if already provisioned
+    if (customer?.id && !customer.twilio_number && !provisionedNumber) {
       setProvisioning(true);
       setProvisionError("");
       try {
@@ -347,6 +348,9 @@ export default function Onboarding() {
       } finally {
         setProvisioning(false);
       }
+    } else if (customer?.twilio_number && !provisionedNumber) {
+      // Already provisioned — just show the existing number
+      setProvisionedNumber(customer.twilio_number);
     }
     goStep(4);
   }

@@ -91,12 +91,28 @@ export async function getKnowledgeBase(customerId: string) {
   return supabaseRest("mh_knowledge_base", `customer_id=eq.${customerId}&select=*`);
 }
 
+export async function upsertKnowledgeBase(customerId: string, updates: Record<string, unknown>) {
+  const token = getToken() || SUPABASE_ANON_KEY;
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base`, {
+    method: "POST",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Prefer": "resolution=merge-duplicates,return=representation",
+    },
+    body: JSON.stringify({ customer_id: customerId, ...updates, updated_at: new Date().toISOString() }),
+  });
+  return res.json();
+}
+
 export async function updateKnowledgeBase(id: string, updates: Record<string, unknown>) {
+  const token = getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base?id=eq.${id}`, {
     method: "PATCH",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
       "Prefer": "return=representation",
     },
