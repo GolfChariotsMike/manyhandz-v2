@@ -76,10 +76,11 @@ export async function scrapeWebsite(url: string) {
 
 // Direct Supabase REST calls for dashboard data
 async function supabaseRest(table: string, params: string = "") {
+  const token = getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
     headers: {
       "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
+      "Authorization": `Bearer ${token}`,
       "Content-Type": "application/json",
     },
   });
