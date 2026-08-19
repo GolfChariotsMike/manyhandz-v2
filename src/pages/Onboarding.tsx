@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMe, scrapeWebsite, updateKnowledgeBase, getKnowledgeBase } from "../lib/api";
-import { Check, Loader2, Phone, Mail, MessageSquare, Plus, X, Copy, ChevronRight } from "lucide-react";
+import { Check, Loader2, Phone, Plus, X, ChevronRight } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
@@ -186,9 +186,9 @@ export default function Onboarding() {
   const [noWebsite, setNoWebsite] = useState<boolean>((saved?.noWebsite as boolean) || false);
 
   // Step 4/5
-  const [selectedProduct, setSelectedProduct] = useState<string>((saved?.selectedProduct as string) || "");
+  const [selectedProduct] = useState<string>("");
   const [provisionedNumber, setProvisionedNumber] = useState<string>((saved?.provisionedNumber as string) || "");
-  const [copied, setCopied] = useState(false);
+  // copied state removed (chat widget step removed)
 
   // Scraping animation
   const [scrapePhase, setScrapePhase] = useState(0);
@@ -404,7 +404,7 @@ export default function Onboarding() {
     setHours(updated);
   }
 
-  const embedCode = `<script src="https://manyhandz.ai/chat-widget.js" data-customer="${customer?.id || 'YOUR_ID'}"></script>`;
+  // embedCode removed (chat widget step removed)
 
   if (loading) {
     return (
