@@ -25,7 +25,7 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
     "apikey": SUPABASE_ANON_KEY,
   };
   const token = getToken();
-  if (token) headers["Authorization"] = `Bearer ${token}`;
+  headers["Authorization"] = `Bearer ${token || SUPABASE_ANON_KEY}`;
 
   let res: Response;
   try {
