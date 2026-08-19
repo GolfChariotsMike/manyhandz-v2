@@ -30,6 +30,9 @@ export default function Voice() {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [savingVoice, setSavingVoice] = useState(false);
   const [voiceSaved, setVoiceSaved] = useState(false);
+  const [greeting, setGreeting] = useState("");
+  const [savingGreeting, setSavingGreeting] = useState(false);
+  const [greetingSaved, setGreetingSaved] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadData = async () => {
@@ -43,6 +46,7 @@ export default function Voice() {
       const cfgRow = Array.isArray(cfg) ? cfg[0] || null : null;
       setConfig(cfgRow);
       if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
+      if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
       setCalls(Array.isArray(callLog) ? callLog : []);
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
@@ -101,6 +105,29 @@ export default function Voice() {
     } finally {
       setPreviewingId(null);
     }
+  }
+
+  async function handleSaveGreeting() {
+    const agentId = config?.el_agent_id || customer?.el_agent_id;
+    if (!agentId || !greeting.trim()) return;
+    setSavingGreeting(true);
+    try {
+      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
+        method: "PATCH",
+        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_config: { agent: { first_message: greeting.trim() } } }),
+      });
+      if (config?.id) {
+        await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+          method: "PATCH",
+          headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ greeting_script: greeting.trim() }),
+        });
+      }
+      setGreetingSaved(true);
+      setTimeout(() => setGreetingSaved(false), 2500);
+    } catch (e) { console.error("Save greeting error:", e); }
+    finally { setSavingGreeting(false); }
   }
 
   async function handleSaveVoice() {
@@ -165,6 +192,32 @@ export default function Voice() {
           </div>
           <p className="text-sm text-white/40 mt-2">AI persona: {config?.ai_name || (customer?.business_name ? customer.business_name + " AI" : "AI Assistant")}</p>
         </div>
+      </div>
+
+      {/* Greeting */}
+      <div className="aurora-card p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">Greeting</h3>
+            <p className="text-sm text-white/40 mt-0.5">What your AI says when it picks up the phone.</p>
+          </div>
+          <button
+            onClick={handleSaveGreeting}
+            disabled={savingGreeting || !greeting.trim() || (!config?.el_agent_id && !customer?.el_agent_id)}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            {savingGreeting ? <Loader size={14} className="animate-spin" /> : greetingSaved ? <Check size={14} /> : null}
+            {greetingSaved ? "Saved!" : savingGreeting ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <textarea
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 resize-none focus:outline-none focus:border-violet-500 transition-colors"
+          rows={3}
+          placeholder={`Hey, thanks for calling ${customer?.business_name || 'us'}! How can I help you today?`}
+          value={greeting}
+          onChange={e => setGreeting(e.target.value)}
+        />
+        <p className="text-xs text-white/30 mt-2">Keep it natural and under 2 sentences. The AI will take it from there.</p>
       </div>
 
       {/* Voice Picker */}
