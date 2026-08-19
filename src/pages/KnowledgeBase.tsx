@@ -41,6 +41,12 @@ export default function KnowledgeBase() {
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify({ system_prompt: aiPrompt }),
       }) : Promise.resolve(),
+      // Push updated prompt to ElevenLabs agent
+      voiceConfig?.el_agent_id && aiPrompt ? fetch(`https://api.elevenlabs.io/v1/convai/agents/${voiceConfig.el_agent_id}`, {
+        method: "PATCH",
+        headers: { "xi-api-key": "REDACTED_EL_KEY", "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_config: { agent: { prompt: { prompt: aiPrompt } } } }),
+      }) : Promise.resolve(),
     ]);
     setSaving(false);
     setSaved(true);
