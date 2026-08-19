@@ -39,7 +39,9 @@ export default function Voice() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to provision number");
-      await loadData();
+      // Show number immediately from response, then sync from DB
+      if (data.phone_number) setNumbers([{ twilio_number: data.phone_number }]);
+      loadData(); // async refresh in background
     } catch (e: any) {
       setProvisionError(e.message || "Could not provision a number. Please contact support.");
     } finally {
