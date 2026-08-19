@@ -1,27 +1,47 @@
 import { useState, useEffect } from "react";
-import { getMe, getKnowledgeBase, updateKnowledgeBase } from "../lib/api";
+import { getMe, getKnowledgeBase, updateKnowledgeBase, getVoiceConfig } from "../lib/api";
 import { Save } from "lucide-react";
+
+const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
 export default function KnowledgeBase() {
   const [kb, setKb] = useState<any>(null);
+  const [voiceConfig, setVoiceConfig] = useState<any>(null);
+  const [aiPrompt, setAiPrompt] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     (async () => {
       const { customer } = await getMe();
-      const rows = await getKnowledgeBase(customer.id);
+      const [rows, vcRows] = await Promise.all([
+        getKnowledgeBase(customer.id),
+        getVoiceConfig(customer.id),
+      ]);
       if (rows.length > 0) setKb(rows[0]);
+      if (vcRows?.length > 0) {
+        setVoiceConfig(vcRows[0]);
+        setAiPrompt(vcRows[0].system_prompt || "");
+      }
     })();
   }, []);
 
   const save = async () => {
     if (!kb) return;
     setSaving(true);
-    await updateKnowledgeBase(kb.id, {
-      services: kb.services, faqs: kb.faqs, hours: kb.hours,
-      tone: kb.tone, about: kb.about, custom_instructions: kb.custom_instructions,
-    });
+    const token = localStorage.getItem("mh_token") || SUPABASE_ANON_KEY;
+    await Promise.all([
+      updateKnowledgeBase(kb.id, {
+        services: kb.services, faqs: kb.faqs, hours: kb.hours,
+        tone: kb.tone, about: kb.about, custom_instructions: kb.custom_instructions,
+      }),
+      voiceConfig?.id ? fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${voiceConfig.id}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ system_prompt: aiPrompt }),
+      }) : Promise.resolve(),
+    ]);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -129,6 +149,23 @@ export default function KnowledgeBase() {
               try { setKb({ ...kb, hours: JSON.parse(e.target.value) }); } catch { }
             }}
             placeholder='{"monday": "9am-5pm", "tuesday": "9am-5pm", ...}'
+            className="font-mono text-sm"
+          />
+        </div>
+
+        <div className="aurora-card p-6 col-span-full">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h3 className="font-semibold">AI Prompt</h3>
+              <p className="text-xs text-white/40 mt-0.5">The system prompt your AI uses on every call. Controls personality, rules, and behaviour.</p>
+            </div>
+            <span className="text-xs px-2 py-1 bg-green-500/10 text-green-400 rounded-full ml-4 flex-shrink-0">Voice AI</span>
+          </div>
+          <textarea
+            rows={10}
+            value={aiPrompt}
+            onChange={e => setAiPrompt(e.target.value)}
+            placeholder={`You are a helpful AI assistant for [Business Name]. Your job is to answer calls professionally, help callers with their enquiries, and take messages when needed.\n\nRules:\n- Always greet the caller warmly\n- Ask for their name early in the conversation\n- Take a message if you can't help\n- Never make up information you don't know`}
             className="font-mono text-sm"
           />
         </div>
