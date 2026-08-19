@@ -41,7 +41,14 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   try { data = await res.json(); } catch { data = {}; }
   if (!res.ok) {
     const msg = data.error || "";
-    if (res.status === 401) throw new Error(msg || "Incorrect email or password.");
+    if (res.status === 401) {
+      // If it's a /me call (session expired), clear token and redirect to login
+      if (path === "me" || fn === "mh-v2-auth" && path === "me") {
+        localStorage.removeItem("mh_token");
+        window.location.href = "/login";
+      }
+      throw new Error(msg || "Incorrect email or password.");
+    }
     if (res.status === 409 || msg.includes("already")) throw new Error("An account with this email already exists.");
     if (res.status >= 500) throw new Error("Server error — please try again in a moment.");
     throw new Error(msg || "Something went wrong. Please try again.");

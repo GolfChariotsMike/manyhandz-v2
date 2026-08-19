@@ -11,15 +11,21 @@ export default function Voice() {
   const [provisionError, setProvisionError] = useState("");
 
   const loadData = async () => {
-    const { customer: c } = await getMe();
-    setCustomer(c);
-    const [cfg, callLog] = await Promise.all([
-      getVoiceConfig(c.id),
-      getVoiceCalls(c.id),
-    ]);
-    setConfig(cfg?.[0] || null);
-    setCalls(callLog);
-    setLoading(false);
+    try {
+      const { customer: c } = await getMe();
+      setCustomer(c);
+      const [cfg, callLog] = await Promise.all([
+        getVoiceConfig(c.id),
+        getVoiceCalls(c.id),
+      ]);
+      setConfig(cfg?.[0] || null);
+      setCalls(callLog);
+    } catch (e: any) {
+      // Auth errors redirect in api.ts; other errors surface quietly
+      console.error("Voice loadData:", e.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { loadData(); }, []);
