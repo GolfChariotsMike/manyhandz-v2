@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { getMe, scrapeWebsite, updateKnowledgeBase, getKnowledgeBase } from "../lib/api";
 import { Check, Loader2, Phone, Mail, MessageSquare, Plus, X, Copy, ChevronRight } from "lucide-react";
 
-type Step = 1 | 2 | 3 | 4 | 5 | 6;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 const STORAGE_KEY = "mh_onboarding_state";
 
@@ -124,7 +124,7 @@ function clearState() {
   try { localStorage.removeItem(STORAGE_KEY); } catch {}
 }
 
-const stepLabels = ["Business Details", "Scanning", "Knowledge Base", "Pick Product", "Connect", "Done"];
+const stepLabels = ["Business Details", "Scanning", "Knowledge Base", "Connect", "Done"];
 
 function ProgressBar({ step }: { step: Step }) {
   return (
@@ -313,7 +313,10 @@ export default function Onboarding() {
     }
   }
 
-  // Step 3 → save KB
+  // Step 3 → save KB then auto-provision voice
+  const [provisioning, setProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState("");
+
   async function handleSaveKB() {
     if (kbId) {
       try {
@@ -326,15 +329,8 @@ export default function Onboarding() {
         });
       } catch {}
     }
-    goStep(4);
-  }
-
-  // Step 5 — Connect
-  const [provisioning, setProvisioning] = useState(false);
-  const [provisionError, setProvisionError] = useState("");
-
-  async function handleConnect() {
-    if (selectedProduct === "voice" && customer?.id) {
+    // Auto-provision voice number
+    if (customer?.id) {
       setProvisioning(true);
       setProvisionError("");
       try {
@@ -352,7 +348,7 @@ export default function Onboarding() {
         setProvisioning(false);
       }
     }
-    goStep(5);
+    goStep(4);
   }
 
   // Finish onboarding
@@ -373,7 +369,7 @@ export default function Onboarding() {
       }
     } catch {}
     clearState();
-    goStep(6);
+    goStep(5);
     setTimeout(() => navigate("/"), 2000);
   }
 
@@ -649,74 +645,20 @@ export default function Onboarding() {
         </div>
       )}
 
-      {/* Step 4 — Pick Product */}
+      {/* Step 4 — Connect (Voice) */}
       {step === 4 && (
         <div className="aurora-card aurora-glow p-8 w-full max-w-xl animate-fade-in">
-          <h2 className="text-2xl font-bold mb-1">Pick your first product</h2>
-          <p className="text-white/50 mb-6 text-sm">You can activate more from your dashboard anytime.</p>
-
-          <div className="space-y-4">
-            {[
-              { id: "voice", icon: Phone, name: "Voice", desc: "AI answers your calls 24/7", tag: "Most popular", color: "from-green-500/20 to-emerald-500/20" },
-              { id: "email", icon: Mail, name: "DraftPilot", desc: "AI drafts your email replies", color: "from-blue-500/20 to-cyan-500/20" },
-              { id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI chat for your website", color: "from-yellow-600/20 to-yellow-400/20" },
-            ].map(p => (
-              <button
-                key={p.id}
-                onClick={() => setSelectedProduct(p.id)}
-                className={`w-full aurora-card p-6 flex items-center gap-4 text-left transition-all group relative ${
-                  selectedProduct === p.id
-                    ? "border-yellow-500 bg-yellow-500/10 shadow-lg shadow-yellow-500/30"
-                    : "hover:bg-white/5"
-                }`}
-              >
-                <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${p.color} flex items-center justify-center flex-shrink-0`}>
-                  <p.icon className={selectedProduct === p.id ? "text-white" : "text-white/70"} size={26} />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-white text-lg">{p.name}</h3>
-                  <p className="text-sm text-white/50">{p.desc}</p>
-                </div>
-                {p.tag && (
-                  <span className="absolute top-3 right-3 text-xs bg-green-500/20 text-green-300 px-2.5 py-1 rounded-full font-medium">
-                    {p.tag}
-                  </span>
-                )}
-                {selectedProduct === p.id && (
-                  <div className="w-6 h-6 rounded-full bg-yellow-500 flex items-center justify-center flex-shrink-0">
-                    <Check size={14} className="text-white" />
-                  </div>
-                )}
-              </button>
-            ))}
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+              <Phone className="text-green-400" size={28} />
+            </div>
+            <h2 className="text-2xl font-bold mb-1">Your AI phone number</h2>
+            <p className="text-white/50 text-sm">Forward your calls to this number and your AI takes over.</p>
           </div>
-
-          {provisionError && <p className="text-red-400 text-sm mt-3">{provisionError}</p>}
-          <button
-            className="btn-primary w-full mt-6 flex items-center justify-center gap-2"
-            onClick={handleConnect}
-            disabled={!selectedProduct || provisioning}
-          >
-            {provisioning ? "Setting up your number..." : <> Continue <ChevronRight size={18} /></>}
-          </button>
-          <button className="w-full mt-2 text-sm text-white/30 hover:text-white/50 transition-colors py-2" onClick={() => goStep(6)}>
-            Skip — I'll set this up from the dashboard
-          </button>
-        </div>
-      )}
-
-      {/* Step 5 — Connect */}
-      {step === 5 && (
-        <div className="aurora-card aurora-glow p-8 w-full max-w-xl animate-fade-in">
-          {selectedProduct === "voice" && (
+          {provisioning && <p className="text-center text-yellow-400/70 text-sm mb-4">Provisioning your number...</p>}
+          {provisionError && <p className="text-red-400 text-sm mb-4 text-center">{provisionError}</p>}
+          {true && (
             <>
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-                  <Phone className="text-green-400" size={28} />
-                </div>
-                <h2 className="text-2xl font-bold mb-1">Your AI phone number</h2>
-                <p className="text-white/50 text-sm">Forward your calls to this number and your AI takes over.</p>
-              </div>
 
               <div className="aurora-card p-6 text-center mb-6">
                 <div className="text-3xl font-bold text-yellow-400 tracking-wider mb-2">
@@ -736,103 +678,17 @@ export default function Onboarding() {
             </>
           )}
 
-          {selectedProduct === "email" && (
-            <>
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-cyan-500/20 flex items-center justify-center mx-auto mb-4">
-                  <Mail className="text-blue-400" size={28} />
-                </div>
-                <h2 className="text-2xl font-bold mb-1">Connect your email</h2>
-                <p className="text-white/50 text-sm">Link your inbox so your AI can draft replies.</p>
-              </div>
-
-              <button
-                className="w-full aurora-card p-5 flex items-center gap-4 hover:bg-white/5 transition-all mb-4"
-                onClick={async () => {
-                  try {
-                    const { connectGmail } = await import("../lib/api");
-                    const me = await (await import("../lib/api")).getMe();
-                    const result = await connectGmail(me.customer.id);
-                    if (result.url) window.location.href = result.url;
-                  } catch (e) { alert("Failed to connect Gmail. Please try again."); }
-                }}
-              >
-                <div className="w-10 h-10 rounded-xl bg-red-500/20 flex items-center justify-center">
-                  <span className="text-lg">📧</span>
-                </div>
-                <div className="text-left flex-1">
-                  <div className="font-semibold">Connect Gmail</div>
-                  <div className="text-xs text-white/40">Sign in with Google to connect</div>
-                </div>
-                <ChevronRight size={18} className="text-white/30" />
-              </button>
-
-              <button
-                className="w-full aurora-card p-5 flex items-center gap-4 hover:bg-white/5 transition-all mb-4"
-                onClick={async () => {
-                  try {
-                    const { connectOutlook } = await import("../lib/api");
-                    const me = await (await import("../lib/api")).getMe();
-                    const result = await connectOutlook(me.customer.id);
-                    if (result.url) window.location.href = result.url;
-                  } catch (e) { alert("Failed to connect Outlook. Please try again."); }
-                }}
-              >
-                <div className="w-10 h-10 rounded-xl bg-blue-500/20 flex items-center justify-center">
-                  <span className="text-lg">📨</span>
-                </div>
-                <div className="text-left flex-1">
-                  <div className="font-semibold">Connect Outlook</div>
-                  <div className="text-xs text-white/40">Sign in with Microsoft to connect</div>
-                </div>
-                <ChevronRight size={18} className="text-white/30" />
-              </button>
-
-              <p className="text-xs text-white/30 text-center">More email providers coming soon</p>
-            </>
-          )}
-
-          {selectedProduct === "chat" && (
-            <>
-              <div className="text-center mb-6">
-                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-yellow-600/20 to-yellow-400/20 flex items-center justify-center mx-auto mb-4">
-                  <MessageSquare className="text-yellow-400" size={28} />
-                </div>
-                <h2 className="text-2xl font-bold mb-1">Add chat to your website</h2>
-                <p className="text-white/50 text-sm">Copy this code and paste it before the closing &lt;/body&gt; tag.</p>
-              </div>
-
-              <div className="aurora-card p-4 mb-4 relative group">
-                <pre className="text-xs text-yellow-400 font-mono overflow-x-auto whitespace-pre-wrap break-all">
-                  {embedCode}
-                </pre>
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(embedCode);
-                    setCopied(true);
-                    setTimeout(() => setCopied(false), 2000);
-                  }}
-                  className="absolute top-3 right-3 btn-secondary px-2 py-1 text-xs flex items-center gap-1"
-                >
-                  {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
-                </button>
-              </div>
-            </>
-          )}
-
-          <div className="flex gap-3 mt-4">
-            <button className="btn-primary flex-1 flex items-center justify-center gap-2" onClick={handleFinish}>
-              Done — go to dashboard <ChevronRight size={18} />
-            </button>
-            <button className="btn-secondary px-5 text-sm text-white/50 hover:text-white/70" onClick={handleFinish}>
-              Skip
-            </button>
-          </div>
+          <button className="btn-primary w-full mt-4 flex items-center justify-center gap-2" onClick={handleFinish}>
+            Go to dashboard <ChevronRight size={18} />
+          </button>
+          <button className="w-full mt-2 text-sm text-white/30 hover:text-white/50 transition-colors py-2" onClick={handleFinish}>
+            Skip — set up forwarding later from dashboard
+          </button>
         </div>
       )}
 
-      {/* Step 6 — Done */}
-      {step === 6 && (
+      {/* Step 5 — Done */}
+      {step === 5 && (
         <div className="aurora-card aurora-glow p-12 w-full max-w-xl text-center animate-fade-in">
           <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6">
             <Check className="text-green-400" size={40} />
