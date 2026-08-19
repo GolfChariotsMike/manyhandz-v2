@@ -645,44 +645,29 @@ export default function Onboarding() {
         </div>
       )}
 
-      {/* Step 4 — Connect (Voice) */}
+      {/* Step 4 — Number ready */}
       {step === 4 && (
-        <div className="aurora-card aurora-glow p-8 w-full max-w-xl animate-fade-in">
-          <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-green-500/20 to-emerald-500/20 flex items-center justify-center mx-auto mb-4">
-              <Phone className="text-green-400" size={28} />
-            </div>
-            <h2 className="text-2xl font-bold mb-1">Your AI phone number</h2>
-            <p className="text-white/50 text-sm">Forward your calls to this number and your AI takes over.</p>
+        <div className="aurora-card aurora-glow p-10 w-full max-w-xl animate-fade-in text-center">
+          <div className="w-20 h-20 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-6">
+            <Check className="text-green-400" size={36} />
           </div>
-          {provisioning && <p className="text-center text-yellow-400/70 text-sm mb-4">Provisioning your number...</p>}
-          {provisionError && <p className="text-red-400 text-sm mb-4 text-center">{provisionError}</p>}
-          {true && (
-            <>
+          <h2 className="text-3xl font-bold mb-2">You're all set! 🎉</h2>
+          <p className="text-white/50 mb-8">Your AI is live. Here's your dedicated number:</p>
 
-              <div className="aurora-card p-6 text-center mb-6">
-                <div className="text-3xl font-bold text-yellow-400 tracking-wider mb-2">
-                  {provisionedNumber || "+61 4XX XXX XXX"}
-                </div>
-                <p className="text-xs text-white/40">Your dedicated AI phone number</p>
-              </div>
+          {provisioning && <p className="text-yellow-400/70 text-sm mb-4">Provisioning your number...</p>}
+          {provisionError && <p className="text-red-400 text-sm mb-4">{provisionError}</p>}
 
-              <div className="aurora-card p-5 mb-6">
-                <h3 className="font-semibold text-sm mb-3 text-yellow-400">How to forward your calls:</h3>
-                <div className="space-y-2 text-sm text-white/60">
-                  <p>📱 <strong className="text-white/80">iPhone:</strong> Settings → Phone → Call Forwarding → Enter number above</p>
-                  <p>📱 <strong className="text-white/80">Android:</strong> Phone app → Settings → Call Forwarding → Enter number above</p>
-                  <p>📞 <strong className="text-white/80">Landline:</strong> Contact your phone provider to set up forwarding</p>
-                </div>
-              </div>
-            </>
-          )}
+          <div className="aurora-card p-6 mb-8 inline-block w-full">
+            <div className="text-4xl font-bold text-yellow-400 tracking-wider mb-1">
+              {provisionedNumber || "+61 4XX XXX XXX"}
+            </div>
+            <p className="text-xs text-white/40">Your AI answers calls to this number 24/7</p>
+          </div>
 
-          <button className="btn-primary w-full mt-4 flex items-center justify-center gap-2" onClick={handleFinish}>
+          <p className="text-white/30 text-sm mb-8">Call it right now to hear your AI in action. We'll walk you through going live from your dashboard.</p>
+
+          <button className="btn-primary w-full flex items-center justify-center gap-2" onClick={handleFinish}>
             Go to dashboard <ChevronRight size={18} />
-          </button>
-          <button className="w-full mt-2 text-sm text-white/30 hover:text-white/50 transition-colors py-2" onClick={handleFinish}>
-            Skip — set up forwarding later from dashboard
           </button>
         </div>
       )}
