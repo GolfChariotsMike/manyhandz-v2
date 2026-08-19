@@ -75,12 +75,12 @@ export async function scrapeWebsite(url: string) {
 }
 
 // Direct Supabase REST calls for dashboard data
+// Always use anon key for Authorization — custom JWT is not signed by Supabase and will 401
 async function supabaseRest(table: string, params: string = "") {
-  const token = getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
     headers: {
       "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${token}`,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
     },
   });
@@ -92,12 +92,11 @@ export async function getKnowledgeBase(customerId: string) {
 }
 
 export async function upsertKnowledgeBase(customerId: string, updates: Record<string, unknown>) {
-  const token = getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base`, {
     method: "POST",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${token}`,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
       "Prefer": "resolution=merge-duplicates,return=representation",
     },
@@ -107,12 +106,11 @@ export async function upsertKnowledgeBase(customerId: string, updates: Record<st
 }
 
 export async function updateKnowledgeBase(id: string, updates: Record<string, unknown>) {
-  const token = getToken() || SUPABASE_ANON_KEY;
   const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base?id=eq.${id}`, {
     method: "PATCH",
     headers: {
       "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${token}`,
+      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       "Content-Type": "application/json",
       "Prefer": "return=representation",
     },
