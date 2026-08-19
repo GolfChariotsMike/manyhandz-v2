@@ -88,3 +88,7 @@ input, textarea, select {
 input:focus, textarea:focus, select:focus {
   border-color: #c9a84c;
 }
+select option {
+  background: #1e1e3a;
+  color: #e2e8f0;
+}
