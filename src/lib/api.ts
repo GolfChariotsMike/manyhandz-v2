@@ -56,14 +56,12 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   return data;
 }
 
-export async function signup(email: string, password: string, business_name?: string, industry?: string, website_url?: string) {
-  const data = await callFn("mh-v2-auth", "signup", "POST", { email, password, business_name, industry, website_url });
-  setToken(data.token);
-  return data;
+export async function requestMagicLink(email: string, business_name?: string, industry?: string, website_url?: string) {
+  return callFn("mh-v2-auth", "magic-link", "POST", { email, business_name, industry, website_url });
 }
 
-export async function login(email: string, password: string) {
-  const data = await callFn("mh-v2-auth", "login", "POST", { email, password });
+export async function verifyMagicLink(token: string) {
+  const data = await callFn("mh-v2-auth", "verify", "POST", { token });
   setToken(data.token);
   return data;
 }
