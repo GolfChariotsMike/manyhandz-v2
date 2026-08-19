@@ -28,7 +28,7 @@ export default function Voice() {
   useEffect(() => { loadData(); }, []);
 
   async function handleProvision() {
-    if (!customer?.id) return;
+    if (!customer?.id) { setProvisionError("Could not load your account. Please refresh and try again."); return; }
     setProvisioning(true);
     setProvisionError("");
     try {
