@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { getMe, scrapeWebsite, updateKnowledgeBase, getKnowledgeBase } from "../lib/api";
-import { Check, Loader2, Phone, Plus, X, ChevronRight } from "lucide-react";
+import { Check, Loader2, Plus, X, ChevronRight } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4 | 5;
 
