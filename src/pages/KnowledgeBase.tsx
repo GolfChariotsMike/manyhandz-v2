@@ -19,8 +19,8 @@ export default function KnowledgeBase() {
         getKnowledgeBase(customer.id),
         getVoiceConfig(customer.id),
       ]);
-      if (rows.length > 0) setKb(rows[0]);
-      if (vcRows?.length > 0) {
+      if (Array.isArray(rows) && rows.length > 0) setKb(rows[0]);
+      if (Array.isArray(vcRows) && vcRows.length > 0) {
         setVoiceConfig(vcRows[0]);
         setAiPrompt(vcRows[0].system_prompt || "");
       }

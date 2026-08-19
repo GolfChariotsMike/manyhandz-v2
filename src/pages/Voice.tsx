@@ -18,8 +18,8 @@ export default function Voice() {
         getVoiceConfig(c.id),
         getVoiceCalls(c.id),
       ]);
-      setConfig(cfg?.[0] || null);
-      setCalls(callLog);
+      setConfig(Array.isArray(cfg) ? cfg[0] || null : null);
+      setCalls(Array.isArray(callLog) ? callLog : []);
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
       console.error("Voice loadData:", e.message);
