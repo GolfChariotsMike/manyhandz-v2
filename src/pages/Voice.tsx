@@ -1,6 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
-import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2 } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2, Play, Pause, Check, Loader } from "lucide-react";
+
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
+const EL_API_KEY = "REDACTED_EL_KEY";
+const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
+const PREVIEW_TEXT = "Hi there! Thanks for calling. I'm your AI receptionist — how can I help you today?";
+
+const VOICES = [
+  { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie", accent: "Australian", gender: "Male",   desc: "Deep, confident, energetic" },
+  { id: "ouFAjcjtdrVBT9bRFhFQ", name: "David",  accent: "Australian", gender: "Male",   desc: "Deep, calm, trustworthy" },
+  { id: "VyyyOgRmsqOzaZXnKWnI", name: "Sunny",  accent: "Australian", gender: "Female", desc: "Warm, friendly, upbeat" },
+  { id: "5GZaeOOG7yqLdoTRsaa6", name: "Sally",  accent: "Australian", gender: "Female", desc: "Kind, professional" },
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", accent: "British",    gender: "Male",   desc: "Steady, authoritative broadcaster" },
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily",   accent: "British",    gender: "Female", desc: "Velvety, composed, professional" },
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",  accent: "American",   gender: "Female", desc: "Mature, reassuring, confident" },
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian",  accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
+];
 
 export default function Voice() {
   const [config, setConfig] = useState<any>(null);
@@ -9,6 +25,12 @@ export default function Voice() {
   const [loading, setLoading] = useState(true);
   const [provisioning, setProvisioning] = useState(false);
   const [provisionError, setProvisionError] = useState("");
+  const [activeVoiceId, setActiveVoiceId] = useState<string>("IKne3meq5aSn9XLyUdCD");
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [savingVoice, setSavingVoice] = useState(false);
+  const [voiceSaved, setVoiceSaved] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadData = async () => {
     try {
@@ -18,7 +40,9 @@ export default function Voice() {
         getVoiceConfig(c.id),
         getVoiceCalls(c.id),
       ]);
-      setConfig(Array.isArray(cfg) ? cfg[0] || null : null);
+      const cfgRow = Array.isArray(cfg) ? cfg[0] || null : null;
+      setConfig(cfgRow);
+      if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
       setCalls(Array.isArray(callLog) ? callLog : []);
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
@@ -50,6 +74,55 @@ export default function Voice() {
     } finally {
       setProvisioning(false);
     }
+  }
+
+  async function handlePreview(voiceId: string) {
+    // Stop any current audio
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    if (playingId === voiceId) { setPlayingId(null); return; }
+
+    setPreviewingId(voiceId);
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ text: PREVIEW_TEXT, model_id: "eleven_turbo_v2", voice_settings: { stability: 0.75, similarity_boost: 0.75 } }),
+      });
+      if (!res.ok) throw new Error("Preview failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
+      audio.play();
+      setPlayingId(voiceId);
+    } catch (e) {
+      console.error("Preview error:", e);
+    } finally {
+      setPreviewingId(null);
+    }
+  }
+
+  async function handleSaveVoice() {
+    if (!config?.el_agent_id) return;
+    setSavingVoice(true);
+    try {
+      // Update EL agent voice
+      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${config.el_agent_id}`, {
+        method: "PATCH",
+        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ conversation_config: { tts: { voice_id: activeVoiceId } } }),
+      });
+      // Save to voice_config
+      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ voice_id: activeVoiceId }),
+      });
+      setVoiceSaved(true);
+      setTimeout(() => setVoiceSaved(false), 2500);
+    } catch (e) { console.error("Save voice error:", e); }
+    finally { setSavingVoice(false); }
   }
 
   if (loading) return <div className="text-white/50">Loading...</div>;
@@ -91,6 +164,71 @@ export default function Voice() {
           </div>
           <p className="text-sm text-white/40 mt-2">AI persona: {config?.ai_name || (customer?.business_name ? customer.business_name + " AI" : "AI Assistant")}</p>
         </div>
+      </div>
+
+      {/* Voice Picker */}
+      <div className="aurora-card p-6 mb-8">
+        <div className="flex items-center justify-between mb-5">
+          <div>
+            <h3 className="font-semibold">AI Voice</h3>
+            <p className="text-sm text-white/40 mt-0.5">Pick a voice for your receptionist. Hit play to hear a sample.</p>
+          </div>
+          <button
+            onClick={handleSaveVoice}
+            disabled={savingVoice || !config?.el_agent_id}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            {savingVoice ? <Loader size={14} className="animate-spin" /> : voiceSaved ? <Check size={14} /> : null}
+            {voiceSaved ? "Saved!" : savingVoice ? "Saving..." : "Save voice"}
+          </button>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {VOICES.map(v => {
+            const isActive = activeVoiceId === v.id;
+            const isPreviewing = previewingId === v.id;
+            const isPlaying = playingId === v.id;
+            return (
+              <div
+                key={v.id}
+                onClick={() => setActiveVoiceId(v.id)}
+                className={`relative flex items-center gap-4 p-4 rounded-xl border cursor-pointer transition-all ${
+                  isActive
+                    ? "border-violet-500 bg-violet-500/10"
+                    : "border-white/10 bg-white/5 hover:border-white/20"
+                }`}
+              >
+                {/* Selected indicator */}
+                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-all ${
+                  isActive ? "border-violet-400 bg-violet-400" : "border-white/30"
+                }`} />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">{v.name}</span>
+                    <span className="text-xs text-white/40">{v.accent} · {v.gender}</span>
+                  </div>
+                  <p className="text-xs text-white/50 truncate">{v.desc}</p>
+                </div>
+                {/* Preview button */}
+                <button
+                  onClick={e => { e.stopPropagation(); handlePreview(v.id); }}
+                  className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center flex-shrink-0 transition-all"
+                  title="Preview voice"
+                >
+                  {isPreviewing ? (
+                    <Loader size={14} className="animate-spin text-white/60" />
+                  ) : isPlaying ? (
+                    <Pause size={14} className="text-violet-400" />
+                  ) : (
+                    <Play size={14} className="text-white/60" />
+                  )}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {!config?.el_agent_id && (
+          <p className="text-xs text-white/30 mt-4">Voice selection will be available once your number is provisioned.</p>
+        )}
       </div>
 
       {/* Whitelist */}
