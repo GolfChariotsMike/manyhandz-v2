@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
-import { getMe, getVoiceCalls, getVoiceConfig, getVoiceNumbers } from "../lib/api";
+import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2 } from "lucide-react";
 
 export default function Voice() {
-  const [numbers, setNumbers] = useState<any[]>([]);
   const [config, setConfig] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
   const [customer, setCustomer] = useState<any>(null);
@@ -14,12 +13,10 @@ export default function Voice() {
   const loadData = async () => {
     const { customer: c } = await getMe();
     setCustomer(c);
-    const [nums, cfg, callLog] = await Promise.all([
-      getVoiceNumbers(c.id),
+    const [cfg, callLog] = await Promise.all([
       getVoiceConfig(c.id),
       getVoiceCalls(c.id),
     ]);
-    setNumbers(nums);
     setConfig(cfg?.[0] || null);
     setCalls(callLog);
     setLoading(false);
@@ -39,9 +36,9 @@ export default function Voice() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to provision number");
-      // Show number immediately from response, then sync from DB
-      if (data.phone_number) setNumbers([{ twilio_number: data.phone_number }]);
-      loadData(); // async refresh in background
+      // Show number immediately, then reload customer data
+      if (data.phone_number) setCustomer((c: any) => ({ ...c, twilio_number: data.phone_number }));
+      loadData();
     } catch (e: any) {
       setProvisionError(e.message || "Could not provision a number. Please contact support.");
     } finally {
@@ -62,8 +59,8 @@ export default function Voice() {
           <h3 className="font-semibold mb-3 flex items-center gap-2">
             <Phone size={18} className="text-green-400" /> Your Number
           </h3>
-          {numbers.length > 0 ? (
-            <p className="text-2xl font-bold text-green-400">{numbers[0].twilio_number}</p>
+          {customer?.twilio_number ? (
+            <p className="text-2xl font-bold text-green-400">{customer.twilio_number}</p>
           ) : (
             <div>
               <p className="text-white/50 text-sm mb-3">No number provisioned yet.</p>
