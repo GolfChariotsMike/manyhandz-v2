@@ -23,11 +23,6 @@ interface StaffMember {
   sort_order: number;
 }
 
-interface VoiceConfig {
-  notify_sms?: string;
-  transfer_mode?: string;
-}
-
 export default function Team() {
   const [customerId, setCustomerId] = useState<string>("");
   const [staff, setStaff] = useState<StaffMember[]>([]);
