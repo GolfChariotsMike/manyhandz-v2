@@ -189,6 +189,8 @@ export default function Onboarding() {
   const [selectedProduct] = useState<string>("");
   const [provisionedNumber, setProvisionedNumber] = useState<string>((saved?.provisionedNumber as string) || "");
   const [notifyMobile, setNotifyMobile] = useState<string>((saved?.notifyMobile as string) || "");
+  const [country, setCountry] = useState<string>((saved?.country as string) || "AU");
+  const [state, setState] = useState<string>((saved?.state as string) || "WA");
   // copied state removed (chat widget step removed)
 
   // Scraping animation
@@ -231,7 +233,7 @@ export default function Onboarding() {
   // Persist state
   useEffect(() => {
     if (!loading) {
-      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite, notifyMobile });
+      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite, notifyMobile, country, state });
     }
   }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, loading]);
 
@@ -342,7 +344,7 @@ export default function Onboarding() {
         const res = await fetch("https://provision.manyhandz.ai/provision-number", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customer_id: customer.id, country: "AU", notify_sms: notifyMobile || undefined }),
+          body: JSON.stringify({ customer_id: customer.id, country, state: country === "AU" ? state : undefined, notify_sms: notifyMobile || undefined }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to provision number");
@@ -512,6 +514,38 @@ export default function Onboarding() {
           <p className="text-white/50 mb-6 text-sm">This is what your AI knows about your business. Edit anything that's wrong.</p>
 
           <div className="space-y-6">
+            {/* Country + State picker */}
+            <div className="aurora-card p-5">
+              <label className="text-sm font-semibold text-yellow-400 mb-3 block">📞 Your phone number location</label>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs text-white/40 block mb-1">Country</label>
+                  <select value={country} onChange={e => { setCountry(e.target.value); setState(""); }} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none">
+                    <option value="AU">🇦🇺 Australia</option>
+                    <option value="US">🇺🇸 United States</option>
+                    <option value="GB">🇬🇧 United Kingdom</option>
+                    <option value="CA">🇨🇦 Canada</option>
+                    <option value="NZ">🇳🇿 New Zealand</option>
+                  </select>
+                </div>
+                {country === "AU" && (
+                  <div className="flex-1">
+                    <label className="text-xs text-white/40 block mb-1">State</label>
+                    <select value={state} onChange={e => setState(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none">
+                      <option value="WA">WA — Western Australia (08)</option>
+                      <option value="SA">SA — South Australia (08)</option>
+                      <option value="NT">NT — Northern Territory (08)</option>
+                      <option value="NSW">NSW — New South Wales (02)</option>
+                      <option value="ACT">ACT — Australian Capital Territory (02)</option>
+                      <option value="VIC">VIC — Victoria (03)</option>
+                      <option value="TAS">TAS — Tasmania (03)</option>
+                      <option value="QLD">QLD — Queensland (07)</option>
+                    </select>
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-white/30 mt-2">We'll provision a local number for your area.</p>
+            </div>
             {/* About */}
             <div className="aurora-card p-5">
               <label className="text-sm font-semibold text-yellow-400 mb-2 block">About your business</label>
