@@ -217,6 +217,9 @@ export default function Onboarding() {
           navigate("/");
           return;
         }
+        // Clear any stale onboarding state from a previous session
+        clearState();
+        setStep(1);
       } catch {
         navigate("/login");
         return;
