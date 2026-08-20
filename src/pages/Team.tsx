@@ -31,7 +31,6 @@ interface VoiceConfig {
 export default function Team() {
   const [customerId, setCustomerId] = useState<string>("");
   const [staff, setStaff] = useState<StaffMember[]>([]);
-  const [voiceConfig, setVoiceConfig] = useState<VoiceConfig>({});
   const [notifySms, setNotifySms] = useState("");
   const [transferMode, setTransferMode] = useState<"order" | "all">("order");
   const [loading, setLoading] = useState(true);
@@ -54,7 +53,6 @@ export default function Team() {
       const vr = await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?customer_id=eq.${me.id}&select=notify_sms,transfer_mode`, { headers: authHeaders() });
       const vc = await vr.json();
       if (Array.isArray(vc) && vc[0]) {
-        setVoiceConfig(vc[0]);
         setNotifySms(vc[0].notify_sms || "");
         setTransferMode((vc[0].transfer_mode as "order" | "all") || "order");
       }
