@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { getMe } from "../lib/api";
-import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare } from "lucide-react";
+import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 const STEPS = [
@@ -33,6 +33,16 @@ const STEPS = [
     desc: "Forward your business number to your AI and start handling real calls 24/7.",
     cta: "Set up call forwarding →",
     link: "/voice",
+  },
+  {
+    id: "quoting",
+    icon: null,
+    color: "from-emerald-500/20 to-teal-500/20",
+    iconColor: "text-emerald-400",
+    title: "Enable AI quoting",
+    desc: "Add your common jobs and prices. Your AI will quote callers on the spot and know when to book an inspection instead.",
+    cta: "Add price list →",
+    link: "/quoting",
   },
 ];
 
@@ -95,7 +105,7 @@ export default function Dashboard() {
                   <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${step.color} flex items-center justify-center flex-shrink-0`}>
                     {done
                       ? <Check className="text-green-400" size={22} />
-                      : <step.icon className={step.iconColor} size={22} />
+                      : step.icon ? <step.icon className={step.iconColor} size={22} /> : <DollarSign className={step.iconColor} size={22} />
                     }
                   </div>
                   <div className="flex-1 min-w-0">
