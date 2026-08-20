@@ -188,6 +188,7 @@ export default function Onboarding() {
   // Step 4/5
   const [selectedProduct] = useState<string>("");
   const [provisionedNumber, setProvisionedNumber] = useState<string>((saved?.provisionedNumber as string) || "");
+  const [notifyMobile, setNotifyMobile] = useState<string>((saved?.notifyMobile as string) || "");
   // copied state removed (chat widget step removed)
 
   // Scraping animation
@@ -227,7 +228,7 @@ export default function Onboarding() {
   // Persist state
   useEffect(() => {
     if (!loading) {
-      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite });
+      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite, notifyMobile });
     }
   }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, loading]);
 
@@ -338,7 +339,7 @@ export default function Onboarding() {
         const res = await fetch("https://provision.manyhandz.ai/provision-number", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ customer_id: customer.id, country: "AU" }),
+          body: JSON.stringify({ customer_id: customer.id, country: "AU", notify_sms: notifyMobile || undefined }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to provision number");
@@ -661,6 +662,17 @@ export default function Onboarding() {
 
           {provisioning && <p className="text-yellow-400/70 text-sm mb-4">Provisioning your number...</p>}
           {provisionError && <p className="text-red-400 text-sm mb-4">{provisionError}</p>}
+
+          <div className="aurora-card p-4 mb-6 text-left">
+            <label className="text-xs text-white/40 block mb-1">Where should we SMS you when someone leaves a message?</label>
+            <input
+              type="tel"
+              placeholder="e.g. 0412 345 678"
+              value={notifyMobile}
+              onChange={e => setNotifyMobile(e.target.value)}
+              className="w-full bg-transparent text-white text-sm outline-none placeholder:text-white/20"
+            />
+          </div>
 
           <div className="aurora-card p-6 mb-8 inline-block w-full">
             <div className="text-4xl font-bold text-yellow-400 tracking-wider mb-1">
