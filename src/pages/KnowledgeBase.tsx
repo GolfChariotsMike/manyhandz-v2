@@ -40,12 +40,12 @@ export default function KnowledgeBase() {
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
         body: JSON.stringify({ system_prompt: aiPrompt }),
       }) : Promise.resolve(),
-      // Push updated prompt to ElevenLabs agent
-      voiceConfig?.el_agent_id && aiPrompt ? fetch(`https://api.elevenlabs.io/v1/convai/agents/${voiceConfig.el_agent_id}`, {
-        method: "PATCH",
-        headers: { "xi-api-key": "sk_0e78210938ba7868491c59100a01a9a4cd5581e77da9cca9", "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_config: { agent: { prompt: { prompt: aiPrompt } } } }),
-      }) : Promise.resolve(),
+      // Sync agent prompt via canonical sync function (includes KB + pricing)
+      fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: (await getMe()).customer?.id }),
+      }).catch(() => {}),
     ]);
     setSaving(false);
     setSaved(true);
