@@ -6,8 +6,8 @@ const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
 const PRICES = {
-  monthly: { id: "price_1U6OEQEx2m1vqgKrB1Lfxl5H", label: "Monthly", amount: "$199", period: "/mo", savings: null },
-  annual:  { id: "price_1U6OEQEx2m1vqgKrOZoVA9s3", label: "Annual", amount: "$139", period: "/mo", savings: "Save 30% — billed $1,669/yr" },
+  monthly: { id: "price_1U6OjrEx2m1vqgKrGfP67yeK", label: "Monthly", amount: "$250", period: "/mo", savings: null },
+  annual:  { id: "price_1U6OjsEx2m1vqgKrmhiqxMxX", label: "Annual", amount: "$175", period: "/mo", savings: "Save 30% — billed $2,100/yr" },
 };
 
 function authHeaders() {
@@ -168,7 +168,7 @@ export default function Billing() {
         <div className="aurora-card p-6">
           <h2 className="text-sm font-semibold text-yellow-400 mb-4">Plan details</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{customer.plan === "annual" ? "Annual ($1,669/yr)" : "Monthly ($199/mo)"}</span></div>
+            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{customer.plan === "annual" ? "Annual ($2,100/yr)" : "Monthly ($250/mo)"}</span></div>
             <div className="flex justify-between"><span className="text-white/40">Number</span><span>{customer.twilio_number || "—"}</span></div>
           </div>
         </div>
