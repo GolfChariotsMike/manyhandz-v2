@@ -11,6 +11,7 @@ import Usage from "./pages/Usage";
 import Email from "./pages/Email";
 import Chat from "./pages/Chat";
 import Team from "./pages/Team";
+import Billing from "./pages/Billing";
 import Layout from "./components/Layout";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="email" element={<Email />} />
           <Route path="chat" element={<Chat />} />
           <Route path="team" element={<Team />} />
+          <Route path="billing" element={<Billing />} />
           <Route path="usage" element={<Usage />} />
         </Route>
       </Routes>
