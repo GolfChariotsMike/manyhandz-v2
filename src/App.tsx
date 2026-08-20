@@ -10,6 +10,7 @@ import Voice from "./pages/Voice";
 import Usage from "./pages/Usage";
 import Email from "./pages/Email";
 import Chat from "./pages/Chat";
+import Team from "./pages/Team";
 import Layout from "./components/Layout";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,7 @@ export default function App() {
           <Route path="voice" element={<Voice />} />
           <Route path="email" element={<Email />} />
           <Route path="chat" element={<Chat />} />
+          <Route path="team" element={<Team />} />
           <Route path="usage" element={<Usage />} />
         </Route>
       </Routes>
