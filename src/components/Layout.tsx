@@ -10,7 +10,7 @@ const navItems = [
   { to: "/billing", icon: CreditCard, label: "Billing" },
   { to: "/email", icon: Mail, label: "DraftPilot" },
   { to: "/chat", icon: MessageSquare, label: "Chat" },
-  { to: "/usage", icon: BarChart3, label: "Usage & Billing" },
+  { to: "/usage", icon: BarChart3, label: "Usage" },
 ];
 
 export default function Layout() {
