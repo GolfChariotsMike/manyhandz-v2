@@ -31,14 +31,12 @@ export default function Usage() {
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
-  const [customerId, setCustomerId] = useState("");
+
 
   useEffect(() => {
     (async () => {
       const me = await getMe();
       if (!me?.id) return;
-      setCustomerId(me.id);
-
       const [ubRes, clRes] = await Promise.all([
         fetch(`${SUPABASE_URL}/rest/v1/mh_usage_balance?customer_id=eq.${me.id}`, { headers: authHeaders() }),
         fetch(`${SUPABASE_URL}/rest/v1/mh_call_log?customer_id=eq.${me.id}&order=started_at.desc&limit=50`, { headers: authHeaders() }),
