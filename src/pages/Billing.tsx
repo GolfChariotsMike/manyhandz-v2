@@ -153,7 +153,7 @@ export default function Billing() {
           </div>
 
           <div className="space-y-2 text-sm text-white/50">
-            {["Dedicated AU phone number", "AI answers every call 24/7", "Message notifications via SMS", "Staff call transfers", "Knowledge base updates", "Cancel anytime"].map(f => (
+            {["Dedicated AU phone number", "600 mins/mo included", "AI answers every call 24/7", "Message notifications via SMS", "Staff call transfers", "Knowledge base updates", "Cancel anytime"].map(f => (
               <div key={f} className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" />{f}</div>
             ))}
           </div>
