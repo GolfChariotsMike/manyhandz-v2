@@ -107,6 +107,7 @@ export default function Team() {
           name: m.name,
           phone: m.phone,
           role: m.role || "Staff",
+          notes: m.notes || null,
           active: m.active,
           sort_order: i,
         }));
