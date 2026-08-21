@@ -5,9 +5,19 @@ const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
-const PRICES = {
-  monthly: { id: "price_1U6On9Ex2m1vqgKrd4WcbAo5", label: "Monthly", amount: "$199", period: "/mo", savings: null },
-  annual:  { id: "price_1U6OnAEx2m1vqgKribI5jcGM", label: "Annual", amount: "$116", period: "/mo", savings: "Save 30% — billed $1,399/yr" },
+const PLANS = {
+  standard: {
+    label: "Standard",
+    description: "600 mins/mo included",
+    monthly: { id: "price_1U6On9Ex2m1vqgKrd4WcbAo5", amount: "$199", period: "/mo", savings: null },
+    annual:  { id: "price_1U6OnAEx2m1vqgKribI5jcGM", amount: "$116", period: "/mo", savings: "Save 30% — billed $1,399/yr" },
+  },
+  premium: {
+    label: "Premium",
+    description: "Unlimited mins",
+    monthly: { id: "price_1U6tqpEx2m1vqgKrwkDcVZnu", amount: "$499", period: "/mo", savings: null },
+    annual:  { id: "price_1U6tquEx2m1vqgKrgYZmvdMo", amount: "$349", period: "/mo", savings: "Save 30% — billed $4,199/yr" },
+  },
 };
 
 function authHeaders() {
@@ -32,7 +42,8 @@ function daysLeft(trialEndsAt: string) {
 export default function Billing() {
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [plan, setPlan] = useState<"monthly" | "annual">("monthly");
+  const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
+  const [tier, setTier] = useState<"standard" | "premium">("standard");
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
 
@@ -60,10 +71,11 @@ export default function Billing() {
     setError("");
     try {
       const me = await getMe();
+      const selectedPrice = PLANS[tier][billing];
       const res = await fetch(`${PROVISION_URL}/create-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: me.id, price_id: PRICES[plan].id, plan }),
+        body: JSON.stringify({ customer_id: me.id, price_id: selectedPrice.id, plan: `${tier}_${billing}` }),
       });
       const data = await res.json();
       if (data.url) {
@@ -130,30 +142,56 @@ export default function Billing() {
         <div className="aurora-card p-6 space-y-6">
           <h2 className="text-sm font-semibold text-yellow-400 flex items-center gap-2"><CreditCard size={14} /> Choose a plan</h2>
 
-          <div className="flex gap-3">
-            {(["monthly", "annual"] as const).map(p => (
-              <button
-                key={p}
-                onClick={() => setPlan(p)}
-                className={`flex-1 aurora-card p-4 text-left transition-all relative cursor-pointer ${plan === p ? "border-yellow-400 bg-yellow-500/15 ring-2 ring-yellow-400/60" : "border-white/10 hover:border-white/20 hover:bg-white/5"}`}
-              >
-                {plan === p && (
-                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center">
-                    <Check size={12} className="text-black" strokeWidth={3} />
-                  </div>
-                )}
-                {p === "annual" && (
-                  <div className="absolute -top-2.5 right-3 bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">BEST VALUE</div>
-                )}
-                <div className="font-bold text-xl">{PRICES[p].amount}<span className="text-sm font-normal text-white/40">{PRICES[p].period}</span></div>
-                <div className="text-sm font-medium mt-1">{PRICES[p].label}</div>
-                {PRICES[p].savings && <div className="text-xs text-yellow-400 mt-1">{PRICES[p].savings}</div>}
+          {/* Billing period toggle */}
+          <div className="flex gap-2 p-1 bg-white/5 rounded-lg w-fit">
+            {(["monthly", "annual"] as const).map(b => (
+              <button key={b} onClick={() => setBilling(b)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all cursor-pointer ${
+                  billing === b ? "bg-yellow-400 text-black" : "text-white/50 hover:text-white"
+                }`}>
+                {b === "monthly" ? "Monthly" : "Annual — save 30%"}
               </button>
             ))}
           </div>
 
+          {/* Tier cards */}
+          <div className="flex gap-3">
+            {(["standard", "premium"] as const).map(t => {
+              const price = PLANS[t][billing];
+              const selected = tier === t;
+              return (
+                <button key={t} onClick={() => setTier(t)}
+                  className={`flex-1 aurora-card p-5 text-left transition-all relative cursor-pointer ${
+                    selected ? "border-yellow-400 bg-yellow-500/15 ring-2 ring-yellow-400/60" : "border-white/10 hover:border-white/20 hover:bg-white/5"
+                  }`}>
+                  {selected && (
+                    <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center">
+                      <Check size={12} className="text-black" strokeWidth={3} />
+                    </div>
+                  )}
+                  {t === "premium" && (
+                    <div className="absolute -top-2.5 left-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">PREMIUM</div>
+                  )}
+                  <div className="font-bold text-2xl mt-1">{price.amount}<span className="text-sm font-normal text-white/40">{price.period}</span></div>
+                  <div className="text-sm font-semibold mt-1">{PLANS[t].label}</div>
+                  <div className="text-xs text-yellow-400 mt-1">{PLANS[t].description}</div>
+                  {price.savings && <div className="text-xs text-white/40 mt-1">{price.savings}</div>}
+                </button>
+              );
+            })}
+          </div>
+
           <div className="space-y-2 text-sm text-white/50">
-            {["Dedicated AU phone number", "600 mins/mo included", "AI answers every call 24/7", "Message notifications via SMS", "Staff call transfers", "Knowledge base updates", "Cancel anytime"].map(f => (
+            {[
+              "Dedicated AU phone number",
+              tier === "premium" ? "Unlimited voice mins" : "600 mins/mo included",
+              "AI answers every call 24/7",
+              "Message notifications via SMS",
+              "Staff call transfers",
+              "Knowledge base updates",
+              tier === "premium" ? "Priority support" : "Cancel anytime",
+              "Cancel anytime",
+            ].map(f => (
               <div key={f} className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" />{f}</div>
             ))}
           </div>
@@ -166,7 +204,7 @@ export default function Billing() {
             className="btn-primary w-full flex items-center justify-center gap-2"
           >
             {checkingOut ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-            {checkingOut ? "Redirecting to checkout..." : `Subscribe — ${PRICES[plan].amount}${PRICES[plan].period}`}
+            {checkingOut ? "Redirecting to checkout..." : `Subscribe — ${PLANS[tier][billing].amount}${PLANS[tier][billing].period}`}
           </button>
 
           <p className="text-xs text-white/30 text-center">Secure checkout via Stripe. Cancel anytime.</p>
