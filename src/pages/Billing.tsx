@@ -6,15 +6,15 @@ const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
 const PLANS = {
-  standard: {
-    label: "Standard",
+  small_business: {
+    label: "Small Business",
     description: "600 mins/mo included",
     monthly: { id: "price_1U6On9Ex2m1vqgKrd4WcbAo5", amount: "$199", period: "/mo", savings: null },
     annual:  { id: "price_1U6OnAEx2m1vqgKribI5jcGM", amount: "$116", period: "/mo", savings: "Save 30% — billed $1,399/yr" },
   },
-  premium: {
-    label: "Premium",
-    description: "Unlimited mins",
+  big_business: {
+    label: "Big Business",
+    description: "2,000 mins/mo included",
     monthly: { id: "price_1U6tqpEx2m1vqgKrwkDcVZnu", amount: "$499", period: "/mo", savings: null },
     annual:  { id: "price_1U6tquEx2m1vqgKrgYZmvdMo", amount: "$349", period: "/mo", savings: "Save 30% — billed $4,199/yr" },
   },
@@ -43,7 +43,7 @@ export default function Billing() {
   const [customer, setCustomer] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
-  const [tier, setTier] = useState<"standard" | "premium">("standard");
+  const [tier, setTier] = useState<"small_business" | "big_business">("small_business");
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
 
@@ -156,7 +156,7 @@ export default function Billing() {
 
           {/* Tier cards */}
           <div className="flex gap-3">
-            {(["standard", "premium"] as const).map(t => {
+            {(["small_business", "big_business"] as const).map(t => {
               const price = PLANS[t][billing];
               const selected = tier === t;
               return (
@@ -169,8 +169,8 @@ export default function Billing() {
                       <Check size={12} className="text-black" strokeWidth={3} />
                     </div>
                   )}
-                  {t === "premium" && (
-                    <div className="absolute -top-2.5 left-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">PREMIUM</div>
+                  {t === "big_business" && (
+                    <div className="absolute -top-2.5 left-3 bg-gradient-to-r from-yellow-400 to-orange-400 text-black text-xs font-bold px-2 py-0.5 rounded-full">BIG BUSINESS</div>
                   )}
                   <div className="font-bold text-2xl mt-1">{price.amount}<span className="text-sm font-normal text-white/40">{price.period}</span></div>
                   <div className="text-sm font-semibold mt-1">{PLANS[t].label}</div>
@@ -184,12 +184,12 @@ export default function Billing() {
           <div className="space-y-2 text-sm text-white/50">
             {[
               "Dedicated AU phone number",
-              tier === "premium" ? "Unlimited voice mins" : "600 mins/mo included",
+              tier === "big_business" ? "2,000 mins/mo included" : "600 mins/mo included",
               "AI answers every call 24/7",
               "Message notifications via SMS",
               "Staff call transfers",
               "Knowledge base updates",
-              tier === "premium" ? "Priority support" : "Cancel anytime",
+              tier === "big_business" ? "Priority support" : "Cancel anytime",
               "Cancel anytime",
             ].map(f => (
               <div key={f} className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" />{f}</div>
