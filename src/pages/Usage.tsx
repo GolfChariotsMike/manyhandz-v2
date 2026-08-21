@@ -35,18 +35,22 @@ export default function Usage() {
 
   useEffect(() => {
     (async () => {
-      const me = await getMe();
-      if (!me?.id) return;
-      const [ubRes, clRes] = await Promise.all([
-        fetch(`${SUPABASE_URL}/rest/v1/mh_usage_balance?customer_id=eq.${me.id}`, { headers: authHeaders() }),
-        fetch(`${SUPABASE_URL}/rest/v1/mh_call_log?customer_id=eq.${me.id}&order=started_at.desc&limit=50`, { headers: authHeaders() }),
-      ]);
-
-      const ub = await ubRes.json();
-      const cl = await clRes.json();
-      if (Array.isArray(ub) && ub[0]) setBalance(ub[0]);
-      if (Array.isArray(cl)) setCalls(cl);
-      setLoading(false);
+      try {
+        const me = await getMe();
+        if (!me?.id) { setLoading(false); return; }
+        const [ubRes, clRes] = await Promise.all([
+          fetch(`${SUPABASE_URL}/rest/v1/mh_usage_balance?customer_id=eq.${me.id}`, { headers: authHeaders() }),
+          fetch(`${SUPABASE_URL}/rest/v1/mh_call_log?customer_id=eq.${me.id}&order=started_at.desc&limit=50`, { headers: authHeaders() }),
+        ]);
+        const ub = await ubRes.json();
+        const cl = await clRes.json();
+        if (Array.isArray(ub) && ub[0]) setBalance(ub[0]);
+        if (Array.isArray(cl)) setCalls(cl);
+      } catch (e) {
+        console.error("Usage load error:", e);
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 
