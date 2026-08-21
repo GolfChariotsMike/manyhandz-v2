@@ -190,7 +190,6 @@ export default function Billing() {
               "Staff call transfers",
               "Knowledge base updates",
               tier === "big_business" ? "Priority support" : "Cancel anytime",
-              "Cancel anytime",
             ].map(f => (
               <div key={f} className="flex items-center gap-2"><Zap size={12} className="text-yellow-400" />{f}</div>
             ))}
