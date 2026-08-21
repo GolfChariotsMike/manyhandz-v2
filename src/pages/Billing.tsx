@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Loader2, CheckCircle, AlertCircle, Clock, CreditCard, Zap } from "lucide-react";
+import { Loader2, CheckCircle, AlertCircle, Clock, CreditCard, Zap, Check } from "lucide-react";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -135,8 +135,13 @@ export default function Billing() {
               <button
                 key={p}
                 onClick={() => setPlan(p)}
-                className={`flex-1 aurora-card p-4 text-left transition-all relative ${plan === p ? "border-yellow-500 bg-yellow-500/10" : "hover:bg-white/5"}`}
+                className={`flex-1 aurora-card p-4 text-left transition-all relative cursor-pointer ${plan === p ? "border-yellow-400 bg-yellow-500/15 ring-2 ring-yellow-400/60" : "border-white/10 hover:border-white/20 hover:bg-white/5"}`}
               >
+                {plan === p && (
+                  <div className="absolute top-3 right-3 w-5 h-5 rounded-full bg-yellow-400 flex items-center justify-center">
+                    <Check size={12} className="text-black" strokeWidth={3} />
+                  </div>
+                )}
                 {p === "annual" && (
                   <div className="absolute -top-2.5 right-3 bg-yellow-500 text-black text-xs font-bold px-2 py-0.5 rounded-full">BEST VALUE</div>
                 )}
