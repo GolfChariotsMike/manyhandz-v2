@@ -11,7 +11,9 @@ function authHeaders() {
 
 async function getMe() {
   const r = await fetch(`${SUPABASE_URL}/functions/v1/mh-v2-auth`, {
-    method: "GET", headers: authHeaders(),
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "me", token: localStorage.getItem("mh_token") }),
   });
   return r.json();
 }
@@ -59,7 +61,7 @@ export default function Quoting() {
     (async () => {
       const me = await getMe();
       const cid = me?.customer?.id || me?.id;
-      if (!cid) return;
+      if (!cid) { setLoading(false); return; }
       setCustomerId(cid);
       const r = await fetch(`${SUPABASE_URL}/rest/v1/mh_price_list?customer_id=eq.${cid}&order=sort_order.asc`, { headers: authHeaders() });
       const rows = await r.json();
