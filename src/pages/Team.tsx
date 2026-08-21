@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, GripVertical, Save, Loader2, Crown } from "lucide-react";
+import { getMe } from "../lib/api";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -7,15 +8,6 @@ const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 function authHeaders() {
   const token = localStorage.getItem("mh_token");
   return { "Content-Type": "application/json", Authorization: `Bearer ${token || ANON_KEY}`, apikey: ANON_KEY };
-}
-
-async function getMe() {
-  const r = await fetch(`${SUPABASE_URL}/functions/v1/mh-v2-auth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "me", token: localStorage.getItem("mh_token") }),
-  });
-  return r.json();
 }
 
 interface StaffMember {
@@ -42,12 +34,12 @@ export default function Team() {
   useEffect(() => {
     (async () => {
       try {
-        const me = await getMe();
-        if (!me?.id) { setLoading(false); return; }
-        setCustomerId(me.id);
+        const { customer } = await getMe();
+        if (!customer?.id) { setLoading(false); return; }
+        setCustomerId(customer.id);
 
         const sr = await fetch(
-          `${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${me.id}&order=sort_order.asc&select=id,name,phone,role,notes,is_owner,active,sort_order`,
+          `${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${customer.id}&order=sort_order.asc&select=id,name,phone,role,notes,is_owner,active,sort_order`,
           { headers: authHeaders() }
         );
         const staffData = await sr.json();

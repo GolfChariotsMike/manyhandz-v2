@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle, AlertCircle, Clock, CreditCard, Zap, Check } from "lucide-react";
+import { getMe } from "../lib/api";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -25,14 +26,6 @@ function authHeaders() {
   return { "Content-Type": "application/json", Authorization: `Bearer ${token || ANON_KEY}`, apikey: ANON_KEY };
 }
 
-async function getMe() {
-  const r = await fetch(`${SUPABASE_URL}/functions/v1/mh-v2-auth`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action: "me", token: localStorage.getItem("mh_token") }),
-  });
-  return r.json();
-}
 
 function daysLeft(trialEndsAt: string) {
   const diff = new Date(trialEndsAt).getTime() - Date.now();
@@ -50,7 +43,7 @@ export default function Billing() {
   useEffect(() => {
     (async () => {
       try {
-        const me = await getMe();
+        const { customer: me } = await getMe();
         if (!me?.id) { setLoading(false); return; }
         const r = await fetch(
           `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at,plan,stripe_subscription_id,twilio_number`,
@@ -70,7 +63,7 @@ export default function Billing() {
     setCheckingOut(true);
     setError("");
     try {
-      const me = await getMe();
+      const { customer: me } = await getMe();
       const selectedPrice = PLANS[tier][billing];
       const res = await fetch(`${PROVISION_URL}/create-checkout`, {
         method: "POST",
