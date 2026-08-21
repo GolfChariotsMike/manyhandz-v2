@@ -38,15 +38,20 @@ export default function Billing() {
 
   useEffect(() => {
     (async () => {
-      const me = await getMe();
-      if (!me?.id) return;
-      const r = await fetch(
-        `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at,plan,stripe_subscription_id,twilio_number`,
-        { headers: authHeaders() }
-      );
-      const rows = await r.json();
-      if (Array.isArray(rows) && rows[0]) setCustomer(rows[0]);
-      setLoading(false);
+      try {
+        const me = await getMe();
+        if (!me?.id) { setLoading(false); return; }
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at,plan,stripe_subscription_id,twilio_number`,
+          { headers: authHeaders() }
+        );
+        const rows = await r.json();
+        if (Array.isArray(rows) && rows[0]) setCustomer(rows[0]);
+      } catch (e: any) {
+        setError(e.message || "Failed to load billing info");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, []);
 

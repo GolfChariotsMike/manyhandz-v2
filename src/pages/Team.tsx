@@ -35,24 +35,28 @@ export default function Team() {
 
   useEffect(() => {
     (async () => {
-      const me = await getMe();
-      if (!me?.id) return;
-      setCustomerId(me.id);
+      try {
+        const me = await getMe();
+        if (!me?.id) { setLoading(false); return; }
+        setCustomerId(me.id);
 
-      // Load staff
-      const sr = await fetch(`${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${me.id}&order=sort_order.asc`, { headers: authHeaders() });
-      const staffData = await sr.json();
-      if (Array.isArray(staffData)) setStaff(staffData);
+        // Load staff
+        const sr = await fetch(`${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${me.id}&order=sort_order.asc`, { headers: authHeaders() });
+        const staffData = await sr.json();
+        if (Array.isArray(staffData)) setStaff(staffData);
 
-      // Load voice config (notify_sms, transfer_mode)
-      const vr = await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?customer_id=eq.${me.id}&select=notify_sms,transfer_mode`, { headers: authHeaders() });
-      const vc = await vr.json();
-      if (Array.isArray(vc) && vc[0]) {
-        setNotifySms(vc[0].notify_sms || "");
-        setTransferMode((vc[0].transfer_mode as "order" | "all") || "order");
+        // Load voice config (notify_sms, transfer_mode)
+        const vr = await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?customer_id=eq.${me.id}&select=notify_sms,transfer_mode`, { headers: authHeaders() });
+        const vc = await vr.json();
+        if (Array.isArray(vc) && vc[0]) {
+          setNotifySms(vc[0].notify_sms || "");
+          setTransferMode((vc[0].transfer_mode as "order" | "all") || "order");
+        }
+      } catch (e) {
+        console.error("Team load error:", e);
+      } finally {
+        setLoading(false);
       }
-
-      setLoading(false);
     })();
   }, []);
 
