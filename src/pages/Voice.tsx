@@ -18,6 +18,84 @@ const VOICES = [
   { id: "nPczCjzI2devNBz1zQrb", name: "Brian",  accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
 ];
 
+function WhitelistSection({ config, customerId, anon, url }: { config: any, customerId: string, anon: string, url: string }) {
+  const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
+  const [bridge, setBridge] = useState(config?.bridge_to_number || "");
+  const [newNum, setNewNum] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  function addNumber() {
+    const n = newNum.trim();
+    if (!n || whitelist.includes(n)) return;
+    setWhitelist(prev => [...prev, n]);
+    setNewNum("");
+  }
+
+  function removeNumber(num: string) {
+    setWhitelist(prev => prev.filter(x => x !== num));
+  }
+
+  async function handleSave() {
+    if (!config?.id) return;
+    setSaving(true);
+    try {
+      await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+        method: "PATCH",
+        headers: { "apikey": anon, "Authorization": `Bearer ${anon}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ whitelist, bridge_to_number: bridge || null }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div className="aurora-card p-6 mb-8">
+      <h3 className="font-semibold mb-1">Whitelist</h3>
+      <p className="text-sm text-white/50 mb-4">Numbers on this list bypass the AI and connect directly to your bridge number.</p>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        {whitelist.length === 0 && <span className="text-white/30 text-sm">No whitelisted numbers</span>}
+        {whitelist.map(num => (
+          <span key={num} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">
+            {num}
+            <button onClick={() => removeNumber(num)} className="text-green-300/50 hover:text-white"><Trash2 size={12} /></button>
+          </span>
+        ))}
+      </div>
+
+      <div className="flex gap-2 mb-6">
+        <input
+          value={newNum}
+          onChange={e => setNewNum(e.target.value)}
+          onKeyDown={e => e.key === "Enter" && addNumber()}
+          placeholder="+61400000000"
+          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
+        />
+        <button onClick={addNumber} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} /> Add</button>
+      </div>
+
+      <div className="mb-5">
+        <label className="text-sm text-white/60 block mb-1">Bridge to number</label>
+        <p className="text-xs text-white/30 mb-2">When a whitelisted number calls, the AI will forward them straight to this number.</p>
+        <input
+          value={bridge}
+          onChange={e => setBridge(e.target.value)}
+          placeholder="+61400000000"
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
+        />
+      </div>
+
+      <button onClick={handleSave} disabled={saving || !config?.id} className="btn-primary text-sm flex items-center gap-2">
+        {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+        {saved ? "Saved!" : saving ? "Saving..." : "Save whitelist"}
+      </button>
+    </div>
+  );
+}
+
 export default function Voice() {
   const [config, setConfig] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
@@ -333,32 +411,8 @@ export default function Voice() {
         )}
       </div>
 
-      {/* Whitelist */}
-      <div className="aurora-card p-6 mb-8">
-        <h3 className="font-semibold mb-3">Whitelist</h3>
-        <p className="text-sm text-white/50 mb-4">
-          These numbers bypass AI and get connected directly to your bridge number.
-        </p>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {(config?.whitelist || []).map((num: string, i: number) => (
-            <span key={i} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">
-              {num}
-              <button className="text-green-300/50 hover:text-white"><Trash2 size={14} /></button>
-            </span>
-          ))}
-          {(!config?.whitelist || config.whitelist.length === 0) && (
-            <span className="text-white/30 text-sm">No whitelisted numbers</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <input placeholder="+61400000000" className="flex-1" />
-          <button className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} /> Add</button>
-        </div>
-        <div className="mt-4">
-          <label className="text-sm text-white/60 block mb-1">Bridge to number</label>
-          <input value={config?.bridge_to_number || ""} placeholder="+61400000000" readOnly />
-        </div>
-      </div>
+      {/* Whitelist + Bridge */}
+      <WhitelistSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
       <div className="aurora-card p-6">
