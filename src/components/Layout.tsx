@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, HelpCircle, BookOpen } from "lucide-react";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen } from "lucide-react";
 import { clearToken } from "../lib/api";
 
 const navItems = [
