@@ -217,23 +217,23 @@ export default function Voice() {
             {/* Option 2 */}
             <div className="bg-white/5 rounded-xl p-4 border border-white/10">
               <p className="font-semibold text-sm mb-1">Option 2 — Forward your existing number</p>
-              <p className="text-xs text-white/40 mb-3">Keep your current number. Forward calls to <span className="text-yellow-400 font-mono">{customer.twilio_number}</span> when you can't answer.</p>
-              <p className="text-xs text-white/50 mb-2 font-medium">To forward when busy or unanswered:</p>
-              <div className="space-y-2 text-xs font-mono">
-                <div className="bg-black/30 rounded-lg px-3 py-2">
-                  <span className="text-white/30">Telstra · </span>
-                  <span className="text-yellow-300">**61*{customer.twilio_number.replace('+', '')}#</span>
+              <p className="text-xs text-white/40 mb-4">Keep your current number. Set it to forward unanswered calls to <span className="text-yellow-400 font-mono">{customer.twilio_number}</span> — the AI picks up anything you miss.</p>
+
+              <div className="space-y-3 text-xs">
+                <div className="bg-black/30 rounded-lg px-3 py-2.5">
+                  <p className="text-white/60 font-semibold mb-1">📱 iPhone</p>
+                  <p className="text-white/40">Settings → Phone → Call Forwarding → turn on → enter <span className="text-yellow-300 font-mono">{customer.twilio_number}</span></p>
                 </div>
-                <div className="bg-black/30 rounded-lg px-3 py-2">
-                  <span className="text-white/30">Optus · </span>
-                  <span className="text-yellow-300">**21*{customer.twilio_number.replace('+', '')}#</span>
+                <div className="bg-black/30 rounded-lg px-3 py-2.5">
+                  <p className="text-white/60 font-semibold mb-1">🤖 Android</p>
+                  <p className="text-white/40">Phone app → ⋮ Menu → Settings → Calls → Call Forwarding → Forward when unanswered → enter <span className="text-yellow-300 font-mono">{customer.twilio_number}</span></p>
+                  <p className="text-white/25 mt-1">Note: exact path varies by manufacturer (Samsung, Pixel, etc.)</p>
                 </div>
-                <div className="bg-black/30 rounded-lg px-3 py-2">
-                  <span className="text-white/30">Vodafone · </span>
-                  <span className="text-yellow-300">**61*{customer.twilio_number.replace('+', '')}#</span>
-                </div>
-                <p className="text-white/25 pt-1">Dial the code above from your mobile to activate. To cancel: ##61# (Telstra/Vodafone) or ##21# (Optus).</p>
               </div>
+
+              <p className="text-xs text-amber-400/70 mt-3 bg-amber-400/5 border border-amber-400/20 rounded-lg px-3 py-2">
+                ⚠️ Some carriers don't support call forwarding on certain plans (e.g. basic prepaid plans). If the option is greyed out or missing, contact your carrier to check.
+              </p>
             </div>
           </div>
         </div>
