@@ -1,5 +1,5 @@
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, HelpCircle } from "lucide-react";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, HelpCircle, BookOpen } from "lucide-react";
 import { clearToken } from "../lib/api";
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { to: "/email", icon: Mail, label: "DraftPilot" },
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/usage", icon: BarChart3, label: "Usage" },
+  { to: "/faq", icon: BookOpen, label: "Help & FAQ" },
 ];
 
 export default function Layout() {
@@ -48,13 +49,7 @@ export default function Layout() {
           ))}
         </nav>
 
-        <a
-          href="mailto:hello@manyhandz.ai"
-          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/40 hover:text-white/70 transition-all"
-        >
-          <HelpCircle size={18} />
-          Help &amp; Support
-        </a>
+
 
         <button
           onClick={() => { clearToken(); navigate("/login"); }}

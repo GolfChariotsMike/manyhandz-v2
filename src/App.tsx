@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Voice from "./pages/Voice";
 import Usage from "./pages/Usage";
+import FAQ from "./pages/FAQ";
 import Email from "./pages/Email";
 import Chat from "./pages/Chat";
 import Team from "./pages/Team";
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="billing" element={<Billing />} />
           <Route path="quoting" element={<Quoting />} />
           <Route path="usage" element={<Usage />} />
+          <Route path="faq" element={<FAQ />} />
         </Route>
       </Routes>
     </BrowserRouter>
