@@ -232,7 +232,10 @@ export default function Voice() {
               </div>
 
               <p className="text-xs text-amber-400/70 mt-3 bg-amber-400/5 border border-amber-400/20 rounded-lg px-3 py-2">
-                ⚠️ Some carriers don't support call forwarding on certain plans (e.g. basic prepaid plans). If the option is greyed out or missing, contact your carrier to check.
+                ⚠️ Some carriers don't support call forwarding on certain plans (e.g. basic prepaid). If the option is greyed out or missing, contact your carrier to check.
+              </p>
+              <p className="text-xs text-white/30 mt-2 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                💡 <span className="text-white/50">Quick test:</span> Try calling <span className="text-yellow-300 font-mono">{customer.twilio_number}</span> directly. If your AI answers, your agent is working. If forwarding still doesn't work after that, it's almost certainly a carrier restriction on your plan.
               </p>
             </div>
           </div>
