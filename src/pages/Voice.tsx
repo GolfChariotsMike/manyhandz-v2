@@ -194,6 +194,51 @@ export default function Voice() {
         </div>
       </div>
 
+      {/* Go Live */}
+      {customer?.twilio_number && (
+        <div className="aurora-card p-6 mb-8 border border-yellow-500/20">
+          <h3 className="font-semibold mb-1 flex items-center gap-2">
+            <span className="text-yellow-400">🚀</span> Go Live
+          </h3>
+          <p className="text-sm text-white/40 mb-5">Two ways to get calls to your AI — pick whichever suits you.</p>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Option 1 */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+              <p className="font-semibold text-sm mb-1">Option 1 — Use this as your main number</p>
+              <p className="text-xs text-white/40 mb-3">The simplest option. Put <span className="text-yellow-400 font-mono">{customer.twilio_number}</span> on your website, Google listing, and business cards. The AI answers every call.</p>
+              <div className="text-xs text-white/30 space-y-1">
+                <p>✓ No setup required</p>
+                <p>✓ AI answers 100% of calls</p>
+                <p>✓ Best for new businesses or a fresh start</p>
+              </div>
+            </div>
+
+            {/* Option 2 */}
+            <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+              <p className="font-semibold text-sm mb-1">Option 2 — Forward your existing number</p>
+              <p className="text-xs text-white/40 mb-3">Keep your current number. Forward calls to <span className="text-yellow-400 font-mono">{customer.twilio_number}</span> when you can't answer.</p>
+              <p className="text-xs text-white/50 mb-2 font-medium">To forward when busy or unanswered:</p>
+              <div className="space-y-2 text-xs font-mono">
+                <div className="bg-black/30 rounded-lg px-3 py-2">
+                  <span className="text-white/30">Telstra · </span>
+                  <span className="text-yellow-300">**61*{customer.twilio_number.replace('+', '')}#</span>
+                </div>
+                <div className="bg-black/30 rounded-lg px-3 py-2">
+                  <span className="text-white/30">Optus · </span>
+                  <span className="text-yellow-300">**21*{customer.twilio_number.replace('+', '')}#</span>
+                </div>
+                <div className="bg-black/30 rounded-lg px-3 py-2">
+                  <span className="text-white/30">Vodafone · </span>
+                  <span className="text-yellow-300">**61*{customer.twilio_number.replace('+', '')}#</span>
+                </div>
+                <p className="text-white/25 pt-1">Dial the code above from your mobile to activate. To cancel: ##61# (Telstra/Vodafone) or ##21# (Optus).</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Greeting */}
       <div className="aurora-card p-6 mb-8">
         <div className="flex items-center justify-between mb-4">
