@@ -22,8 +22,7 @@ const PLANS = {
 };
 
 function authHeaders() {
-  const token = localStorage.getItem("mh_token");
-  return { "Content-Type": "application/json", Authorization: `Bearer ${token || ANON_KEY}`, apikey: ANON_KEY };
+  return { "Content-Type": "application/json", Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY };
 }
 
 
