@@ -18,7 +18,7 @@ const VOICES = [
   { id: "nPczCjzI2devNBz1zQrb", name: "Brian",  accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
 ];
 
-function WhitelistSection({ config, customerId, anon, url }: { config: any, customerId: string, anon: string, url: string }) {
+function WhitelistSection({ config, anon, url }: { config: any, anon: string, url: string }) {
   const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
   const [bridge, setBridge] = useState(config?.bridge_to_number || "");
   const [newNum, setNewNum] = useState("");
@@ -412,7 +412,7 @@ export default function Voice() {
       </div>
 
       {/* Whitelist + Bridge */}
-      <WhitelistSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
       <div className="aurora-card p-6">
