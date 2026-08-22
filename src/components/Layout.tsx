@@ -20,7 +20,7 @@ export default function Layout() {
   return (
     <div className="min-h-screen aurora-bg flex">
       {/* Sidebar */}
-      <aside className="w-64 border-r border-white/10 p-6 flex flex-col">
+      <aside className="fixed top-0 left-0 h-screen w-64 border-r border-white/10 p-6 flex flex-col z-50">
         <div className="mb-10">
           <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
             ManyHandz
@@ -58,7 +58,7 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 p-8 overflow-y-auto">
+      <main className="flex-1 ml-64 p-8 overflow-y-auto min-h-screen">
         <Outlet />
       </main>
     </div>
