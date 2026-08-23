@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { getMe, getKnowledgeBase, updateKnowledgeBase, getVoiceConfig } from "../lib/api";
 import { Save } from "lucide-react";
 
@@ -11,6 +11,9 @@ export default function KnowledgeBase() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [hoursText, setHoursText] = useState("");
+  const [hoursError, setHoursError] = useState(false);
+  const serviceInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     (async () => {
@@ -19,7 +22,11 @@ export default function KnowledgeBase() {
         getKnowledgeBase(customer.id),
         getVoiceConfig(customer.id),
       ]);
-      if (Array.isArray(rows) && rows.length > 0) setKb(rows[0]);
+      if (Array.isArray(rows) && rows.length > 0) {
+        const row = rows[0];
+        setKb(row);
+        setHoursText(row.hours && Object.keys(row.hours).length > 0 ? JSON.stringify(row.hours, null, 2) : "");
+      }
       if (Array.isArray(vcRows) && vcRows.length > 0) {
         setVoiceConfig(vcRows[0]);
         setAiPrompt(vcRows[0].system_prompt || "");
@@ -30,9 +37,28 @@ export default function KnowledgeBase() {
   const save = async () => {
     if (!kb) return;
     setSaving(true);
+
+    // Auto-add any typed-but-not-entered service text
+    let services = kb.services || [];
+    const typedService = serviceInputRef.current?.value?.trim();
+    if (typedService) {
+      services = [...services, typedService];
+      setKb((prev: any) => ({ ...prev, services }));
+      if (serviceInputRef.current) serviceInputRef.current.value = "";
+    }
+
+    // Parse hours from text — skip if invalid JSON
+    let hours = kb.hours;
+    if (hoursText.trim()) {
+      try { hours = JSON.parse(hoursText); setHoursError(false); }
+      catch { setHoursError(true); setSaving(false); return; }
+    } else {
+      hours = {};
+    }
+
     await Promise.all([
       updateKnowledgeBase(kb.id, {
-        services: kb.services, faqs: kb.faqs, hours: kb.hours,
+        services, faqs: kb.faqs, hours,
         tone: kb.tone, about: kb.about, custom_instructions: kb.custom_instructions,
       }),
       voiceConfig?.id ? fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${voiceConfig.id}`, {
@@ -101,10 +127,11 @@ export default function KnowledgeBase() {
             ))}
           </div>
           <input
-            placeholder="Add a service and press Enter"
+            ref={serviceInputRef}
+            placeholder="Type a service and press Enter (or just Save)"
             onKeyDown={e => {
-              if (e.key === "Enter" && (e.target as HTMLInputElement).value) {
-                setKb({ ...kb, services: [...(kb.services || []), (e.target as HTMLInputElement).value] });
+              if (e.key === "Enter" && (e.target as HTMLInputElement).value.trim()) {
+                setKb({ ...kb, services: [...(kb.services || []), (e.target as HTMLInputElement).value.trim()] });
                 (e.target as HTMLInputElement).value = "";
               }
             }}
@@ -149,13 +176,12 @@ export default function KnowledgeBase() {
           <h3 className="font-semibold mb-3">Business Hours</h3>
           <textarea
             rows={3}
-            value={typeof kb.hours === "object" ? JSON.stringify(kb.hours, null, 2) : kb.hours || ""}
-            onChange={e => {
-              try { setKb({ ...kb, hours: JSON.parse(e.target.value) }); } catch { }
-            }}
+            value={hoursText}
+            onChange={e => { setHoursText(e.target.value); setHoursError(false); }}
             placeholder='{"monday": "9am-5pm", "tuesday": "9am-5pm", ...}'
-            className="font-mono text-sm"
+            className={`font-mono text-sm ${hoursError ? "border-red-500" : ""}`}
           />
+          {hoursError && <p className="text-xs text-red-400 mt-1">Invalid JSON — fix the format before saving.</p>}
         </div>
 
         <div className="aurora-card p-6 col-span-full">
