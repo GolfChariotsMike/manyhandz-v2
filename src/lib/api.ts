@@ -120,7 +120,7 @@ export async function updateKnowledgeBase(id: string, updates: Record<string, un
 }
 
 export async function getVoiceCalls(customerId: string) {
-  return supabaseRest("mh_voice_calls", `customer_id=eq.${customerId}&select=*&order=created_at.desc&limit=50`);
+  return supabaseRest("mh_call_log", `customer_id=eq.${customerId}&select=*&order=started_at.desc&limit=50`);
 }
 
 export async function getVoiceConfig(customerId: string) {

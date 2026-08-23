@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
-import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2, Play, Pause, Check, Loader } from "lucide-react";
+import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const EL_API_KEY = "REDACTED_EL_KEY";
@@ -35,6 +35,113 @@ const VOICES = [
   { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",   accent: "American",   gender: "Female", desc: "Mature, reassuring, confident" },
   { id: "nPczCjzI2devNBz1zQrb", name: "Brian",   accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
 ];
+
+function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<Record<string, any[]>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  async function toggleExpand(call: any) {
+    const id = call.id;
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (transcript[id] || !call.conversation_id) return;
+    setLoadingId(id);
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}`, {
+        headers: { "xi-api-key": elApiKey }
+      });
+      const data = await res.json();
+      setTranscript(t => ({ ...t, [id]: data.transcript || [] }));
+    } catch { setTranscript(t => ({ ...t, [id]: [] })); }
+    finally { setLoadingId(null); }
+  }
+
+  async function playAudio(call: any) {
+    if (playingId === call.id) {
+      audioRef.current?.pause();
+      setPlayingId(null); setPlayingAudio(null); return;
+    }
+    if (!call.conversation_id) return;
+    audioRef.current?.pause();
+    setPlayingId(call.id);
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}/audio`, {
+        headers: { "xi-api-key": elApiKey }
+      });
+      if (!res.ok) throw new Error("No audio");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
+      audio.play();
+    } catch { setPlayingId(null); }
+  }
+
+  function fmt(secs: number) {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  return (
+    <div className="aurora-card p-6">
+      <h3 className="font-semibold mb-4">Recent calls</h3>
+      {calls.length === 0 ? (
+        <p className="text-white/30 text-sm">No calls yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {calls.map((call: any) => (
+            <div key={call.id} className="bg-white/5 rounded-xl overflow-hidden">
+              <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => toggleExpand(call)}>
+                <PhoneIncoming size={16} className="text-green-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{call.from_number || "Unknown"}</p>
+                  <p className="text-xs text-white/40">
+                    {call.started_at ? new Date(call.started_at).toLocaleString() : "—"}
+                    {call.duration_seconds ? ` · ${fmt(call.duration_seconds)}` : ""}
+                  </p>
+                </div>
+                {call.conversation_id && (
+                  <button onClick={e => { e.stopPropagation(); playAudio(call); }}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition shrink-0">
+                    {playingId === call.id ? <Pause size={14} /> : <Play size={14} />}
+                  </button>
+                )}
+                {expandedId === call.id ? <ChevronUp size={14} className="text-white/30 shrink-0" /> : <ChevronDown size={14} className="text-white/30 shrink-0" />}
+              </div>
+              {expandedId === call.id && (
+                <div className="px-3 pb-3 border-t border-white/5 pt-3">
+                  {loadingId === call.id ? (
+                    <p className="text-xs text-white/30">Loading transcript...</p>
+                  ) : !call.conversation_id ? (
+                    <p className="text-xs text-white/30">No transcript available.</p>
+                  ) : (transcript[call.id] || []).length === 0 ? (
+                    <p className="text-xs text-white/30">No transcript yet.</p>
+                  ) : (
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {(transcript[call.id] || []).map((t: any, i: number) => (
+                        <div key={i} className={`text-xs ${t.role === "agent" ? "text-white/60" : "text-white/90"}`}>
+                          <span className={`font-semibold mr-1 ${t.role === "agent" ? "text-purple-400" : "text-blue-400"}`}>
+                            {t.role === "agent" ? "Agent" : "Caller"}:
+                          </span>
+                          {t.message}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function WhitelistSection({ config, anon, url }: { config: any, anon: string, url: string }) {
   const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
@@ -433,28 +540,7 @@ export default function Voice() {
       <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
-      <div className="aurora-card p-6">
-        <h3 className="font-semibold mb-4">Recent calls</h3>
-        {calls.length === 0 ? (
-          <p className="text-white/30 text-sm">No calls yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {calls.map((call: any) => (
-              <div key={call.id} className="flex items-center gap-4 p-3 bg-white/5 rounded-xl">
-                {call.outcome === "handled" && <PhoneIncoming size={18} className="text-green-400" />}
-                {call.outcome === "transferred" && <PhoneForwarded size={18} className="text-blue-400" />}
-                {call.outcome === "missed" && <PhoneMissed size={18} className="text-red-400" />}
-                <div className="flex-1">
-                  <p className="text-sm font-medium">{call.caller_number}</p>
-                  <p className="text-xs text-white/40">
-                    {new Date(call.created_at).toLocaleString()} · {call.duration_seconds || 0}s · {call.outcome}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <CallLog calls={calls} elApiKey={EL_API_KEY} />
     </div>
   );
 }
