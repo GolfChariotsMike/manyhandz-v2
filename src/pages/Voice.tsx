@@ -142,6 +142,72 @@ function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
   );
 }
 
+function CapabilitiesSection({ config, customerId, anon, url }: { config: any, customerId: string, anon: string, url: string }) {
+  const CAPS = [
+    { key: "cap_confirm_bookings", label: "Confirm bookings", desc: "Agent can confirm, reserve or book appointments for callers.", default: false },
+    { key: "cap_quote_prices",     label: "Quote prices",    desc: "Agent can quote prices from the knowledge base.", default: false },
+    { key: "cap_transfer_calls",   label: "Transfer calls",  desc: "Agent can transfer callers through to staff.", default: true },
+    { key: "cap_send_sms",         label: "Send SMS",        desc: "Agent can send text messages to callers with links or info.", default: true },
+  ];
+
+  const [caps, setCaps] = useState<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {};
+    for (const c of CAPS) out[c.key] = config?.[c.key] ?? c.default;
+    return out;
+  });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function saveCaps() {
+    if (!config?.id) return;
+    setSaving(true);
+    await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+      method: "PATCH",
+      headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
+      body: JSON.stringify(caps),
+    });
+    // Trigger agent resync
+    await fetch(`${url}/functions/v1/mh-sync-agent`, {
+      method: "POST",
+      headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ customer_id: customerId }),
+    }).catch(() => {});
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div className="aurora-card p-6">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-semibold">Agent capabilities</h3>
+        <button onClick={saveCaps} disabled={saving}
+          className="text-xs px-3 py-1.5 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 rounded-lg transition disabled:opacity-50">
+          {saved ? "Saved ✓" : saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <p className="text-xs text-white/40 mb-4">Controls what your agent is allowed to do on calls. Changes sync to the agent immediately.</p>
+      <div className="space-y-3">
+        {CAPS.map(c => (
+          <div key={c.key} className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
+            <button onClick={() => setCaps(prev => ({ ...prev, [c.key]: !prev[c.key] }))}
+              className={`mt-0.5 w-10 h-6 rounded-full transition-colors shrink-0 relative ${
+                caps[c.key] ? "bg-yellow-500" : "bg-white/10"
+              }`}>
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
+                caps[c.key] ? "left-5" : "left-1"
+              }`} />
+            </button>
+            <div>
+              <p className="text-sm font-medium">{c.label}</p>
+              <p className="text-xs text-white/40">{c.desc}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function WhitelistSection({ config, anon, url }: { config: any, anon: string, url: string }) {
   const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
   const [bridge, setBridge] = useState(config?.bridge_to_number || "");
@@ -534,6 +600,9 @@ export default function Voice() {
           <p className="text-xs text-white/30 mt-4">Voice selection will be available once your number is provisioned.</p>
         )}
       </div>
+
+      {/* Capabilities */}
+      <CapabilitiesSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Whitelist + Bridge */}
       <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
