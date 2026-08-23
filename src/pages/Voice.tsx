@@ -8,14 +8,22 @@ const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const PREVIEW_TEXT = "Hi there! Thanks for calling. I'm your AI receptionist — how can I help you today?";
 
 const VOICES = [
+  // Australian
   { id: "IKne3meq5aSn9XLyUdCD", name: "Charlie", accent: "Australian", gender: "Male",   desc: "Deep, confident, energetic" },
-  { id: "ouFAjcjtdrVBT9bRFhFQ", name: "David",  accent: "Australian", gender: "Male",   desc: "Deep, calm, trustworthy" },
-  { id: "VyyyOgRmsqOzaZXnKWnI", name: "Sunny",  accent: "Australian", gender: "Female", desc: "Warm, friendly, upbeat" },
-  { id: "5GZaeOOG7yqLdoTRsaa6", name: "Sally",  accent: "Australian", gender: "Female", desc: "Kind, professional" },
-  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel", accent: "British",    gender: "Male",   desc: "Steady, authoritative broadcaster" },
-  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily",   accent: "British",    gender: "Female", desc: "Velvety, composed, professional" },
-  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",  accent: "American",   gender: "Female", desc: "Mature, reassuring, confident" },
-  { id: "nPczCjzI2devNBz1zQrb", name: "Brian",  accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
+  { id: "ouFAjcjtdrVBT9bRFhFQ", name: "David",   accent: "Australian", gender: "Male",   desc: "Deep, calm, trustworthy" },
+  { id: "VyyyOgRmsqOzaZXnKWnI", name: "Sunny",   accent: "Australian", gender: "Female", desc: "Warm, friendly, upbeat" },
+  { id: "5GZaeOOG7yqLdoTRsaa6", name: "Sally",   accent: "Australian", gender: "Female", desc: "Kind, professional" },
+  // British
+  { id: "onwK4e9ZLuTAKqWW03F9", name: "Daniel",  accent: "British",    gender: "Male",   desc: "Steady, authoritative broadcaster" },
+  { id: "pFZP5JQG7iQjIQuC4Bku", name: "Lily",    accent: "British",    gender: "Female", desc: "Velvety, composed, professional" },
+  // Irish
+  { id: "xyY1A1culQEvzoU6aS0N", name: "Ronan",   accent: "Irish",      gender: "Male",   desc: "Warm, natural, conversational" },
+  { id: "ehKZw5kruBt73Gytae2x", name: "Robyn",   accent: "Irish",      gender: "Female", desc: "Casual, chatty, friendly" },
+  { id: "WtSj8ZSBSK3JEi9xgqBG", name: "Orla",    accent: "Irish",      gender: "Female", desc: "Calm, clear, approachable" },
+  { id: "GFyWqnwcF2mv6dWlo3u1", name: "John",    accent: "Irish",      gender: "Male",   desc: "Grounded, natural, reliable" },
+  // American
+  { id: "EXAVITQu4vr4xnSDxMaL", name: "Sarah",   accent: "American",   gender: "Female", desc: "Mature, reassuring, confident" },
+  { id: "nPczCjzI2devNBz1zQrb", name: "Brian",   accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
 ];
 
 function WhitelistSection({ config, anon, url }: { config: any, anon: string, url: string }) {
