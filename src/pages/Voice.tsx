@@ -62,7 +62,7 @@ function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
   async function playAudio(call: any) {
     if (playingId === call.id) {
       audioRef.current?.pause();
-      setPlayingId(null); setPlayingAudio(null); return;
+      setPlayingId(null); return;
     }
     if (!call.conversation_id) return;
     audioRef.current?.pause();
