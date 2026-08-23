@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
-import { Phone, PhoneIncoming, PhoneForwarded, PhoneMissed, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
+import { Phone, PhoneIncoming, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const EL_API_KEY = "REDACTED_EL_KEY";
@@ -41,7 +41,6 @@ function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
   const [transcript, setTranscript] = useState<Record<string, any[]>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   async function toggleExpand(call: any) {
