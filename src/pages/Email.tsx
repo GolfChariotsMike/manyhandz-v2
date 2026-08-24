@@ -65,19 +65,21 @@ export default function Email() {
       const me = await getMe();
       setCustomer(me.customer);
       const cid = me.customer.id;
-      const [accs, emailList, draftList, voiceProfile] = await Promise.all([
+      const [accs, emailList, draftList] = await Promise.all([
         getEmailAccounts(cid),
         getEmails(cid),
         getEmailDrafts(cid),
-        getEmailVoice(cid),
       ]);
-      setVoice(voiceProfile || { preferred_tone: 'professional', your_name: '', sign_off: '', example_draft: '', avoid_phrases: '' });
       setAccounts(accs || []);
       setEmails(emailList || []);
       const draftMap = new Map();
       for (const d of (draftList || [])) draftMap.set(d.email_id, d);
       setDrafts(draftMap);
-    } catch {}
+      // Load voice profile separately — don't let it block the inbox
+      getEmailVoice(cid).then(v => setVoice(v || { preferred_tone: 'professional', your_name: '', sign_off: '', example_draft: '', avoid_phrases: '' })).catch(() => {});
+    } catch (err) {
+      console.error('Email loadData error:', err);
+    }
     setLoading(false);
   }
 
