@@ -243,7 +243,7 @@ export default function Admin() {
                 onClick={async () => {
                   setTestDialing(true);
                   try {
-                    await fetch("https://mheldemo.draftpilot.co/outbound-call", {
+                    await fetch(`${SUPABASE_URL}/functions/v1/mhv2-outbound-call`, {
                       method: "POST",
                       headers: { "Content-Type": "application/json" },
                       body: JSON.stringify({ to: testPhone, name: testName || "there", business: testBusiness || "your business", category: "test" }),
