@@ -1,7 +1,117 @@
-import { useState, useEffect } from "react";
-import { getMe } from "../lib/api";
-import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { getMe, getVoiceCalls } from "../lib/api";
+import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+
+const EL_API_KEY = "REDACTED_EL_KEY";
+
+function CallLog({ calls }: { calls: any[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [transcript, setTranscript] = useState<Record<string, any[]>>({});
+  const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  async function toggleExpand(call: any) {
+    const id = call.id;
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (transcript[id] || !call.conversation_id) return;
+    setLoadingId(id);
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}`, {
+        headers: { "xi-api-key": EL_API_KEY }
+      });
+      const data = await res.json();
+      setTranscript(t => ({ ...t, [id]: data.transcript || [] }));
+    } catch { setTranscript(t => ({ ...t, [id]: [] })); }
+    finally { setLoadingId(null); }
+  }
+
+  async function playAudio(call: any) {
+    if (playingId === call.id) {
+      audioRef.current?.pause();
+      setPlayingId(null); return;
+    }
+    if (!call.conversation_id) return;
+    audioRef.current?.pause();
+    setPlayingId(call.id);
+    try {
+      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}/audio`, {
+        headers: { "xi-api-key": EL_API_KEY }
+      });
+      if (!res.ok) throw new Error("No audio");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(url); };
+      audio.play();
+    } catch { setPlayingId(null); }
+  }
+
+  function fmt(secs: number) {
+    const m = Math.floor(secs / 60), s = secs % 60;
+    return m > 0 ? `${m}m ${s}s` : `${s}s`;
+  }
+
+  function fmtTime(ts: string) {
+    return new Date(ts).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  return (
+    <div className="aurora-card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold">Recent calls</h3>
+        <Link to="/voice" className="text-xs text-white/40 hover:text-white/70 transition-colors">View all →</Link>
+      </div>
+      {calls.length === 0 ? (
+        <p className="text-white/30 text-sm">No calls yet.</p>
+      ) : (
+        <div className="space-y-2">
+          {calls.map((call: any) => (
+            <div key={call.id} className="bg-white/5 rounded-xl overflow-hidden">
+              <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => toggleExpand(call)}>
+                <PhoneIncoming size={16} className="text-green-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{call.from_number || "Unknown"}</p>
+                  <p className="text-xs text-white/40">{fmtTime(call.created_at)} · {call.duration_seconds ? fmt(call.duration_seconds) : "—"}</p>
+                </div>
+                {call.conversation_id && (
+                  <button
+                    onClick={e => { e.stopPropagation(); playAudio(call); }}
+                    className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"
+                  >
+                    {playingId === call.id ? <Pause size={13} /> : <Play size={13} />}
+                  </button>
+                )}
+                {expandedId === call.id ? <ChevronUp size={14} className="text-white/30 shrink-0" /> : <ChevronDown size={14} className="text-white/30 shrink-0" />}
+              </div>
+              {expandedId === call.id && (
+                <div className="px-4 pb-4 border-t border-white/5 pt-3">
+                  {loadingId === call.id ? (
+                    <div className="flex items-center gap-2 text-white/40 text-xs"><Loader size={12} className="animate-spin" /> Loading transcript…</div>
+                  ) : (transcript[call.id] || []).length > 0 ? (
+                    <div className="space-y-2">
+                      {(transcript[call.id] || []).map((turn: any, i: number) => (
+                        <div key={i} className={`text-xs ${turn.role === "user" ? "text-white/70" : "text-yellow-400/80"}`}>
+                          <span className="font-semibold mr-1">{turn.role === "user" ? "Caller:" : "Agent:"}</span>
+                          {turn.message}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-white/30">No transcript available.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const STEPS = [
   {
@@ -49,14 +159,17 @@ const STEPS = [
 export default function Dashboard() {
   const [customer, setCustomer] = useState<any>(null);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
+  const [calls, setCalls] = useState<any[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     getMe().then(d => {
       setCustomer(d.customer);
-      // Load completed steps from localStorage
       const saved = localStorage.getItem(`mh_steps_${d.customer?.id}`);
       if (saved) setCompletedSteps(JSON.parse(saved));
+      if (d.customer?.id) {
+        getVoiceCalls(d.customer.id).then(data => setCalls(Array.isArray(data) ? data.slice(0, 10) : []));
+      }
     }).catch(() => {});
   }, []);
 
@@ -146,6 +259,13 @@ export default function Dashboard() {
             <p className="font-semibold">You're live! 🎉</p>
             <p className="text-sm text-white/50">Your AI is handling calls around the clock.</p>
           </div>
+        </div>
+      )}
+
+      {/* Recent calls */}
+      {calls.length > 0 && (
+        <div className="mb-8">
+          <CallLog calls={calls} />
         </div>
       )}
 
