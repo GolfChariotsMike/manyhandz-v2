@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search } from "lucide-react";
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
 const ADMIN_PIN = "Mike1985";
 
