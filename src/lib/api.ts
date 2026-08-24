@@ -244,3 +244,7 @@ export async function saveEmailVoice(customerId: string, data: Record<string, un
     });
   }
 }
+
+export async function analyzeVoice(customerId: string) {
+  return callFn("mhv2-analyze-voice", "", "POST", { customer_id: customerId });
+}

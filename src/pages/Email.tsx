@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   getMe, getEmailAccounts, getEmails, getEmailDrafts,
   connectEmail, disconnectEmail, syncEmails, generateDraft,
-  getEmailVoice, saveEmailVoice
+  getEmailVoice, saveEmailVoice, analyzeVoice
 } from "../lib/api";
 import {
   Mail, RefreshCw, ChevronDown, ChevronUp, Edit3, Loader2,
@@ -41,6 +41,8 @@ export default function Email() {
   const [voice, setVoice] = useState<any>(null);
   const [voiceSaving, setVoiceSaving] = useState(false);
   const [voiceSaved, setVoiceSaved] = useState(false);
+  const [voiceAnalyzing, setVoiceAnalyzing] = useState(false);
+  const [voiceAnalyzed, setVoiceAnalyzed] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Connect form state
@@ -368,10 +370,53 @@ export default function Email() {
           {/* Voice Setup Panel */}
           {activeTab === "voice" && (
             <div className="aurora-card p-6 max-w-2xl">
-              <h3 className="text-lg font-semibold mb-1">Your writing voice</h3>
-              <p className="text-white/40 text-sm mb-6">The AI drafts replies that sound like you, not like a robot. Fill this in once and drafts will match your style.</p>
+              <div className="flex items-start justify-between mb-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-1">Your writing voice</h3>
+                  <p className="text-white/40 text-sm">AI reads your sent emails and figures out how you write. Drafts will sound like you.</p>
+                </div>
+                <button
+                  onClick={async () => {
+                    setVoiceAnalyzing(true);
+                    setVoiceAnalyzed(false);
+                    try {
+                      const result = await analyzeVoice(customer.id);
+                      if (result?.profile) {
+                        const p = result.profile;
+                        setVoice((v: any) => ({
+                          ...v,
+                          preferred_tone: p.tone || v?.preferred_tone || 'professional',
+                          sign_off: p.signoff_styles?.[0] || v?.sign_off || '',
+                          avoid_phrases: (p.avoid_phrases || []).join(', '),
+                          voice_summary: p.summary || '',
+                        }));
+                        setVoiceAnalyzed(true);
+                      }
+                    } catch (e: any) { alert(e.message || 'Analysis failed'); }
+                    setVoiceAnalyzing(false);
+                  }}
+                  disabled={voiceAnalyzing}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/15 border border-yellow-500/30 text-yellow-400 text-sm font-medium hover:bg-yellow-500/25 transition-all disabled:opacity-50 shrink-0 ml-4"
+                >
+                  {voiceAnalyzing ? <><Loader2 size={14} className="animate-spin" /> Analysing...</> : <><Mic size={14} /> Analyse my writing</>}
+                </button>
+              </div>
 
-              <div className="space-y-5">
+              {voiceAnalyzed && voice?.voice_summary && (
+                <div className="mb-5 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20">
+                  <p className="text-xs text-yellow-400 font-medium mb-1">✓ Voice analysed from your sent emails</p>
+                  <p className="text-sm text-white/70">{voice.voice_summary}</p>
+                </div>
+              )}
+
+              {!voiceAnalyzed && voice?.voice_summary && (
+                <div className="mb-5 p-4 rounded-xl bg-white/5 border border-white/10">
+                  <p className="text-xs text-white/40 font-medium mb-1">Your writing voice</p>
+                  <p className="text-sm text-white/70">{voice.voice_summary}</p>
+                </div>
+              )}
+
+              <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-white/50 mb-1.5">Your name (for sign-offs)</label>
@@ -379,7 +424,7 @@ export default function Email() {
                       placeholder="e.g. Mike" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
                   </div>
                   <div>
-                    <label className="block text-xs text-white/50 mb-1.5">Tone</label>
+                    <label className="block text-xs text-white/50 mb-1.5">Tone {voiceAnalyzed && <span className="text-yellow-400">↑ auto-detected</span>}</label>
                     <select value={voice?.preferred_tone || "professional"} onChange={e => setVoice((v: any) => ({ ...v, preferred_tone: e.target.value }))}
                       className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm">
                       <option value="professional">Professional</option>
@@ -392,22 +437,15 @@ export default function Email() {
                 </div>
 
                 <div>
-                  <label className="block text-xs text-white/50 mb-1.5">Sign-off line</label>
+                  <label className="block text-xs text-white/50 mb-1.5">Sign-off {voiceAnalyzed && <span className="text-yellow-400">↑ auto-detected</span>}</label>
                   <input type="text" value={voice?.sign_off || ""} onChange={e => setVoice((v: any) => ({ ...v, sign_off: e.target.value }))}
-                    placeholder="e.g. Cheers, Mike | Thanks, Mike Kerr — Stik Stickers" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+                    placeholder="e.g. Cheers, Mike" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
                 </div>
 
                 <div>
-                  <label className="block text-xs text-white/50 mb-1.5">Example of how you write (paste a real reply you've sent)</label>
-                  <textarea value={voice?.example_draft || ""} onChange={e => setVoice((v: any) => ({ ...v, example_draft: e.target.value }))}
-                    rows={5} placeholder="Paste an example email reply here — the AI will match your style exactly"
-                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm resize-none" />
-                </div>
-
-                <div>
-                  <label className="block text-xs text-white/50 mb-1.5">Phrases to never use</label>
+                  <label className="block text-xs text-white/50 mb-1.5">Phrases to never use {voiceAnalyzed && <span className="text-yellow-400">↑ auto-detected</span>}</label>
                   <input type="text" value={voice?.avoid_phrases || ""} onChange={e => setVoice((v: any) => ({ ...v, avoid_phrases: e.target.value }))}
-                    placeholder="e.g. I hope this email finds you well, Please don't hesitate" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+                    placeholder="e.g. I hope this email finds you well" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
                 </div>
 
                 <button
@@ -422,7 +460,7 @@ export default function Email() {
                   disabled={voiceSaving}
                 >
                   {voiceSaving ? <Loader2 size={15} className="animate-spin" /> : voiceSaved ? <Check size={15} /> : <Save size={15} />}
-                  {voiceSaved ? "Saved!" : voiceSaving ? "Saving..." : "Save voice profile"}
+                  {voiceSaved ? "Saved!" : voiceSaving ? "Saving..." : "Save"}
                 </button>
               </div>
             </div>
