@@ -315,6 +315,21 @@ export default function Admin() {
               >
                 Check Status
               </button>
+              <button
+                onClick={async () => {
+                  if (!confirm("Clear the entire call queue?")) return;
+                  await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
+                    method: "POST",
+                    headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                    body: JSON.stringify({ clear: true }),
+                  });
+                  setQueueStatus({ pending: 0, done: 0, total: 0 });
+                  setQueueRunning(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
+              >
+                Clear Queue
+              </button>
             </div>
           </div>
 
