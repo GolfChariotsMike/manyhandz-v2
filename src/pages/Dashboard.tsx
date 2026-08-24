@@ -86,8 +86,11 @@ function CallLog({ calls }: { calls: any[] }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   }
 
-  function fmtTime(ts: string) {
-    return new Date(ts).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  function fmtTime(ts: string | null | undefined) {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    if (isNaN(d.getTime())) return "—";
+    return d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
   }
 
   return (
@@ -106,7 +109,7 @@ function CallLog({ calls }: { calls: any[] }) {
                 <PhoneIncoming size={16} className="text-green-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{call.from_number || "Unknown"}</p>
-                  <p className="text-xs text-white/40">{fmtTime(call.created_at)} · {call.duration_seconds ? fmt(call.duration_seconds) : "—"}</p>
+                  <p className="text-xs text-white/40">{fmtTime(call.started_at || call.created_at)} · {call.duration_seconds ? fmt(call.duration_seconds) : "—"}</p>
                 </div>
                 {call.conversation_id && (
                   <button
