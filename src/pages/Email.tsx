@@ -448,6 +448,49 @@ export default function Email() {
                     placeholder="e.g. I hope this email finds you well" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
                 </div>
 
+                {/* Categorisation Rules */}
+                <div className="pt-2 border-t border-white/10">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-sm font-medium">Categorisation rules</p>
+                      <p className="text-xs text-white/40 mt-0.5">Override how specific emails get tagged. Rules run before the AI categoriser.</p>
+                    </div>
+                    <button
+                      onClick={() => setVoice((v: any) => ({ ...v, email_rules: [...(v?.email_rules || []), { match: "", field: "any", category: "important" }] }))}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 hover:bg-white/10 transition-all"
+                    >+ Add rule</button>
+                  </div>
+                  {(voice?.email_rules || []).length === 0 && (
+                    <p className="text-xs text-white/30 italic">No rules yet — emails with &ldquo;DHL&rdquo; in the sender getting tagged as marketing? Add a rule here.</p>
+                  )}
+                  <div className="space-y-2">
+                    {(voice?.email_rules || []).map((rule: any, i: number) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className="text-xs text-white/40 shrink-0">If</span>
+                        <select value={rule.field} onChange={e => setVoice((v: any) => { const r=[...v.email_rules]; r[i]={...r[i],field:e.target.value}; return {...v,email_rules:r}; })}
+                          className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs focus:outline-none">
+                          <option value="any">sender or subject</option>
+                          <option value="from">sender</option>
+                          <option value="subject">subject</option>
+                        </select>
+                        <span className="text-xs text-white/40 shrink-0">contains</span>
+                        <input value={rule.match} onChange={e => setVoice((v: any) => { const r=[...v.email_rules]; r[i]={...r[i],match:e.target.value}; return {...v,email_rules:r}; })}
+                          placeholder="e.g. DHL" className="flex-1 px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs focus:border-yellow-500/50 focus:outline-none" />
+                        <span className="text-xs text-white/40 shrink-0">→</span>
+                        <select value={rule.category} onChange={e => setVoice((v: any) => { const r=[...v.email_rules]; r[i]={...r[i],category:e.target.value}; return {...v,email_rules:r}; })}
+                          className="px-2 py-1.5 rounded-lg bg-white/5 border border-white/10 text-xs focus:outline-none">
+                          <option value="important">important</option>
+                          <option value="needs_reply">needs reply</option>
+                          <option value="marketing">marketing</option>
+                          <option value="other">other</option>
+                        </select>
+                        <button onClick={() => setVoice((v: any) => { const r=[...v.email_rules]; r.splice(i,1); return {...v,email_rules:r}; })}
+                          className="text-white/20 hover:text-red-400 transition-colors"><X size={14} /></button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
                 <button
                   onClick={async () => {
                     setVoiceSaving(true);
