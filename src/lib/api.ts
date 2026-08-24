@@ -248,3 +248,14 @@ export async function saveEmailVoice(customerId: string, data: Record<string, un
 export async function analyzeVoice(customerId: string) {
   return callFn("mhv2-analyze-voice", "", "POST", { customer_id: customerId });
 }
+
+export async function suppressDraft(emailId: string, customerId: string) {
+  const SB_URL = import.meta.env.VITE_SUPABASE_URL;
+  const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const token = localStorage.getItem("mh_token") || SB_KEY;
+  await fetch(`${SB_URL}/rest/v1/mh_emails?id=eq.${emailId}&customer_id=eq.${customerId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify({ draft_suppressed: true, has_draft: true }),
+  });
+}

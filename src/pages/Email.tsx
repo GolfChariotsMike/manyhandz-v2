@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import {
   getMe, getEmailAccounts, getEmails, getEmailDrafts,
   connectEmail, disconnectEmail, syncEmails, generateDraft,
-  getEmailVoice, saveEmailVoice, analyzeVoice
+  getEmailVoice, saveEmailVoice, analyzeVoice, suppressDraft
 } from "../lib/api";
 import {
   Mail, RefreshCw, ChevronDown, ChevronUp, Edit3, Loader2,
@@ -605,17 +605,29 @@ export default function Email() {
                             </div>
                           </div>
                         ) : (
-                          <button
-                            onClick={() => handleGenerateDraft(email.id)}
-                            disabled={isGenerating}
-                            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-50"
-                          >
-                            {isGenerating ? (
-                              <><Loader2 size={14} className="animate-spin" /> Generating draft...</>
-                            ) : (
-                              <><Edit3 size={14} /> Generate AI Draft</>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleGenerateDraft(email.id)}
+                              disabled={isGenerating}
+                              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-50"
+                            >
+                              {isGenerating ? (
+                                <><Loader2 size={14} className="animate-spin" /> Generating draft...</>
+                              ) : (
+                                <><Edit3 size={14} /> Generate AI Draft</>
+                              )}
+                            </button>
+                            <button
+                              onClick={async () => {
+                                await suppressDraft(email.id, customer.id);
+                                setEmails(prev => prev.map(e => e.id === email.id ? { ...e, draft_suppressed: true } : e));
+                              }}
+                              title="Don't auto-draft this email"
+                              className="p-2 rounded-xl bg-white/5 text-white/30 hover:text-white/60 hover:bg-white/10 transition-all"
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
