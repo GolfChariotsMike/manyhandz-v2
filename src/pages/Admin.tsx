@@ -89,6 +89,10 @@ export default function Admin() {
   const [queueStatus, setQueueStatus] = useState<{ pending: number; done: number; total: number } | null>(null);
   const [queueRunning, setQueueRunning] = useState(false);
   const [queuing, setQueuing] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testName, setTestName] = useState("");
+  const [testBusiness, setTestBusiness] = useState("");
+  const [testDialing, setTestDialing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"created" | "status">("created");
   const [tab, setTab] = useState<"accounts" | "demo" | "outreach">("accounts");
@@ -221,6 +225,33 @@ export default function Admin() {
                 <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
               </div>
             ))}
+          </div>
+
+          {/* Test call */}
+          <div className="aurora-card p-5">
+            <h3 className="font-semibold mb-3">Test Cold Call</h3>
+            <div className="flex items-center gap-3 flex-wrap">
+              <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="Phone (e.g. 0433121933)" className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm w-44" />
+              <input value={testName} onChange={e => setTestName(e.target.value)} placeholder="Name" className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm w-36" />
+              <input value={testBusiness} onChange={e => setTestBusiness(e.target.value)} placeholder="Business" className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm w-44" />
+              <button
+                disabled={testDialing || !testPhone}
+                onClick={async () => {
+                  setTestDialing(true);
+                  try {
+                    await fetch("https://mheldemo.draftpilot.co/outbound-call", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ to: testPhone, name: testName || "there", business: testBusiness || "your business", category: "test" }),
+                    });
+                  } catch {}
+                  setTimeout(() => setTestDialing(false), 4000);
+                }}
+                className="px-4 py-2 rounded-xl bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 disabled:opacity-50 transition-all"
+              >
+                {testDialing ? "Calling..." : "📞 Call Now"}
+              </button>
+            </div>
           </div>
 
           {/* Queue control panel */}
