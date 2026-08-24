@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock } from "lucide-react";
+import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
@@ -34,6 +34,29 @@ type DemoCall = {
   transcript_summary: string | null;
 };
 
+type OutreachContact = {
+  id: string;
+  name: string;
+  phone: string;
+  business: string;
+  city: string;
+  category: string;
+  rating: number | null;
+  reviews: number | null;
+  status: string;
+  sms_sent: boolean;
+};
+
+type OutboundCall = {
+  id: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+  status: string;
+  transcript_summary: string | null;
+};
+
+type OutreachStats = { total: number; new: number; contacted: number; not_interested: number };
+
 function statusBadge(c: Customer) {
   if (c.subscription_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
   if (c.subscription_status === "past_due") return <span className="px-2 py-0.5 rounded-full text-xs bg-orange-500/20 text-orange-400">Past Due</span>;
@@ -52,12 +75,18 @@ export default function Admin() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedNumber[]>([]);
   const [demoCalls, setDemoCalls] = useState<DemoCall[]>([]);
+  const [outreachContacts, setOutreachContacts] = useState<OutreachContact[]>([]);
+  const [outboundCalls, setOutboundCalls] = useState<OutboundCall[]>([]);
+  const [outreachStats, setOutreachStats] = useState<OutreachStats>({ total: 0, new: 0, contacted: 0, not_interested: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [outreachSearch, setOutreachSearch] = useState("");
+  const [outreachFilter, setOutreachFilter] = useState("all");
+  const [dialingId, setDialingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"created" | "status">("created");
-  const [tab, setTab] = useState<"accounts" | "demo">("accounts");
+  const [tab, setTab] = useState<"accounts" | "demo" | "outreach">("accounts");
 
   async function load() {
     setLoading(true);
@@ -71,6 +100,9 @@ export default function Admin() {
       setCustomers(Array.isArray(data.customers) ? data.customers : []);
       setUnassigned(Array.isArray(data.unassigned_numbers) ? data.unassigned_numbers : []);
       setDemoCalls(Array.isArray(data.demo_calls) ? data.demo_calls : []);
+      setOutreachContacts(Array.isArray(data.outreach_contacts) ? data.outreach_contacts : []);
+      setOutboundCalls(Array.isArray(data.outbound_calls) ? data.outbound_calls : []);
+      if (data.outreach_stats) setOutreachStats(data.outreach_stats);
     } catch (e: unknown) {
       setError(String(e));
     }
@@ -163,9 +195,124 @@ export default function Admin() {
         <button onClick={() => setTab("demo")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "demo" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
           <span className="flex items-center gap-2"><PhoneCall size={14} /> Demo Line ({demoCalls.length})</span>
         </button>
+        <button onClick={() => setTab("outreach")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "outreach" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
+          <span className="flex items-center gap-2"><Radio size={14} /> Outreach ({outreachStats.total})</span>
+        </button>
       </div>
 
       {/* Demo Line Tab */}
+      {tab === "outreach" && (
+        <div className="space-y-6">
+          {/* Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: "Total Contacts", value: outreachStats.total, color: "" },
+              { label: "Not Called", value: outreachStats.new, color: "text-white" },
+              { label: "Contacted", value: outreachStats.contacted, color: "text-green-400" },
+              { label: "Not Interested", value: outreachStats.not_interested, color: "text-red-400" },
+            ].map(s => (
+              <div key={s.label} className="aurora-card p-4">
+                <div className="text-white/40 text-xs mb-1">{s.label}</div>
+                <div className={`text-2xl font-bold ${s.color}`}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Outbound call log */}
+          {outboundCalls.length > 0 && (
+            <div className="aurora-card overflow-hidden">
+              <div className="p-4 border-b border-white/10 font-semibold text-sm">Jake Outbound — Recent Calls</div>
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-white/10 text-white/40 text-xs uppercase">
+                  <th className="text-left p-3">Date</th><th className="text-left p-3">Duration</th><th className="text-left p-3">Status</th><th className="text-left p-3">Summary</th>
+                </tr></thead>
+                <tbody>
+                  {outboundCalls.map(c => (
+                    <tr key={c.id} className="border-b border-white/5">
+                      <td className="p-3 text-xs text-white/60">{c.started_at ? new Date(c.started_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                      <td className="p-3 text-xs">{c.duration_seconds != null ? `${c.duration_seconds}s` : "—"}</td>
+                      <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${c.status === "done" ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"}`}>{c.status}</span></td>
+                      <td className="p-3 text-xs text-white/50 max-w-xs">{c.transcript_summary || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Contact list */}
+          <div className="aurora-card overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <input value={outreachSearch} onChange={e => setOutreachSearch(e.target.value)} placeholder="Search contacts..." className="w-full pl-8 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+              </div>
+              <select value={outreachFilter} onChange={e => setOutreachFilter(e.target.value)} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none">
+                <option value="all">All</option>
+                <option value="new">Not called</option>
+                <option value="contacted">Contacted</option>
+                <option value="not_interested">Not interested</option>
+              </select>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-white/10 text-white/40 text-xs uppercase tracking-wider">
+                  <th className="text-left p-4">Business</th>
+                  <th className="text-left p-4">Category</th>
+                  <th className="text-left p-4">Location</th>
+                  <th className="text-left p-4">Rating</th>
+                  <th className="text-left p-4">Status</th>
+                  <th className="p-4"></th>
+                </tr></thead>
+                <tbody>
+                  {outreachContacts
+                    .filter(c => outreachFilter === "all" || c.status === outreachFilter)
+                    .filter(c => !outreachSearch || [c.business, c.name, c.city, c.category].join(" ").toLowerCase().includes(outreachSearch.toLowerCase()))
+                    .slice(0, 100)
+                    .map(c => (
+                    <tr key={c.id} className="border-b border-white/5 hover:bg-white/3">
+                      <td className="p-4">
+                        <div className="font-medium">{c.business}</div>
+                        <div className="text-white/40 text-xs font-mono">{c.phone}</div>
+                      </td>
+                      <td className="p-4 capitalize text-white/60 text-xs">{c.category}</td>
+                      <td className="p-4 text-white/60 text-xs">{c.city}</td>
+                      <td className="p-4 text-xs">{c.rating ? <span>⭐ {c.rating} <span className="text-white/30">({c.reviews})</span></span> : "—"}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${
+                          c.status === "contacted" ? "bg-green-500/20 text-green-400" :
+                          c.status === "not_interested" ? "bg-red-500/20 text-red-400" :
+                          "bg-white/10 text-white/40"
+                        }`}>{c.status === "new" ? "not called" : c.status}</span>
+                      </td>
+                      <td className="p-4">
+                        <button
+                          disabled={dialingId === c.id || c.status === "not_interested"}
+                          onClick={async () => {
+                            setDialingId(c.id);
+                            try {
+                              await fetch("https://mheldemo.draftpilot.co/dial", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ to: c.phone, name: c.name, business: c.business, category: c.category }),
+                              });
+                            } catch {}
+                            setTimeout(() => setDialingId(null), 3000);
+                          }}
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 disabled:opacity-30 transition-all"
+                        >
+                          {dialingId === c.id ? "Dialing..." : "📞 Call"}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
       {tab === "demo" && (
         <div className="aurora-card overflow-hidden">
           <div className="p-4 border-b border-white/10">
