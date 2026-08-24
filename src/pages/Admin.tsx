@@ -7,41 +7,29 @@ const ADMIN_PIN = "Mike1985";
 
 type Customer = {
   id: string;
-  subdomain: string;
+  email: string;
   business_name: string;
-  owner_name: string;
-  owner_email: string;
-  tier: string;
+  industry: string;
   plan: string;
-  plan_status: string;
   subscription_status: string;
+  stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
-  credit_balance_usd: number;
   twilio_number: string | null;
-  twilio_number_sid: string | null;
   voice_active: boolean;
-  inbox_email: string | null;
-  inbox_connected: boolean;
-  pool_slot: string | null;
-  agent_port: number | null;
-  active: boolean;
-  is_test: boolean;
-  trial_ends_at: string | null;
-  trial_expired: boolean;
   onboarding_complete: boolean;
-  last_active_at: string | null;
+  el_agent_id: string | null;
+  trial_started_at: string | null;
+  trial_ends_at: string | null;
   created_at: string;
 };
 
 type UnassignedNumber = { number: string; sid: string; friendly_name: string; account: string };
 
 function statusBadge(c: Customer) {
-  if (!c.active) return <span className="px-2 py-0.5 rounded-full text-xs bg-red-500/20 text-red-400">Inactive</span>;
+  if (c.subscription_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
   if (c.subscription_status === "past_due") return <span className="px-2 py-0.5 rounded-full text-xs bg-orange-500/20 text-orange-400">Past Due</span>;
-  if (c.subscription_status === "active" && c.plan_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
-  if (c.stripe_subscription_id) return <span className="px-2 py-0.5 rounded-full text-xs bg-blue-500/20 text-blue-400">Subscribed</span>;
-  if (!c.trial_expired) return <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-400">Trial</span>;
-  return <span className="px-2 py-0.5 rounded-full text-xs bg-white/10 text-white/40">Free</span>;
+  if (c.subscription_status === "trial") return <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-500/20 text-yellow-400">Trial</span>;
+  return <span className="px-2 py-0.5 rounded-full text-xs bg-white/10 text-white/40">{c.subscription_status || "Free"}</span>;
 }
 
 function fmt(date: string | null) {
@@ -58,7 +46,7 @@ export default function Admin() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"created" | "active" | "credits">("created");
+  const [sortBy, setSortBy] = useState<"created" | "status">("created");
 
   async function load() {
     setLoading(true);
@@ -84,44 +72,28 @@ export default function Admin() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="aurora-card p-8 w-full max-w-sm">
           <h1 className="text-xl font-bold mb-2 text-center">Admin</h1>
-          <p className="text-white/40 text-sm text-center mb-6">ManyHandz master admin</p>
-          <input
-            type="password"
-            placeholder="PIN"
-            value={pin}
-            autoFocus
+          <p className="text-white/40 text-sm text-center mb-6">ManyHandz v2</p>
+          <input type="password" placeholder="PIN" value={pin} autoFocus
             onChange={e => setPin(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter" && pin === ADMIN_PIN) {
-                sessionStorage.setItem("mh_admin", ADMIN_TOKEN);
-                setAuthed(true);
-              }
-            }}
-            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none mb-4"
-          />
-          <button
-            onClick={() => { if (pin === ADMIN_PIN) { sessionStorage.setItem("mh_admin", ADMIN_TOKEN); setAuthed(true); } }}
-            className="btn-primary w-full"
-          >
-            Enter
-          </button>
+            onKeyDown={e => { if (e.key === "Enter" && pin === ADMIN_PIN) { sessionStorage.setItem("mh_admin", ADMIN_TOKEN); setAuthed(true); } }}
+            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none mb-4" />
+          <button onClick={() => { if (pin === ADMIN_PIN) { sessionStorage.setItem("mh_admin", ADMIN_TOKEN); setAuthed(true); } }} className="btn-primary w-full">Enter</button>
         </div>
       </div>
     );
   }
 
   const filtered = customers
-    .filter(c => !search || [c.business_name, c.owner_email, c.subdomain, c.twilio_number || ""].join(" ").toLowerCase().includes(search.toLowerCase()))
+    .filter(c => !search || [c.business_name, c.email, c.twilio_number || ""].join(" ").toLowerCase().includes(search.toLowerCase()))
     .sort((a, b) => {
-      if (sortBy === "active") return (b.last_active_at || "").localeCompare(a.last_active_at || "");
-      if (sortBy === "credits") return b.credit_balance_usd - a.credit_balance_usd;
+      if (sortBy === "status") return a.subscription_status.localeCompare(b.subscription_status);
       return b.created_at.localeCompare(a.created_at);
     });
 
-  const activeCount = customers.filter(c => c.active && c.subscription_status === "active").length;
+  const activeCount = customers.filter(c => c.subscription_status === "active").length;
+  const trialCount = customers.filter(c => c.subscription_status === "trial").length;
   const withNumber = customers.filter(c => c.twilio_number).length;
-  const totalCredits = customers.reduce((sum, c) => sum + (c.credit_balance_usd || 0), 0);
-  const pastDue = customers.filter(c => c.subscription_status === "past_due").length;
+  const withAgent = customers.filter(c => c.el_agent_id).length;
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -140,10 +112,10 @@ export default function Admin() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         {[
-          { icon: <Users size={12} />, label: "Total Accounts", value: customers.length, sub: `${activeCount} active` },
-          { icon: <Phone size={12} />, label: "Numbers Provisioned", value: withNumber + unassigned.length, sub: `${unassigned.length} unassigned` },
-          { icon: <CreditCard size={12} />, label: "Paying Subscribers", value: customers.filter(c => c.stripe_subscription_id).length, sub: pastDue > 0 ? `⚠️ ${pastDue} past due` : "All current" },
-          { icon: <Activity size={12} />, label: "Total Credits", value: `$${totalCredits.toFixed(0)}`, sub: "across all accounts" },
+          { icon: <Users size={12} />, label: "Total Accounts", value: customers.length, sub: `${activeCount} paid · ${trialCount} trial` },
+          { icon: <Phone size={12} />, label: "Phone Numbers", value: withNumber, sub: `${unassigned.length} unassigned` },
+          { icon: <CreditCard size={12} />, label: "Subscriptions", value: customers.filter(c => c.stripe_subscription_id).length, sub: "paying customers" },
+          { icon: <Activity size={12} />, label: "Voice Agents", value: withAgent, sub: "ElevenLabs connected" },
         ].map(s => (
           <div key={s.label} className="aurora-card p-4">
             <div className="flex items-center gap-2 text-white/50 text-xs mb-1">{s.icon} {s.label}</div>
@@ -176,8 +148,7 @@ export default function Admin() {
         </div>
         <select value={sortBy} onChange={e => setSortBy(e.target.value as typeof sortBy)} className="px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:outline-none text-sm">
           <option value="created">Newest first</option>
-          <option value="active">Recently active</option>
-          <option value="credits">Most credits</option>
+          <option value="status">By status</option>
         </select>
       </div>
 
@@ -191,91 +162,67 @@ export default function Admin() {
                 <th className="text-left p-4">Status</th>
                 <th className="text-left p-4">Plan</th>
                 <th className="text-left p-4">Phone Number</th>
-                <th className="text-left p-4">Credits</th>
-                <th className="text-left p-4">Slot</th>
-                <th className="text-left p-4">Last Active</th>
+                <th className="text-left p-4">Voice Agent</th>
+                <th className="text-left p-4">Trial Ends</th>
+                <th className="text-left p-4">Joined</th>
                 <th className="p-4"></th>
               </tr>
             </thead>
             <tbody>
-              {loading && (
-                <tr><td colSpan={8} className="text-center py-12 text-white/30">Loading...</td></tr>
-              )}
+              {loading && <tr><td colSpan={8} className="text-center py-12 text-white/30">Loading...</td></tr>}
               {!loading && filtered.map(c => (
                 <>
-                  <tr
-                    key={c.id}
-                    className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors"
-                    onClick={() => setExpanded(expanded === c.id ? null : c.id)}
-                  >
+                  <tr key={c.id} className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors" onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
                     <td className="p-4">
                       <div className="font-medium">{c.business_name}</div>
-                      <div className="text-white/40 text-xs">{c.subdomain}.manyhandz.ai</div>
+                      <div className="text-white/40 text-xs">{c.email}</div>
                     </td>
                     <td className="p-4">{statusBadge(c)}</td>
-                    <td className="p-4">
-                      <div className="capitalize">{c.plan || "—"}</div>
-                      {c.is_test && <div className="text-xs text-yellow-400/60">test</div>}
-                    </td>
+                    <td className="p-4 capitalize">{c.plan || "—"}</td>
                     <td className="p-4">
                       {c.twilio_number
                         ? <div>
                             <div className="font-mono text-xs">{c.twilio_number}</div>
-                            {c.voice_active && <div className="text-xs text-green-400">● voice active</div>}
+                            {c.voice_active && <div className="text-xs text-green-400">● active</div>}
                           </div>
                         : <span className="text-white/20">—</span>}
                     </td>
-                    <td className="p-4">
-                      <span className={c.credit_balance_usd < 2 ? "text-red-400" : c.credit_balance_usd < 10 ? "text-yellow-400" : ""}>
-                        ${(c.credit_balance_usd || 0).toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="p-4 text-white/50 font-mono text-xs">{c.pool_slot || c.agent_port || "—"}</td>
-                    <td className="p-4 text-white/40 text-xs">{fmt(c.last_active_at)}</td>
+                    <td className="p-4 text-xs">{c.el_agent_id ? <span className="text-green-400">● Connected</span> : <span className="text-white/20">—</span>}</td>
+                    <td className="p-4 text-white/40 text-xs">{fmt(c.trial_ends_at)}</td>
+                    <td className="p-4 text-white/40 text-xs">{fmt(c.created_at)}</td>
                     <td className="p-4 text-white/30">{expanded === c.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</td>
                   </tr>
                   {expanded === c.id && (
                     <tr key={`${c.id}-exp`} className="border-b border-white/5 bg-black/20">
                       <td colSpan={8} className="px-6 py-4">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-xs mb-4">
-                          <div>
-                            <div className="text-white/40 mb-1">Owner</div>
-                            <div className="font-medium">{c.owner_name}</div>
-                            <div className="text-white/50">{c.owner_email}</div>
-                          </div>
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-xs">
                           <div>
                             <div className="text-white/40 mb-1">Subscription</div>
-                            <div className="capitalize font-medium">{c.subscription_status || "None"}</div>
+                            <div className="capitalize font-medium">{c.subscription_status}</div>
                             {c.stripe_subscription_id && <div className="text-white/40 font-mono">{c.stripe_subscription_id.slice(0, 24)}…</div>}
                           </div>
                           <div>
-                            <div className="text-white/40 mb-1">Email Inbox</div>
-                            <div>{c.inbox_email || "Not connected"}</div>
-                            {c.inbox_connected && <div className="text-green-400">● Connected</div>}
+                            <div className="text-white/40 mb-1">ElevenLabs Agent ID</div>
+                            <div className="font-mono text-white/60 break-all">{c.el_agent_id || "Not configured"}</div>
                           </div>
                           <div>
-                            <div className="text-white/40 mb-1">Account</div>
-                            <div>Joined {fmt(c.created_at)}</div>
-                            <div className="text-white/50">Onboarding: {c.onboarding_complete ? "✓ complete" : "⏳ pending"}</div>
-                            {c.trial_ends_at && <div className="text-white/50 mt-1">Trial ends {fmt(c.trial_ends_at)}</div>}
+                            <div className="text-white/40 mb-1">Onboarding</div>
+                            <div>{c.onboarding_complete ? "✓ Complete" : "⏳ Pending"}</div>
+                            {c.trial_started_at && <div className="text-white/40 mt-1">Trial started {fmt(c.trial_started_at)}</div>}
                           </div>
                         </div>
-                        <div className="flex gap-2">
-                          <a href={`https://${c.subdomain}.manyhandz.ai`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
-                            className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs transition-colors">Open app →</a>
-                          {c.stripe_subscription_id && (
+                        {c.stripe_subscription_id && (
+                          <div className="mt-3">
                             <a href={`https://dashboard.stripe.com/subscriptions/${c.stripe_subscription_id}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs transition-colors">Stripe →</a>
-                          )}
-                        </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
                 </>
               ))}
-              {!loading && filtered.length === 0 && (
-                <tr><td colSpan={8} className="text-center py-12 text-white/30">No accounts found</td></tr>
-              )}
+              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="text-center py-12 text-white/30">No accounts found</td></tr>}
             </tbody>
           </table>
         </div>
