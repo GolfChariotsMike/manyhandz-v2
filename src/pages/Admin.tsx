@@ -75,6 +75,9 @@ export default function Admin() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedNumber[]>([]);
   const [demoCalls, setDemoCalls] = useState<DemoCall[]>([]);
+  const [demoGreeting, setDemoGreeting] = useState("");
+  const [demoPrompt, setDemoPrompt] = useState("");
+  const [savingAgent, setSavingAgent] = useState(false);
   const [outreachContacts, setOutreachContacts] = useState<OutreachContact[]>([]);
   const [outboundCalls, setOutboundCalls] = useState<OutboundCall[]>([]);
   const [outreachStats, setOutreachStats] = useState<OutreachStats>({ total: 0, new: 0, contacted: 0, not_interested: 0 });
@@ -109,6 +112,7 @@ export default function Admin() {
       setCustomers(Array.isArray(data.customers) ? data.customers : []);
       setUnassigned(Array.isArray(data.unassigned_numbers) ? data.unassigned_numbers : []);
       setDemoCalls(Array.isArray(data.demo_calls) ? data.demo_calls : []);
+      if (data.demo_agent) { setDemoGreeting(data.demo_agent.first_message || ""); setDemoPrompt(data.demo_agent.prompt || ""); }
       setOutreachContacts(Array.isArray(data.outreach_contacts) ? data.outreach_contacts : []);
       setOutboundCalls(Array.isArray(data.outbound_calls) ? data.outbound_calls : []);
       if (data.outreach_stats) setOutreachStats(data.outreach_stats);
@@ -430,13 +434,50 @@ export default function Admin() {
       )}
 
       {tab === "demo" && (
+        <div className="space-y-6">
+
+        {/* Agent editor */}
+        <div className="aurora-card p-5">
+          <h3 className="font-semibold mb-4">Jake — Demo Agent Settings</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-xs text-white/40 mb-1.5">Greeting (first thing Jake says)</label>
+              <textarea value={demoGreeting} onChange={e => setDemoGreeting(e.target.value)} rows={2}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm resize-none" />
+            </div>
+            <div>
+              <label className="block text-xs text-white/40 mb-1.5">System Prompt</label>
+              <textarea value={demoPrompt} onChange={e => setDemoPrompt(e.target.value)} rows={8}
+                className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm resize-none font-mono text-xs" />
+            </div>
+            <button
+              disabled={savingAgent}
+              onClick={async () => {
+                setSavingAgent(true);
+                try {
+                  await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/agent`, {
+                    method: "PATCH",
+                    headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                    body: JSON.stringify({ first_message: demoGreeting, prompt: demoPrompt }),
+                  });
+                } catch {}
+                setSavingAgent(false);
+              }}
+              className="btn-primary"
+            >
+              {savingAgent ? "Saving..." : "Save Changes"}
+            </button>
+          </div>
+        </div>
+
+        {/* Call log */}
         <div className="aurora-card overflow-hidden">
           <div className="p-4 border-b border-white/10">
             <div className="flex items-center gap-3">
               <PhoneCall size={16} className="text-yellow-400" />
               <div>
-                <div className="font-semibold">Jake — ManyHandz Demo Line</div>
-                <div className="text-white/40 text-xs">+61 485 021 312 · ElevenLabs agent_4701kzv3pb8sfkwrdbja7s22rk75</div>
+                <div className="font-semibold">Inbound Calls — +61 485 021 312</div>
+                <div className="text-white/40 text-xs">agent_4701kzv3pb8sfkwrdbja7s22rk75</div>
               </div>
             </div>
           </div>
@@ -475,6 +516,7 @@ export default function Admin() {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
