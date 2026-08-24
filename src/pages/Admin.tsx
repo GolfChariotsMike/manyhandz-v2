@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search } from "lucide-react";
+import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock } from "lucide-react";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
@@ -25,6 +25,15 @@ type Customer = {
 
 type UnassignedNumber = { number: string; sid: string; friendly_name: string; account: string; isDemo?: boolean };
 
+type DemoCall = {
+  id: string;
+  started_at: string | null;
+  duration_seconds: number | null;
+  status: string;
+  from_number: string | null;
+  transcript_summary: string | null;
+};
+
 function statusBadge(c: Customer) {
   if (c.subscription_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
   if (c.subscription_status === "past_due") return <span className="px-2 py-0.5 rounded-full text-xs bg-orange-500/20 text-orange-400">Past Due</span>;
@@ -42,11 +51,13 @@ export default function Admin() {
   const [pin, setPin] = useState("");
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedNumber[]>([]);
+  const [demoCalls, setDemoCalls] = useState<DemoCall[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"created" | "status">("created");
+  const [tab, setTab] = useState<"accounts" | "demo">("accounts");
 
   async function load() {
     setLoading(true);
@@ -59,6 +70,7 @@ export default function Admin() {
       if (data.error) throw new Error(data.error);
       setCustomers(Array.isArray(data.customers) ? data.customers : []);
       setUnassigned(Array.isArray(data.unassigned_numbers) ? data.unassigned_numbers : []);
+      setDemoCalls(Array.isArray(data.demo_calls) ? data.demo_calls : []);
     } catch (e: unknown) {
       setError(String(e));
     }
@@ -143,8 +155,67 @@ export default function Admin() {
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex items-center gap-3 mb-4">
+      {/* Tabs */}
+      <div className="flex gap-2 mb-6">
+        <button onClick={() => setTab("accounts")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "accounts" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
+          <span className="flex items-center gap-2"><Users size={14} /> Accounts ({customers.length})</span>
+        </button>
+        <button onClick={() => setTab("demo")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "demo" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
+          <span className="flex items-center gap-2"><PhoneCall size={14} /> Demo Line ({demoCalls.length})</span>
+        </button>
+      </div>
+
+      {/* Demo Line Tab */}
+      {tab === "demo" && (
+        <div className="aurora-card overflow-hidden">
+          <div className="p-4 border-b border-white/10">
+            <div className="flex items-center gap-3">
+              <PhoneCall size={16} className="text-yellow-400" />
+              <div>
+                <div className="font-semibold">Jake — ManyHandz Demo Line</div>
+                <div className="text-white/40 text-xs">+61 485 021 312 · ElevenLabs agent_4701kzv3pb8sfkwrdbja7s22rk75</div>
+              </div>
+            </div>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-white/10 text-white/40 text-xs uppercase tracking-wider">
+                  <th className="text-left p-4">Date & Time</th>
+                  <th className="text-left p-4">From</th>
+                  <th className="text-left p-4">Duration</th>
+                  <th className="text-left p-4">Status</th>
+                  <th className="text-left p-4">Summary</th>
+                </tr>
+              </thead>
+              <tbody>
+                {demoCalls.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-white/30">No calls yet</td></tr>}
+                {demoCalls.map(c => (
+                  <tr key={c.id} className="border-b border-white/5 hover:bg-white/3">
+                    <td className="p-4 text-white/70 text-xs">{c.started_at ? new Date(c.started_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                    <td className="p-4 font-mono text-xs">{c.from_number || "—"}</td>
+                    <td className="p-4">
+                      {c.duration_seconds != null
+                        ? <span className="flex items-center gap-1 text-xs"><Clock size={11} /> {c.duration_seconds >= 60 ? `${Math.floor(c.duration_seconds/60)}m ${c.duration_seconds%60}s` : `${c.duration_seconds}s`}</span>
+                        : "—"}
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-2 py-0.5 rounded-full text-xs ${
+                        c.status === "done" ? "bg-green-500/20 text-green-400" :
+                        c.status === "initiated" ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-white/10 text-white/40"
+                      }`}>{c.status}</span>
+                    </td>
+                    <td className="p-4 text-white/50 text-xs max-w-xs">{c.transcript_summary || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {tab === "accounts" && <div className="flex items-center gap-3 mb-4">
         <div className="relative flex-1 max-w-sm">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search..." className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
@@ -153,9 +224,9 @@ export default function Admin() {
           <option value="created">Newest first</option>
           <option value="status">By status</option>
         </select>
-      </div>
+      </div>}
 
-      {/* Table */}
+      {tab === "accounts" && <>{/* Table */}
       <div className="aurora-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -229,7 +300,7 @@ export default function Admin() {
             </tbody>
           </table>
         </div>
-      </div>
+      </div></> }
     </div>
   );
 }
