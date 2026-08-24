@@ -23,7 +23,7 @@ type Customer = {
   created_at: string;
 };
 
-type UnassignedNumber = { number: string; sid: string; friendly_name: string; account: string };
+type UnassignedNumber = { number: string; sid: string; friendly_name: string; account: string; isDemo?: boolean };
 
 function statusBadge(c: Customer) {
   if (c.subscription_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
@@ -131,9 +131,12 @@ export default function Admin() {
           <h3 className="text-sm font-semibold mb-3 text-yellow-400">⚠️ Provisioned but unassigned numbers</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             {unassigned.map(n => (
-              <div key={n.sid} className="flex items-center justify-between px-3 py-2 rounded-lg bg-white/5 text-sm">
-                <span className="font-mono">{n.number}</span>
-                <span className="text-white/40 text-xs">{n.friendly_name} · {n.account}</span>
+              <div key={n.sid} className={`flex items-center justify-between px-3 py-2 rounded-lg text-sm ${n.isDemo ? "bg-yellow-500/10 border border-yellow-500/20" : "bg-white/5"}`}>
+                <div className="flex items-center gap-2">
+                  {n.isDemo && <span className="px-1.5 py-0.5 rounded text-xs bg-yellow-500/20 text-yellow-400 font-medium">Demo Line</span>}
+                  <span className="font-mono">{n.number}</span>
+                </div>
+                <span className="text-white/40 text-xs">{n.isDemo ? "Sales demo" : `${n.friendly_name} · ${n.account}`}</span>
               </div>
             ))}
           </div>
