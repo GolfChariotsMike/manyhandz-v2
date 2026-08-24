@@ -84,6 +84,11 @@ export default function Admin() {
   const [outreachSearch, setOutreachSearch] = useState("");
   const [outreachFilter, setOutreachFilter] = useState("all");
   const [dialingId, setDialingId] = useState<string | null>(null);
+  const [queueCategory, setQueueCategory] = useState("all");
+  const [queueLimit, setQueueLimit] = useState(50);
+  const [queueStatus, setQueueStatus] = useState<{ pending: number; done: number; total: number } | null>(null);
+  const [queueRunning, setQueueRunning] = useState(false);
+  const [queuing, setQueuing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"created" | "status">("created");
   const [tab, setTab] = useState<"accounts" | "demo" | "outreach">("accounts");
@@ -218,6 +223,70 @@ export default function Admin() {
             ))}
           </div>
 
+          {/* Queue control panel */}
+          <div className="aurora-card p-5">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-semibold">Call Queue</h3>
+                <p className="text-white/40 text-xs mt-0.5">Jake Outbound — agent_0301m07zpn6eebwvy5p25j7kzeqh</p>
+              </div>
+              {queueStatus && (
+                <div className="flex items-center gap-4 text-sm">
+                  <span className="text-white/50">{queueStatus.done}/{queueStatus.total} done</span>
+                  <div className="w-32 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${queueStatus.total ? (queueStatus.done / queueStatus.total) * 100 : 0}%` }} />
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-xs ${queueRunning ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"}`}>
+                    {queueRunning ? "● Running" : "Stopped"}
+                  </span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3 flex-wrap">
+              <select value={queueCategory} onChange={e => setQueueCategory(e.target.value)} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none">
+                <option value="all">All categories</option>
+                {["plumber","painter","tiler","plasterer","electrician","locksmith","handyman","landscaper","carpenter","roofer"].map(c => (
+                  <option key={c} value={c} className="capitalize">{c}</option>
+                ))}
+              </select>
+              <select value={queueLimit} onChange={e => setQueueLimit(Number(e.target.value))} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none">
+                {[25,50,100,200,500].map(n => <option key={n} value={n}>{n} contacts</option>)}
+              </select>
+              <button
+                disabled={queuing}
+                onClick={async () => {
+                  setQueuing(true);
+                  try {
+                    const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
+                      method: "POST",
+                      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                      body: JSON.stringify({ category: queueCategory, status: "new", limit: queueLimit }),
+                    });
+                    const d = await res.json();
+                    setQueueStatus({ pending: d.queued, done: 0, total: d.queued });
+                    setQueueRunning(false);
+                  } catch {}
+                  setQueuing(false);
+                }}
+                className="px-4 py-2 rounded-xl bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 disabled:opacity-50 transition-all"
+              >
+                {queuing ? "Queuing..." : "💼 Queue Calls"}
+              </button>
+              <button
+                onClick={async () => {
+                  const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
+                    headers: { "x-admin-token": ADMIN_TOKEN },
+                  });
+                  const d = await res.json();
+                  setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
+                }}
+                className="px-4 py-2 rounded-xl bg-white/5 text-white/50 text-sm hover:bg-white/10 transition-all"
+              >
+                Check Status
+              </button>
+            </div>
+          </div>
+
           {/* Outbound call log */}
           {outboundCalls.length > 0 && (
             <div className="aurora-card overflow-hidden">
@@ -268,7 +337,7 @@ export default function Admin() {
                   {outreachContacts
                     .filter(c => outreachFilter === "all" || c.status === outreachFilter)
                     .filter(c => !outreachSearch || [c.business, c.name, c.city, c.category].join(" ").toLowerCase().includes(outreachSearch.toLowerCase()))
-                    .slice(0, 100)
+                    .slice(0, 1000)
                     .map(c => (
                     <tr key={c.id} className="border-b border-white/5 hover:bg-white/3">
                       <td className="p-4">
