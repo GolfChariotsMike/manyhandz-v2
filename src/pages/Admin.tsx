@@ -402,21 +402,22 @@ export default function Admin() {
                       </td>
                       <td className="p-4">
                         <button
-                          disabled={dialingId === c.id || c.status === "not_interested"}
+                          disabled={dialingId === c.id}
                           onClick={async () => {
                             setDialingId(c.id);
                             try {
-                              await fetch("https://mheldemo.draftpilot.co/dial", {
+                              const SRK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
+                              await fetch("https://qpmwjkcxfyreudexawpw.supabase.co/rest/v1/outreach_call_queue", {
                                 method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ to: c.phone, name: c.name, business: c.business, category: c.category }),
+                                headers: { Authorization: `Bearer ${SRK}`, apikey: SRK, "Content-Type": "application/json", Prefer: "return=minimal" },
+                                body: JSON.stringify({ contact_id: c.id, name: c.name, phone: c.phone, business: c.business, category: c.category, status: "pending", position: 999 }),
                               });
                             } catch {}
-                            setTimeout(() => setDialingId(null), 3000);
+                            setTimeout(() => setDialingId(null), 1000);
                           }}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 disabled:opacity-30 transition-all"
+                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 text-white/60 hover:bg-yellow-500/20 hover:text-yellow-400 disabled:opacity-30 transition-all"
                         >
-                          {dialingId === c.id ? "Dialing..." : "📞 Call"}
+                          {dialingId === c.id ? "Added ✓" : "+ Queue"}
                         </button>
                       </td>
                     </tr>
