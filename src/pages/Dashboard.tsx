@@ -262,14 +262,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Recent calls */}
-      {calls.length > 0 && (
-        <div className="mb-8">
-          <CallLog calls={calls} />
-        </div>
-      )}
-
-      {/* Product tiles */}
+      {/* Product tiles */
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { id: "voice", icon: Phone, name: "Voice", desc: "AI phone answering", link: "/voice", color: "from-green-500/20 to-emerald-500/20", active: !!customer?.voice_active },
@@ -291,6 +284,32 @@ export default function Dashboard() {
           </Link>
         ))}
       </div>
+
+      {/* Call stats + recent calls */}
+      {(() => {
+        const totalCalls = calls.length;
+        const totalSecs = calls.reduce((acc: number, c: any) => acc + (c.duration_seconds || 0), 0);
+        const totalMins = Math.round(totalSecs / 60);
+        const avgSecs = totalCalls > 0 ? Math.round(totalSecs / totalCalls) : 0;
+        const avgFmt = avgSecs >= 60 ? `${Math.floor(avgSecs / 60)}m ${avgSecs % 60}s` : `${avgSecs}s`;
+        return totalCalls > 0 ? (
+          <div className="mt-8">
+            <div className="grid grid-cols-3 gap-4 mb-4">
+              {[
+                { label: "Total calls", value: totalCalls },
+                { label: "Total minutes", value: totalMins },
+                { label: "Avg call length", value: avgFmt },
+              ].map(stat => (
+                <div key={stat.label} className="aurora-card p-5 text-center">
+                  <p className="text-2xl font-bold mb-1">{stat.value}</p>
+                  <p className="text-xs text-white/40">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+            <CallLog calls={calls} />
+          </div>
+        ) : null;
+      })()}
     </div>
   );
 }
