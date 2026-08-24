@@ -220,3 +220,27 @@ export async function getChatSessions(customerId: string) {
   return supabaseRest("mh_chat_sessions", `customer_id=eq.${customerId}&select=*&order=last_message_at.desc&limit=50`);
 }
 
+
+export async function getEmailVoice(customerId: string) {
+  return supabaseRest("mh_email_voice", `customer_id=eq.${customerId}&select=*&limit=1`).then((r: any[]) => r?.[0] || null);
+}
+
+export async function saveEmailVoice(customerId: string, data: Record<string, unknown>) {
+  const SB_URL = import.meta.env.VITE_SUPABASE_URL;
+  const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const token = localStorage.getItem("mh_token") || SB_KEY;
+  await fetch(`${SB_URL}/rest/v1/mh_email_voice?customer_id=eq.${customerId}`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
+    body: JSON.stringify(data),
+  });
+  // If no row exists yet, insert
+  const check = await getEmailVoice(customerId);
+  if (!check) {
+    await fetch(`${SB_URL}/rest/v1/mh_email_voice`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({ customer_id: customerId, ...data }),
+    });
+  }
+}

@@ -1,11 +1,12 @@
 import { useState, useEffect } from "react";
 import {
   getMe, getEmailAccounts, getEmails, getEmailDrafts,
-  connectEmail, disconnectEmail, syncEmails, generateDraft
+  connectEmail, disconnectEmail, syncEmails, generateDraft,
+  getEmailVoice, saveEmailVoice
 } from "../lib/api";
 import {
   Mail, RefreshCw, ChevronDown, ChevronUp, Edit3, Loader2,
-  Eye, EyeOff, Check, Wifi, X, ChevronRight, Info
+  Eye, EyeOff, Check, Wifi, X, ChevronRight, Info, Mic, Save
 } from "lucide-react";
 
 const categoryColors: Record<string, string> = {
@@ -36,6 +37,10 @@ export default function Email() {
   const [syncing, setSyncing] = useState(false);
   const [generatingDraft, setGeneratingDraft] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>("all");
+  const [activeTab, setActiveTab] = useState<"inbox" | "voice">("inbox");
+  const [voice, setVoice] = useState<any>(null);
+  const [voiceSaving, setVoiceSaving] = useState(false);
+  const [voiceSaved, setVoiceSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Connect form state
@@ -60,11 +65,13 @@ export default function Email() {
       const me = await getMe();
       setCustomer(me.customer);
       const cid = me.customer.id;
-      const [accs, emailList, draftList] = await Promise.all([
+      const [accs, emailList, draftList, voiceProfile] = await Promise.all([
         getEmailAccounts(cid),
         getEmails(cid),
         getEmailDrafts(cid),
+        getEmailVoice(cid),
       ]);
+      setVoice(voiceProfile || { preferred_tone: 'professional', your_name: '', sign_off: '', example_draft: '', avoid_phrases: '' });
       setAccounts(accs || []);
       setEmails(emailList || []);
       const draftMap = new Map();
@@ -336,6 +343,91 @@ export default function Email() {
             </button>
           </div>
 
+          {/* Main tabs: Inbox | Voice Setup */}
+          <div className="flex gap-1 mb-6 border-b border-white/10">
+            <button
+              onClick={() => setActiveTab("inbox")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === "inbox" ? "border-yellow-400 text-yellow-400" : "border-transparent text-white/40 hover:text-white/70"
+              }`}
+            >
+              <Mail size={15} /> Inbox {emails.length > 0 && `(${emails.length})`}
+            </button>
+            <button
+              onClick={() => setActiveTab("voice")}
+              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === "voice" ? "border-yellow-400 text-yellow-400" : "border-transparent text-white/40 hover:text-white/70"
+              }`}
+            >
+              <Mic size={15} /> Your Writing Voice
+            </button>
+          </div>
+
+          {/* Voice Setup Panel */}
+          {activeTab === "voice" && (
+            <div className="aurora-card p-6 max-w-2xl">
+              <h3 className="text-lg font-semibold mb-1">Your writing voice</h3>
+              <p className="text-white/40 text-sm mb-6">The AI drafts replies that sound like you, not like a robot. Fill this in once and drafts will match your style.</p>
+
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-white/50 mb-1.5">Your name (for sign-offs)</label>
+                    <input type="text" value={voice?.your_name || ""} onChange={e => setVoice((v: any) => ({ ...v, your_name: e.target.value }))}
+                      placeholder="e.g. Mike" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-white/50 mb-1.5">Tone</label>
+                    <select value={voice?.preferred_tone || "professional"} onChange={e => setVoice((v: any) => ({ ...v, preferred_tone: e.target.value }))}
+                      className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm">
+                      <option value="professional">Professional</option>
+                      <option value="friendly">Friendly & casual</option>
+                      <option value="direct">Direct & concise</option>
+                      <option value="warm">Warm & personal</option>
+                      <option value="formal">Formal</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-white/50 mb-1.5">Sign-off line</label>
+                  <input type="text" value={voice?.sign_off || ""} onChange={e => setVoice((v: any) => ({ ...v, sign_off: e.target.value }))}
+                    placeholder="e.g. Cheers, Mike | Thanks, Mike Kerr — Stik Stickers" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-white/50 mb-1.5">Example of how you write (paste a real reply you've sent)</label>
+                  <textarea value={voice?.example_draft || ""} onChange={e => setVoice((v: any) => ({ ...v, example_draft: e.target.value }))}
+                    rows={5} placeholder="Paste an example email reply here — the AI will match your style exactly"
+                    className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm resize-none" />
+                </div>
+
+                <div>
+                  <label className="block text-xs text-white/50 mb-1.5">Phrases to never use</label>
+                  <input type="text" value={voice?.avoid_phrases || ""} onChange={e => setVoice((v: any) => ({ ...v, avoid_phrases: e.target.value }))}
+                    placeholder="e.g. I hope this email finds you well, Please don't hesitate" className="w-full px-3 py-2.5 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+                </div>
+
+                <button
+                  onClick={async () => {
+                    setVoiceSaving(true);
+                    await saveEmailVoice(customer.id, voice);
+                    setVoiceSaving(false);
+                    setVoiceSaved(true);
+                    setTimeout(() => setVoiceSaved(false), 2500);
+                  }}
+                  className="btn-primary flex items-center gap-2 disabled:opacity-50"
+                  disabled={voiceSaving}
+                >
+                  {voiceSaving ? <Loader2 size={15} className="animate-spin" /> : voiceSaved ? <Check size={15} /> : <Save size={15} />}
+                  {voiceSaved ? "Saved!" : voiceSaving ? "Saving..." : "Save voice profile"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Inbox Panel */}
+          {activeTab === "inbox" && <>
           {/* Category filters */}
           {emails.length > 0 && (
             <div className="flex gap-2 mb-4 flex-wrap">
@@ -449,6 +541,7 @@ export default function Email() {
               );
             })}
           </div>
+          </> }
         </>
       )}
     </div>
