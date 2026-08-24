@@ -3,8 +3,8 @@ import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { Phone, PhoneIncoming, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
-const EL_API_KEY = "REDACTED_EL_KEY";
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
+const EL_PROXY = `${SUPABASE_URL}/functions/v1/mhv2-el-proxy`;
 const PREVIEW_TEXT = "Hi there! Thanks for calling. I'm your AI receptionist — how can I help you today?";
 
 const VOICES = [
@@ -36,7 +36,7 @@ const VOICES = [
   { id: "nPczCjzI2devNBz1zQrb", name: "Brian",   accent: "American",   gender: "Male",   desc: "Deep, resonant, comforting" },
 ];
 
-function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
+function CallLog({ calls }: { calls: any[] }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<Record<string, any[]>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -50,8 +50,10 @@ function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
     if (transcript[id] || !call.conversation_id) return;
     setLoadingId(id);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}`, {
-        headers: { "xi-api-key": elApiKey }
+      const res = await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "transcript", conversation_id: call.conversation_id }),
       });
       const data = await res.json();
       setTranscript(t => ({ ...t, [id]: data.transcript || [] }));
@@ -68,8 +70,10 @@ function CallLog({ calls, elApiKey }: { calls: any[], elApiKey: string }) {
     audioRef.current?.pause();
     setPlayingId(call.id);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}/audio`, {
-        headers: { "xi-api-key": elApiKey }
+      const res = await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "audio", conversation_id: call.conversation_id }),
       });
       if (!res.ok) throw new Error("No audio");
       const blob = await res.blob();
@@ -355,10 +359,10 @@ export default function Voice() {
 
     setPreviewingId(voiceId);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+      const res = await fetch(EL_PROXY, {
         method: "POST",
-        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ text: PREVIEW_TEXT, model_id: "eleven_turbo_v2", voice_settings: { stability: 0.75, similarity_boost: 0.75 } }),
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "preview_tts", voice_id: voiceId, text: PREVIEW_TEXT }),
       });
       if (!res.ok) throw new Error("Preview failed");
       const blob = await res.blob();
@@ -380,10 +384,10 @@ export default function Voice() {
     if (!agentId || !greeting.trim()) return;
     setSavingGreeting(true);
     try {
-      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
-        method: "PATCH",
-        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_config: { agent: { first_message: greeting.trim() } } }),
+      await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "update_agent_voice", agent_id: agentId, voice_id: activeVoiceId, greeting: greeting.trim() }),
       });
       if (config?.id) {
         await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
@@ -404,10 +408,10 @@ export default function Voice() {
     setSavingVoice(true);
     try {
       // Update EL agent voice
-      await fetch(`https://api.elevenlabs.io/v1/convai/agents/${agentId}`, {
-        method: "PATCH",
-        headers: { "xi-api-key": EL_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ conversation_config: { tts: { voice_id: activeVoiceId } } }),
+      await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "update_agent_voice", agent_id: agentId, voice_id: activeVoiceId }),
       });
       // Save to voice_config
       await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
@@ -608,7 +612,7 @@ export default function Voice() {
       <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
-      <CallLog calls={calls} elApiKey={EL_API_KEY} />
+      <CallLog calls={calls} />
     </div>
   );
 }

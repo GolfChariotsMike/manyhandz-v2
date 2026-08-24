@@ -160,6 +160,39 @@ export async function syncEmails(customerId: string) {
   return callFn("mhv2-sync-emails", "", "POST", { customer_id: customerId });
 }
 
+export async function connectEmail(
+  customerId: string,
+  email: string,
+  password: string,
+  imapHost?: string,
+  imapPort?: number,
+  smtpHost?: string,
+  smtpPort?: number
+) {
+  return callFn("mhv2-connect-email", "", "POST", {
+    customer_id: customerId,
+    email,
+    password,
+    imap_host: imapHost,
+    imap_port: imapPort,
+    smtp_host: smtpHost,
+    smtp_port: smtpPort,
+  });
+}
+
+export async function disconnectEmail(customerId: string, accountId: string) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_email_accounts?id=eq.${accountId}&customer_id=eq.${customerId}`, {
+    method: "PATCH",
+    headers: {
+      "apikey": SUPABASE_ANON_KEY,
+      "Authorization": `Bearer ${getToken() || SUPABASE_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ is_active: false }),
+  });
+  return res.ok;
+}
+
 export async function generateDraft(emailId: string, customerId: string, tone?: string) {
   return callFn("mhv2-generate-draft", "", "POST", { email_id: emailId, customer_id: customerId, tone });
 }

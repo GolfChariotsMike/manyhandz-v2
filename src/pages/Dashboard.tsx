@@ -3,7 +3,8 @@ import { getMe, getVoiceCalls } from "../lib/api";
 import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
-const EL_API_KEY = "REDACTED_EL_KEY";
+const EL_PROXY = `${"https://kouembkldbpdbhzeaoth.supabase.co"}/functions/v1/mhv2-el-proxy`;
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
 function CallStats({ calls }: { calls: any[] }) {
   const totalCalls = calls.length;
@@ -45,8 +46,10 @@ function CallLog({ calls }: { calls: any[] }) {
     if (transcript[id] || !call.conversation_id) return;
     setLoadingId(id);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}`, {
-        headers: { "xi-api-key": EL_API_KEY }
+      const res = await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "transcript", conversation_id: call.conversation_id }),
       });
       const data = await res.json();
       setTranscript(t => ({ ...t, [id]: data.transcript || [] }));
@@ -63,8 +66,10 @@ function CallLog({ calls }: { calls: any[] }) {
     audioRef.current?.pause();
     setPlayingId(call.id);
     try {
-      const res = await fetch(`https://api.elevenlabs.io/v1/convai/conversations/${call.conversation_id}/audio`, {
-        headers: { "xi-api-key": EL_API_KEY }
+      const res = await fetch(EL_PROXY, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "audio", conversation_id: call.conversation_id }),
       });
       if (!res.ok) throw new Error("No audio");
       const blob = await res.blob();
