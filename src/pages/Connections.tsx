@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2 } from "lucide-react";
 import { getMe } from "../lib/api";
 
+function getToken(): string | null { return localStorage.getItem("mh_token"); }
+
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const FN_URL = `${SUPABASE_URL}/functions/v1`;
@@ -57,7 +59,7 @@ interface Connection {
 export default function Connections() {
   const [customerId, setCustomerId] = useState("");
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
 
   // SimPRO form state
   const [simproBuildUrl, setSimproBuildUrl] = useState("");
