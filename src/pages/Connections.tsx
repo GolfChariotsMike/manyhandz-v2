@@ -233,7 +233,7 @@ export default function Connections() {
         ) : (
           <div className="space-y-3">
             <p className="text-white/50 text-xs mb-4">
-              SimPRO uses OAuth2. Your customer creates an API user in <strong>System → Setup → API</strong> and provides you the Client ID and Client Secret.
+              To connect SimPRO, you'll need to create an API user in your SimPRO account. Go to <strong>System → Setup → API</strong>, create a new API user, then enter your Build URL, Client ID and Client Secret below.
             </p>
             <input
               type="text"
@@ -329,7 +329,7 @@ export default function Connections() {
         ) : (
           <div className="space-y-3">
             <p className="text-white/50 text-xs mb-4">
-              Find your Tradify API key in <strong>Settings → API</strong> in your Tradify account.
+              To connect Tradify, go to <strong>Settings → API</strong> in your Tradify account, copy your API key and paste it below.
             </p>
             <input
               type="password"
