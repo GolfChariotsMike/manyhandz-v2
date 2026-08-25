@@ -35,7 +35,7 @@ export default function Chat() {
 
   function copyEmbed() {
     if (!config) return;
-    const code = `<script src="https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-chat-widget/embed.js" data-embed-key="${config.embed_key}"></script>`;
+    const code = `<script src="https://app.manyhandz.ai/widget.js" data-key="${config.embed_key}"></script>`;
     navigator.clipboard.writeText(code);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -109,7 +109,7 @@ export default function Chat() {
             <h2 className="font-semibold mb-4 flex items-center gap-2"><Eye size={18} /> Embed Code</h2>
             <p className="text-sm text-white/50 mb-4">Add this to your website's HTML, just before the closing &lt;/body&gt; tag.</p>
             <div className="bg-black/30 rounded-xl p-4 text-xs font-mono text-white/70 break-all">
-              {`<script src="https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-chat-widget/embed.js" data-embed-key="${config.embed_key}"></script>`}
+              {`<script src="https://app.manyhandz.ai/widget.js" data-key="${config.embed_key}"></script>`}
             </div>
             <button onClick={copyEmbed}
               className="mt-3 flex items-center gap-2 px-4 py-2 rounded-lg bg-white/10 text-sm hover:bg-white/15 transition-all">
