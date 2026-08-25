@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X } from "lucide-react";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug } from "lucide-react";
 import { clearToken } from "../lib/api";
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { to: "/quoting", icon: DollarSign, label: "Quoting" },
   { to: "/email", icon: Mail, label: "DraftPilot" },
   { to: "/chat", icon: MessageSquare, label: "Chat" },
+  { to: "/connections", icon: Plug, label: "Connections" },
   { to: "/usage", icon: BarChart3, label: "Usage" },
   { to: "/faq", icon: BookOpen, label: "Help & FAQ" },
 ];

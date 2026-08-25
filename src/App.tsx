@@ -15,6 +15,7 @@ import Team from "./pages/Team";
 import Billing from "./pages/Billing";
 import Quoting from "./pages/Quoting";
 import Admin from "./pages/Admin";
+import Connections from "./pages/Connections";
 import Layout from "./components/Layout";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="team" element={<Team />} />
           <Route path="billing" element={<Billing />} />
           <Route path="quoting" element={<Quoting />} />
+          <Route path="connections" element={<Connections />} />
           <Route path="usage" element={<Usage />} />
           <Route path="faq" element={<FAQ />} />
           <Route path="admin" element={<Admin />} />
