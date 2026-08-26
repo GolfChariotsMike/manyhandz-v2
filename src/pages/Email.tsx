@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   getMe, getEmailAccounts, getEmails, getEmailDrafts,
-  connectEmail, disconnectEmail, syncEmails, generateDraft,
+  connectEmail, connectGmail, connectOutlook, disconnectEmail, syncEmails, generateDraft,
   getEmailVoice, saveEmailVoice, analyzeVoice, suppressDraft
 } from "../lib/api";
 import {
@@ -182,7 +182,7 @@ export default function Email() {
             </div>
             <h2 className="text-xl font-semibold mb-2">Connect your inbox</h2>
             <p className="text-white/50 text-sm">
-              Connect with an app password. Your emails never leave your control.
+              Sign in with Google or Microsoft to connect your email securely.
             </p>
           </div>
 
@@ -191,6 +191,45 @@ export default function Email() {
               <Check size={16} /> Connected! Syncing your inbox...
             </div>
           )}
+
+          {/* OAuth buttons */}
+          <div className="flex gap-3 mb-6">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const data = await connectGmail(customer.id);
+                  if (data?.url) window.location.href = data.url;
+                } catch (err: any) {
+                  setConnectError(err.message || 'Failed to start Gmail connection');
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#EA4335" d="M5.27 9.77l-.84-3.15L1.3 6.24 5.27 9.77z"/><path fill="#34A853" d="M5.27 14.23L1.3 17.76l3.13-.38.84-3.15z"/><path fill="#4285F4" d="M12 10.18v3.89h5.39A5.4 5.4 0 0 1 12 18.18a6.18 6.18 0 0 1 0-12.36c1.53 0 2.92.56 4 1.47l2.9-2.9A10.16 10.16 0 0 0 12 2 10 10 0 1 0 12 22a9.61 9.61 0 0 0 6.69-2.69A9.29 9.29 0 0 0 21.27 12c0-.61-.05-1.22-.16-1.82H12z"/><path fill="#FBBC05" d="M1.3 6.24A9.94 9.94 0 0 0 2 12c0 2.07.49 4.02 1.3 5.76L5.27 14.23A5.93 5.93 0 0 1 5.27 9.77L1.3 6.24z"/></svg>
+              Connect with Gmail
+            </button>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const data = await connectOutlook(customer.id);
+                  if (data?.url) window.location.href = data.url;
+                } catch (err: any) {
+                  setConnectError(err.message || 'Failed to start Outlook connection');
+                }
+              }}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/20 transition-all text-sm font-medium"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#0078D4" d="M24 7.387v10.478c0 .23-.08.424-.238.58a.788.788 0 0 1-.581.238h-9.31V6.57h9.31c.23 0 .424.08.58.238.16.16.239.35.239.58z"/><path fill="#0364B8" d="M9.87 6.57v12.113H2.82c-.23 0-.425-.08-.582-.238a.788.788 0 0 1-.238-.58V7.387c0-.23.08-.42.238-.58a.788.788 0 0 1 .582-.238H9.87z"/><path fill="#28A8EA" d="M24 3.291v4.096H9.87V2h13.31c.23 0 .424.08.58.238.16.16.239.354.239.581z"/><path fill="#50D9FF" d="M9.87 2v5.387H2V3.291c0-.227.08-.42.238-.58A.788.788 0 0 1 2.82 2h7.05z"/><path fill="#0078D4" opacity=".5" d="M12.174 18.074H2.82a.788.788 0 0 1-.582-.238.788.788 0 0 1-.238-.58V8.174l5.913 3.478L12.174 8.174v9.9z"/></svg>
+              Connect with Outlook
+            </button>
+          </div>
+
+          <div className="relative mb-6">
+            <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-white/10"></div></div>
+            <div className="relative flex justify-center text-xs"><span className="px-3 bg-[#0a0a0f] text-white/30">or connect with app password</span></div>
+          </div>
 
           <form onSubmit={handleConnect} className="space-y-4">
             <div>
