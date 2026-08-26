@@ -590,12 +590,36 @@ export default function Admin() {
                             {c.trial_started_at && <div className="text-white/40 mt-1">Trial started {fmt(c.trial_started_at)}</div>}
                           </div>
                         </div>
-                        {c.stripe_subscription_id && (
-                          <div className="mt-3">
+                        <div className="mt-3 flex items-center gap-2">
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              try {
+                                const res = await fetch(`${SUPABASE_URL}/functions/v1/mh-v2-auth`, {
+                                  method: 'POST',
+                                  headers: { 'Content-Type': 'application/json', 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw' },
+                                  body: JSON.stringify({ action: 'admin-assume', secret: ADMIN_PIN, customer_id: c.id }),
+                                });
+                                const data = await res.json();
+                                if (data.token) {
+                                  localStorage.setItem('mh_token', data.token);
+                                  window.location.href = '/dashboard';
+                                } else {
+                                  alert(data.error || 'Failed to assume account');
+                                }
+                              } catch (err) {
+                                alert('Error: ' + err);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-400 text-xs font-medium transition-colors"
+                          >
+                            🔑 Assume Account
+                          </button>
+                          {c.stripe_subscription_id && (
                             <a href={`https://dashboard.stripe.com/subscriptions/${c.stripe_subscription_id}`} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()}
                               className="px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs transition-colors">Stripe →</a>
-                          </div>
-                        )}
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )}
