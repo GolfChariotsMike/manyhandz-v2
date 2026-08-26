@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls } from "../lib/api";
-import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp } from "lucide-react";
+import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 const EL_PROXY = `${"https://kouembkldbpdbhzeaoth.supabase.co"}/functions/v1/mhv2-el-proxy`;
@@ -321,6 +321,92 @@ export default function Dashboard() {
 
       {/* Call stats + recent calls */}
       {calls.length > 0 && <CallStats calls={calls} />}
+
+      {/* Report a bug */}
+      <ReportBug customer={customer} />
+    </div>
+  );
+}
+
+function ReportBug({ customer }: { customer: any }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+
+  async function handleSubmit() {
+    if (!message.trim()) return;
+    setSending(true);
+    try {
+      await fetch("https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_bug_reports", {
+        method: "POST",
+        headers: {
+          apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
+          Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          customer_id: customer?.id || null,
+          email: customer?.email || null,
+          business_name: customer?.business_name || null,
+          message: message.trim(),
+          page: window.location.pathname,
+          user_agent: navigator.userAgent,
+        }),
+      });
+      setSent(true);
+      setMessage("");
+      setTimeout(() => { setSent(false); setOpen(false); }, 2500);
+    } catch {}
+    finally { setSending(false); }
+  }
+
+  return (
+    <div className="mt-10 mb-4">
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-2 text-sm text-white/30 hover:text-white/50 transition-colors mx-auto"
+        >
+          <Bug size={14} /> Report a bug or issue
+        </button>
+      ) : (
+        <div className="aurora-card p-6 max-w-lg mx-auto">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold flex items-center gap-2 text-sm">
+              <Bug size={16} className="text-yellow-400" /> Report an issue
+            </h3>
+            <button onClick={() => setOpen(false)} className="text-white/30 hover:text-white/50"><X size={16} /></button>
+          </div>
+          {sent ? (
+            <div className="flex items-center gap-2 text-green-400 text-sm py-4">
+              <Check size={16} /> Thanks! We'll look into it.
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={message}
+                onChange={e => setMessage(e.target.value)}
+                placeholder="Describe the issue you're experiencing..."
+                rows={3}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm resize-none focus:outline-none focus:border-yellow-500/40 placeholder:text-white/20"
+                autoFocus
+              />
+              <div className="flex justify-end mt-3">
+                <button
+                  onClick={handleSubmit}
+                  disabled={!message.trim() || sending}
+                  className="flex items-center gap-2 px-5 py-2 rounded-xl bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {sending ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}
+                  {sending ? "Sending..." : "Send report"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
