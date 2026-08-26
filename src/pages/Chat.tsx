@@ -53,8 +53,42 @@ export default function Chat() {
       {!config ? (
         <div className="aurora-card p-8 text-center">
           <MessageSquare className="mx-auto mb-4 text-white/20" size={48} />
-          <p className="text-white/50 mb-4">Chat widget not set up yet.</p>
-          <p className="text-sm text-white/30">Enable chat during onboarding or contact support.</p>
+          {customer?.plan === "full_stack" || customer?.plan === "voice_inbox" ? (
+            <>
+              <p className="text-white/50 mb-4">Setting up your chat widget...</p>
+              <button
+                onClick={async () => {
+                  try {
+                    const res = await fetch(
+                      `https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_chat_config`,
+                      {
+                        method: "POST",
+                        headers: {
+                          apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
+                          Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw`,
+                          "Content-Type": "application/json",
+                          Prefer: "return=representation",
+                        },
+                        body: JSON.stringify({
+                          customer_id: customer.id,
+                          widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
+                        }),
+                      }
+                    );
+                    if (res.ok) loadData();
+                  } catch {}
+                }}
+                className="px-6 py-3 rounded-xl bg-yellow-500/20 text-yellow-400 font-medium hover:bg-yellow-500/30 transition-all"
+              >
+                Enable Chat Widget
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="text-white/50 mb-4">Chat widget is available on the Full Stack plan.</p>
+              <p className="text-sm text-white/30">Upgrade your plan to get a live chat widget for your website.</p>
+            </>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
