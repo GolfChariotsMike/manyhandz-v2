@@ -9,9 +9,15 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
+  const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val.trim());
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!isValidEmail(email)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
     setLoading(true);
     try {
       await requestMagicLink(email);
