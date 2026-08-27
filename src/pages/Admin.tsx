@@ -387,7 +387,7 @@ export default function Admin() {
                   {outreachContacts
                     .filter(c => outreachFilter === "all" || c.status === outreachFilter)
                     .filter(c => !outreachSearch || [c.business, c.name, c.city, c.category].join(" ").toLowerCase().includes(outreachSearch.toLowerCase()))
-                    .slice(0, 1000)
+                    .slice(0, 2000)
                     .map(c => (
                     <tr key={c.id} className="border-b border-white/5 hover:bg-white/3">
                       <td className="p-4">
