@@ -38,6 +38,13 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
         headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
         body: JSON.stringify({ customer_id: customer?.id || null, email: customer?.email || null, business_name: customer?.business_name || null, message: message.trim(), page: window.location.pathname, user_agent: navigator.userAgent }),
       });
+      // Notify via edge function (sends Telegram + email)
+      const who = customer?.business_name || customer?.email || "Unknown user";
+      fetch("https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-bug-notify", {
+        method: "POST",
+        headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ who, page: window.location.pathname, message: message.trim() }),
+      }).catch(() => {});
       setSent(true);
       setMessage("");
       setTimeout(() => { setSent(false); setOpen(false); }, 2500);
