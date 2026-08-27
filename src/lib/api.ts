@@ -27,12 +27,21 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   const token = getToken();
   headers["Authorization"] = `Bearer ${token || SUPABASE_ANON_KEY}`;
 
+  // Auth function reads action from body, not URL path
+  const isAuthFn = fn === "mh-v2-auth";
+  const url = isAuthFn ? `${FN_URL}/${fn}` : `${FN_URL}/${fn}${path ? `/${path}` : ""}`;
+  const payload = isAuthFn
+    ? (method === "GET" ? undefined : JSON.stringify({ action: path, ...(body as object || {}) }))
+    : (body ? JSON.stringify(body) : undefined);
+  // For GET /me, pass action as query param
+  const finalUrl = (isAuthFn && method === "GET") ? `${url}?action=${path}` : url;
+
   let res: Response;
   try {
-    res = await fetch(`${FN_URL}/${fn}/${path}`, {
+    res = await fetch(finalUrl, {
       method,
       headers,
-      body: body ? JSON.stringify(body) : undefined,
+      body: payload,
     });
   } catch {
     throw new Error("Connection error — please check your internet and try again.");
