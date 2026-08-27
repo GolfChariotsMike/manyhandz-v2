@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check } from "lucide-react";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck } from "lucide-react";
 import { clearToken, getMe } from "../lib/api";
 
 const navItems = [
@@ -82,9 +82,16 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
   );
 }
 
+const ADMIN_EMAIL = "info@stikstickers.com";
+
 export default function Layout() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useState(() => {
+    getMe().then(me => { if (me?.email === ADMIN_EMAIL) setIsAdmin(true); }).catch(() => {});
+  });
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -143,6 +150,11 @@ export default function Layout() {
             {label}
           </NavLink>
         ))}
+        {isAdmin && (
+          <NavLink to="/admin" onClick={closeMenu} className={({ isActive }) => `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${isActive ? "bg-white/10 text-white" : "text-yellow-500/70 hover:text-yellow-400 hover:bg-white/5"}`}>
+            <ShieldCheck size={18} /> Admin
+          </NavLink>
+        )}
         <ReportBugButton onClose={closeMenu} />
         <button
           onClick={() => { clearToken(); navigate("/login"); }}
