@@ -341,9 +341,9 @@ export default function Onboarding() {
       setProvisioning(true);
       setProvisionError("");
       try {
-        const res = await fetch(`${SUPABASE_URL}/functions/v1/mh-provision-number`, {
+        const res = await fetch(`https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-provision-number`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
+          headers: { "Content-Type": "application/json", "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw` },
           body: JSON.stringify({ customer_id: customer.id, country, state: country === "AU" ? state : undefined }),
         });
         const data = await res.json();
