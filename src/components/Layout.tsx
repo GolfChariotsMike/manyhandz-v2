@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug } from "lucide-react";
-import { clearToken } from "../lib/api";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check } from "lucide-react";
+import { clearToken, getMe } from "../lib/api";
 
 const navItems = [
   { to: "/", icon: Home, label: "Home" },
@@ -14,8 +14,66 @@ const navItems = [
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/connections", icon: Plug, label: "Connections" },
   { to: "/usage", icon: BarChart3, label: "Usage" },
+];
+
+const bottomNavItems = [
   { to: "/faq", icon: BookOpen, label: "Help & FAQ" },
 ];
+
+function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState("");
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
+
+  async function handleSubmit() {
+    if (!message.trim()) return;
+    setSending(true);
+    try {
+      let customer: any = null;
+      try { customer = await getMe(); } catch {}
+      await fetch("https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_bug_reports", {
+        method: "POST",
+        headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify({ customer_id: customer?.id || null, email: customer?.email || null, business_name: customer?.business_name || null, message: message.trim(), page: window.location.pathname, user_agent: navigator.userAgent }),
+      });
+      setSent(true);
+      setMessage("");
+      setTimeout(() => { setSent(false); setOpen(false); }, 2500);
+    } catch {}
+    finally { setSending(false); }
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/40 hover:text-white/70 transition-all w-full">
+        <Bug size={18} /> Report a bug
+      </button>
+    );
+  }
+
+  return (
+    <div className="px-2 pb-2">
+      <div className="bg-white/5 rounded-xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm font-medium flex items-center gap-2"><Bug size={14} className="text-yellow-400" /> Report an issue</span>
+          <button onClick={() => setOpen(false)} className="text-white/30 hover:text-white/50"><X size={14} /></button>
+        </div>
+        {sent ? (
+          <div className="flex items-center gap-2 text-green-400 text-sm py-2"><Check size={14} /> Thanks! We'll look into it.</div>
+        ) : (
+          <>
+            <textarea value={message} onChange={e => setMessage(e.target.value)} placeholder="What's the issue?" rows={3} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-white/30 resize-none focus:outline-none focus:border-yellow-500/50 mb-2" />
+            <button onClick={handleSubmit} disabled={sending || !message.trim()} className="w-full py-2 bg-yellow-600 hover:bg-yellow-500 disabled:opacity-40 text-white text-sm font-medium rounded-lg transition-colors">
+              {sending ? "Sending..." : "Send report"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -24,6 +82,7 @@ export default function Layout() {
   const closeMenu = () => setMenuOpen(false);
 
   const SidebarContent = () => (
+    // eslint-disable-next-line react/jsx-no-useless-fragment
     <>
       <div className="mb-8 flex items-center justify-between">
         <div>
@@ -59,13 +118,33 @@ export default function Layout() {
         ))}
       </nav>
 
-      <button
-        onClick={() => { clearToken(); navigate("/login"); }}
-        className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/40 hover:text-white/70 transition-all mt-2"
-      >
-        <LogOut size={18} />
-        Sign out
-      </button>
+      <div className="mt-2 space-y-1">
+        {bottomNavItems.map(({ to, icon: Icon, label }) => (
+          <NavLink
+            key={to}
+            to={to}
+            onClick={closeMenu}
+            className={({ isActive }) =>
+              `flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${
+                isActive
+                  ? "bg-white/10 text-white"
+                  : "text-white/50 hover:text-white/80 hover:bg-white/5"
+              }`
+            }
+          >
+            <Icon size={18} />
+            {label}
+          </NavLink>
+        ))}
+        <ReportBugButton onClose={closeMenu} />
+        <button
+          onClick={() => { clearToken(); navigate("/login"); }}
+          className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-white/40 hover:text-white/70 transition-all w-full"
+        >
+          <LogOut size={18} />
+          Sign out
+        </button>
+      </div>
     </>
   );
 
