@@ -1,7 +1,73 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck } from "lucide-react";
+import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle } from "lucide-react";
 import { clearToken, getMe } from "../lib/api";
+
+const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
+const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
+
+function daysUntil(dateStr: string) {
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86400000);
+}
+
+function TrialBanner() {
+  const navigate = useNavigate();
+  const [status, setStatus] = useState<{ subscription_status: string; trial_ends_at: string | null } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const me = await getMe();
+        if (!me?.id) return;
+        const r = await fetch(
+          `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at`,
+          { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } }
+        );
+        const rows = await r.json();
+        if (Array.isArray(rows) && rows[0]) setStatus(rows[0]);
+      } catch {}
+    })();
+  }, []);
+
+  if (!status) return null;
+
+  const { subscription_status, trial_ends_at } = status;
+  if (subscription_status === "active") return null;
+
+  const days = trial_ends_at ? daysUntil(trial_ends_at) : -1;
+  const isExpired = subscription_status === "expired" || days <= 0;
+  const isWarning = !isExpired && days <= 3;
+
+  if (!isExpired && !isWarning) return null;
+
+  if (isExpired) {
+    return (
+      <div className="mx-4 md:mx-8 mt-4 md:mt-6 flex items-center gap-3 bg-red-500/15 border border-red-500/40 rounded-xl px-4 py-3">
+        <XCircle size={18} className="text-red-400 shrink-0" />
+        <div className="flex-1 text-sm">
+          <span className="font-semibold text-red-400">Your trial has expired — AI is offline.</span>
+          <span className="text-white/50 ml-1">Subscribe to reactivate your number and agent.</span>
+        </div>
+        <button onClick={() => navigate("/billing")} className="shrink-0 px-3 py-1.5 bg-red-500 hover:bg-red-400 text-white text-xs font-semibold rounded-lg transition-colors">
+          Subscribe now
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-4 md:mx-8 mt-4 md:mt-6 flex items-center gap-3 bg-yellow-500/10 border border-yellow-500/40 rounded-xl px-4 py-3">
+      <AlertTriangle size={18} className="text-yellow-400 shrink-0" />
+      <div className="flex-1 text-sm">
+        <span className="font-semibold text-yellow-400">{days} day{days !== 1 ? "s" : ""} left in your free trial.</span>
+        <span className="text-white/50 ml-1">Add a payment method now to keep your number and AI agent.</span>
+      </div>
+      <button onClick={() => navigate("/billing")} className="shrink-0 px-3 py-1.5 bg-yellow-500 hover:bg-yellow-400 text-black text-xs font-semibold rounded-lg transition-colors">
+        Subscribe
+      </button>
+    </div>
+  );
+}
 
 const navItems = [
   { to: "/", icon: Home, label: "Home" },
@@ -202,8 +268,11 @@ export default function Layout() {
       </aside>
 
       {/* Main content */}
-      <main className="flex-1 md:ml-64 pt-16 md:pt-0 p-4 md:p-8 overflow-y-auto min-h-screen">
-        <Outlet />
+      <main className="flex-1 md:ml-64 pt-16 md:pt-0 overflow-y-auto min-h-screen">
+        <TrialBanner />
+        <div className="p-4 md:p-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   );
