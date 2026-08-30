@@ -1,0 +1,6 @@
+# ManyHandz v2 edge functions live on the shared Supabase project.
+# verify_jwt = false: callers use mh_token (dashboard) or mh_live_ keys (Grok Bot),
+# not Supabase-signed JWTs. The function enforces auth itself.
+
+[functions.mhv2-grokbot]
+verify_jwt = false
