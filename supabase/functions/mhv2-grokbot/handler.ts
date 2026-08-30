@@ -7,6 +7,9 @@ import {
   keySuffix,
   maskKey,
   mePublic,
+  knowledgePublic,
+  parseKnowledgePatch,
+  parseKnowledgePath,
   parseVoicePatch,
   publicVoices,
   rejectNonDashboardToken,
@@ -53,7 +56,11 @@ export type GrokbotEnv = {
 };
 
 const DASHBOARD_ROUTES = new Set(["/keys", "/keys/revoke"]);
-const GROKBOT_ROUTES = new Set(["/me", "/voice", "/voices", "/calls", "/voice/provision"]);
+const GROKBOT_ROUTES = new Set(["/me", "/voice", "/voices", "/calls", "/voice/provision", "/knowledge-base"]);
+
+function isGrokbotRoute(path: string): boolean {
+  return GROKBOT_ROUTES.has(path) || parseKnowledgePath(path) !== null;
+}
 
 async function resolveDashboardCustomer(
   req: Request,
@@ -134,6 +141,33 @@ async function loadVoiceConfig(env: GrokbotEnv, customerId: string) {
     .maybeSingle();
   if (error || !data) return null;
   return data as Record<string, unknown>;
+}
+
+async function loadKnowledge(
+  env: GrokbotEnv,
+  customerId: string,
+  id?: string | null,
+) {
+  let q = env.admin
+    .from("mh_knowledge_base")
+    .select("id, about, tone, services, faqs, hours, custom_instructions, updated_at, customer_id")
+    .eq("customer_id", customerId);
+  if (id) q = q.eq("id", id);
+  const { data, error } = await q.maybeSingle();
+  if (error || !data) return null;
+  return data as Record<string, unknown>;
+}
+
+async function syncKnowledgeToAgent(env: GrokbotEnv, customerId: string) {
+  await env.fetch(`${env.supabaseUrl}/functions/v1/mh-sync-agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      apikey: env.anonKey,
+      Authorization: `Bearer ${env.anonKey}`,
+    },
+    body: JSON.stringify({ customer_id: customerId }),
+  }).catch(() => {});
 }
 
 async function syncLiveAgent(
@@ -329,6 +363,42 @@ async function handleGrokbotApi(req: Request, path: string, env: GrokbotEnv): Pr
     }, 200, corsHeaders);
   }
 
+  const kbRoute = parseKnowledgePath(path);
+  if (kbRoute) {
+    if (req.method === "GET") {
+      const row = await loadKnowledge(env, customerId, kbRoute.id);
+      if (!row) return jsonResponse({ error: "Knowledge base not found" }, 404, corsHeaders);
+      return jsonResponse(knowledgePublic(row), 200, corsHeaders);
+    }
+
+    if (req.method === "PATCH") {
+      let body: unknown = {};
+      try { body = await req.json(); } catch {
+        return jsonResponse({ error: "JSON object required" }, 400, corsHeaders);
+      }
+      const { patch, error } = parseKnowledgePatch(body);
+      if (error) return jsonResponse({ error }, 400, corsHeaders);
+
+      const existing = await loadKnowledge(env, customerId, kbRoute.id);
+      if (!existing?.id) {
+        return jsonResponse({ error: "Knowledge base not found" }, 404, corsHeaders);
+      }
+
+      const { error: updErr } = await asResult(env.admin
+        .from("mh_knowledge_base")
+        .update({ ...patch, updated_at: env.now() })
+        .eq("id", existing.id)
+        .eq("customer_id", customerId));
+      if (updErr) return jsonResponse({ error: "Could not save knowledge base" }, 500, corsHeaders);
+
+      const row = await loadKnowledge(env, customerId, existing.id as string);
+      await syncKnowledgeToAgent(env, customerId);
+      return jsonResponse({ ok: true, knowledge_base: knowledgePublic(row) }, 200, corsHeaders);
+    }
+
+    return jsonResponse({ error: "Not found" }, 404, corsHeaders);
+  }
+
   return jsonResponse({ error: "Not found" }, 404, corsHeaders);
 }
 
@@ -338,7 +408,7 @@ export async function handleRequest(req: Request, env: GrokbotEnv): Promise<Resp
   const path = routePath(new URL(req.url));
 
   if (DASHBOARD_ROUTES.has(path)) return handleDashboard(req, path, env);
-  if (GROKBOT_ROUTES.has(path)) return handleGrokbotApi(req, path, env);
+  if (isGrokbotRoute(path)) return handleGrokbotApi(req, path, env);
 
   return jsonResponse({ error: "Not found" }, 404, corsHeaders);
 }

@@ -1,8 +1,8 @@
 # Grok Bot connector (`mhv2-grokbot`)
 
-Customers generate an `mh_live_` key on **Connections** and paste it into the ManyHandz connector in Grok Bot. ManyHandz stays the source of truth; Grok Bot only reads and writes voice settings for that customer.
+Customers generate an `mh_live_` key on **Connections** and paste it into the ManyHandz connector in Grok Bot. ManyHandz stays the source of truth; Grok Bot reads and writes voice settings and the same knowledge-base row the dashboard, phone agent, and chat widget already use.
 
-Deploy the function with JWT verification **off** (`supabase/config.toml` already sets `verify_jwt = false`). The function authenticates itself: dashboard routes use `mh_token` via `mh-v2-auth/me`; API routes accept only an unrevoked `mh_live_` key. The dashboard anon key and `mh_token` are rejected on `/me`, `/voice`, `/voices`, `/calls`, and `/voice/provision`.
+Deploy the function with JWT verification **off** (`supabase/config.toml` already sets `verify_jwt = false`). The function authenticates itself: dashboard routes use `mh_token` via `mh-v2-auth/me`; API routes accept only an unrevoked `mh_live_` key. The dashboard anon key and `mh_token` are rejected on `/me`, `/voice`, `/voices`, `/calls`, `/voice/provision`, and `/knowledge-base`.
 
 Apply `supabase/migrations/20260830000000_mh_grokbot_tokens.sql` on the project before deploying.
 
@@ -48,7 +48,26 @@ curl -sS "$BASE/calls" \
 curl -sS -X POST "$BASE/voice/provision" \
   -H "Authorization: Bearer $KEY" \
   -H "apikey: $ANON"
+
+# This customer's knowledge base (one row — same document as the dashboard)
+curl -sS "$BASE/knowledge-base" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $ANON"
+
+# Same document by id (404 if missing or not this customer)
+curl -sS "$BASE/knowledge-base/$KB_ID" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $ANON"
+
+# Update about / tone / services / faqs / hours (dashboard fields)
+curl -sS -X PATCH "$BASE/knowledge-base" \
+  -H "Authorization: Bearer $KEY" \
+  -H "apikey: $ANON" \
+  -H "Content-Type: application/json" \
+  -d '{"about":"Local plumbers, 24/7 emergencies.","tone":"friendly","services":["Blocked drains","Hot water"]}'
 ```
+
+Knowledge is one `mh_knowledge_base` row per customer (about, tone, services, faqs, hours, custom_instructions) — not a list of notes or uploaded files. There is no POST to add a second document; Grok updates the same row the dashboard Save button writes. After PATCH, the function calls `mh-sync-agent` so the live phone agent rebuilds its prompt from the new knowledge.
 
 `$ANON` is the public Supabase anon key (required by the gateway). It is **not** API auth. A request that sends only the anon key, or `Authorization: Bearer <mh_token>`, returns `401`.
 
