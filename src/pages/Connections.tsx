@@ -418,6 +418,8 @@ export default function Connections() {
             </p>
             <input
               type="text"
+              name="simpro-build-url"
+              autoComplete="off"
               placeholder="Build URL (e.g. https://acme.simprocloud.com)"
               value={simproBuildUrl}
               onChange={e => setSimproBuildUrl(e.target.value)}
@@ -425,6 +427,8 @@ export default function Connections() {
             />
             <input
               type="text"
+              name="simpro-client-id"
+              autoComplete="off"
               placeholder="Client ID"
               value={simpropClientId}
               onChange={e => setSimpropClientId(e.target.value)}
@@ -432,6 +436,8 @@ export default function Connections() {
             />
             <input
               type="password"
+              name="simpro-client-secret"
+              autoComplete="new-password"
               placeholder="Client Secret"
               value={simpropClientSecret}
               onChange={e => setSimpropClientSecret(e.target.value)}

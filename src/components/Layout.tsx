@@ -18,9 +18,10 @@ function TrialBanner() {
     (async () => {
       try {
         const me = await getMe();
-        if (!me?.id) return;
+        const customer = me?.customer;
+        if (!customer?.id) return;
         const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at`,
+          `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${customer.id}&select=subscription_status,trial_ends_at`,
           { headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}` } }
         );
         const rows = await r.json();
@@ -97,7 +98,7 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
     setSending(true);
     try {
       let customer: any = null;
-      try { customer = await getMe(); } catch {}
+      try { customer = (await getMe())?.customer; } catch {}
       await fetch("https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_bug_reports", {
         method: "POST",
         headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
@@ -149,14 +150,37 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
 
 const ADMIN_EMAIL = "info@stikstickers.com";
 
+function readAssumedFromToken(): boolean {
+  try {
+    const token = localStorage.getItem("mh_token");
+    if (!token) return false;
+    const part = token.split(".")[1];
+    if (!part) return false;
+    const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded));
+    return payload.assumed === true;
+  } catch {
+    return false;
+  }
+}
+
 export default function Layout() {
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [customer, setCustomer] = useState<{ business_name?: string | null; email?: string | null } | null>(null);
+  const [isAssumed] = useState(() => readAssumedFromToken());
 
   useState(() => {
-    getMe().then(me => { if (me?.email === ADMIN_EMAIL) setIsAdmin(true); }).catch(() => {});
+    getMe().then(me => {
+      const customer = me?.customer;
+      if (customer) setCustomer(customer);
+      if (customer?.email === ADMIN_EMAIL) setIsAdmin(true);
+    }).catch(() => {});
   });
+
+  const accountLabel = customer?.business_name || customer?.email || "";
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -168,7 +192,9 @@ export default function Layout() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
             ManyHandz
           </h1>
-          <p className="text-xs text-white/40 mt-0.5">Your AI team</p>
+          <p className="text-xs text-white/40 mt-0.5 truncate" title={accountLabel || undefined}>
+            {accountLabel || "Your AI team"}
+          </p>
         </div>
         {/* Close button — mobile only */}
         <button onClick={closeMenu} className="md:hidden text-white/40 hover:text-white">
@@ -268,6 +294,11 @@ export default function Layout() {
 
       {/* Main content */}
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 overflow-y-auto min-h-screen">
+        {isAssumed && accountLabel && (
+          <div className="mx-4 md:mx-8 mt-4 md:mt-6 px-4 py-2 rounded-xl bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 text-sm font-medium">
+            Viewing as {accountLabel}
+          </div>
+        )}
         <TrialBanner />
         <div className="p-4 md:p-8">
           <Outlet />
