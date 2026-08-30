@@ -4,8 +4,10 @@ import {
   canApplyScrapedKb,
   hostsMatch,
   initialWebsite,
+  knowledgePayloadFromForm,
   normalizeHost,
   parseOnboardingDraft,
+  profileUpdatesFromForm,
   provisionNumberBody,
   shouldDiscardOnboardingDraft,
 } from "./onboarding.ts";
@@ -106,4 +108,43 @@ test("initialWebsite prefers what they typed this session over leftover draft / 
 test("provision body is AU only — no state", () => {
   assert.deepEqual(provisionNumberBody("cust-1"), { customer_id: "cust-1", country: "AU" });
   assert.equal("state" in provisionNumberBody("cust-1"), false);
+});
+
+test("step 1 profile payload keeps empty website/industry as null", () => {
+  assert.deepEqual(profileUpdatesFromForm({
+    businessName: "Glacier Air",
+    website: "",
+    industry: "",
+  }), {
+    business_name: "Glacier Air",
+    website_url: null,
+    industry: null,
+  });
+});
+
+test("finish payload writes name again plus onboarding_complete", () => {
+  assert.deepEqual(profileUpdatesFromForm({
+    businessName: "Glacier Air",
+    website: "glacierair.com.au",
+    industry: "Other",
+    onboardingComplete: true,
+  }), {
+    business_name: "Glacier Air",
+    website_url: "glacierair.com.au",
+    industry: "Other",
+    onboarding_complete: true,
+  });
+});
+
+test("knowledge payload maps hours by weekday", () => {
+  const kb = knowledgePayloadFromForm({
+    about: "Scenic flights",
+    services: ["Flights"],
+    faqs: [{ q: "Hours?", a: "9-5" }],
+    hours: [{ day: "Monday", open: "09:00", close: "17:00", closed: false }],
+    tone: "friendly",
+  });
+  assert.equal(kb.about, "Scenic flights");
+  assert.deepEqual(kb.hours.monday, { open: "09:00", close: "17:00", closed: false });
+  assert.equal(kb.tone, "friendly");
 });
