@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { VOICES } from "../lib/voices";
 import {
@@ -301,9 +302,9 @@ function VoiceSlider({
         onChange={e => onChange(Number(e.target.value))}
         className="w-full accent-yellow-400 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer"
       />
-      <div className="flex justify-between text-xs text-white/40 mt-1">
-        <span>{left}</span>
-        <span>{right}</span>
+      <div className="flex justify-between gap-3 text-xs text-white/40 mt-1">
+        <span className="min-w-0">{left}</span>
+        <span className="min-w-0 text-right">{right}</span>
       </div>
     </div>
   );
@@ -361,7 +362,7 @@ function VoiceControlsCard({
         <VoiceSlider
           label="Clarity / similarity"
           left="Softer"
-          right="Closer to the voice"
+          right="Clearer"
           min={0}
           max={1}
           step={0.05}
@@ -370,8 +371,8 @@ function VoiceControlsCard({
         />
         <VoiceSlider
           label="Talking speed"
-          left="A bit slower"
-          right="A bit quicker"
+          left="Slower"
+          right="Faster"
           min={0.7}
           max={1.2}
           step={0.05}
@@ -408,6 +409,8 @@ function VoiceControlsCard({
 }
 
 export default function Voice() {
+  const location = useLocation();
+  const isPreview = location.pathname === "/voice-preview";
   const [config, setConfig] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
   const [customer, setCustomer] = useState<any>(null);
@@ -448,7 +451,7 @@ export default function Voice() {
     }
   };
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { if (!isPreview) loadData(); else setLoading(false); }, [isPreview]);
 
   async function handleProvision() {
     if (!customer?.id) { setProvisionError("Could not load your account. Please refresh and try again."); return; }
