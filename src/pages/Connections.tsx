@@ -1,6 +1,22 @@
 import { useState, useEffect } from "react";
-import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound } from "lucide-react";
+import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound, ExternalLink } from "lucide-react";
 import { generateGrokbotKey, getGrokbotKey, getMe, revokeGrokbotKey } from "../lib/api";
+
+const GROK_BOT_DOWNLOAD_URL = "https://x.ai/bot";
+
+function DownloadGrokBotLink() {
+  return (
+    <a
+      href={GROK_BOT_DOWNLOAD_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/80 text-sm hover:bg-white/10 hover:text-white transition-all"
+    >
+      <ExternalLink size={14} />
+      Download Grok Bot
+    </a>
+  );
+}
 
 function getToken(): string | null { return localStorage.getItem("mh_token"); }
 
@@ -175,6 +191,23 @@ function GrokBotCard() {
         Inbox work happens in Grok Bot with your own Gmail or Outlook. Generate a ManyHandz key so Grok can use this dashboard&apos;s knowledge base and voice settings. Connect Gmail or Outlook inside Grok Bot, not here.
       </p>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <DownloadGrokBotLink />
+        {!loading && !connected && !rawKey && (
+          <button
+            onClick={generate}
+            disabled={busy}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-500 text-[#0f1f3d] text-sm font-semibold hover:bg-yellow-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+            Generate key
+          </button>
+        )}
+      </div>
+      <p className="text-white/40 text-xs mt-2 mb-4">
+        Mac, Windows, iPhone, and Android
+      </p>
+
       {loading ? (
         <p className="text-white/40 text-sm">Loading…</p>
       ) : rawKey ? (
@@ -237,14 +270,6 @@ function GrokBotCard() {
           <p className="text-white/50 text-xs">
             Generate a key, paste it into the ManyHandz connector in Grok Bot, and connect Gmail or Outlook there.
           </p>
-          <button
-            onClick={generate}
-            disabled={busy}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-500 text-[#0f1f3d] text-sm font-semibold hover:bg-yellow-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
-            Generate key
-          </button>
         </div>
       )}
 
