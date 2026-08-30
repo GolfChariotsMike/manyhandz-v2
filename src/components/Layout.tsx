@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Mail, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle } from "lucide-react";
+import { Home, Brain, Phone, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle } from "lucide-react";
 import { clearToken, getMe } from "../lib/api";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
@@ -76,7 +76,6 @@ const navItems = [
   { to: "/team", icon: Users, label: "Team" },
   { to: "/billing", icon: CreditCard, label: "Billing" },
   { to: "/quoting", icon: DollarSign, label: "Quoting" },
-  { to: "/email", icon: Mail, label: "DraftPilot" },
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/connections", icon: Plug, label: "Connections" },
   { to: "/usage", icon: BarChart3, label: "Usage" },

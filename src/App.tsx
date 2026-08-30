@@ -9,7 +9,6 @@ import KnowledgeBase from "./pages/KnowledgeBase";
 import Voice from "./pages/Voice";
 import Usage from "./pages/Usage";
 import FAQ from "./pages/FAQ";
-import Email from "./pages/Email";
 import Chat from "./pages/Chat";
 import Team from "./pages/Team";
 import Billing from "./pages/Billing";
@@ -35,7 +34,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="voice" element={<Voice />} />
-          <Route path="email" element={<Email />} />
+          <Route path="email" element={<Navigate to="/connections" replace />} />
           <Route path="chat" element={<Chat />} />
           <Route path="team" element={<Team />} />
           <Route path="billing" element={<Billing />} />
