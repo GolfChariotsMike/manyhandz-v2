@@ -283,15 +283,16 @@ export default function Voice() {
     try {
       const { customer: c } = await getMe();
       setCustomer(c);
-      const [cfg, callLog] = await Promise.all([
-        getVoiceConfig(c.id),
-        getVoiceCalls(c.id),
-      ]);
-      const cfgRow = Array.isArray(cfg) ? cfg[0] || null : null;
-      setConfig(cfgRow);
-      if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
-      if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
-      setCalls(Array.isArray(callLog) ? callLog : []);
+      if (c?.id) {
+        getVoiceCalls(c.id)
+          .then((callLog) => setCalls(Array.isArray(callLog) ? callLog : []))
+          .catch(() => {});
+        const cfg = await getVoiceConfig(c.id);
+        const cfgRow = Array.isArray(cfg) ? cfg[0] || null : null;
+        setConfig(cfgRow);
+        if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
+        if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
+      }
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
       console.error("Voice loadData:", e.message);

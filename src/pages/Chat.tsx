@@ -1,12 +1,15 @@
 import { useState, useEffect } from "react";
 import { getMe, getChatConfig, saveChatConfig, getChatSessions } from "../lib/api";
+import { chatPageView } from "../lib/chat-page";
 import { chatWidgetEmbedSnippet, mountChatWidgetPreview, unmountChatWidgetPreview } from "../lib/chat-widget-preview";
-import { MessageSquare, Copy, Check, Settings, Eye } from "lucide-react";
+import { MessageSquare, Copy, Check, Settings, Eye, Loader2 } from "lucide-react";
 
 export default function Chat() {
   const [customer, setCustomer] = useState<any>(null);
   const [config, setConfig] = useState<any>(null);
   const [sessions, setSessions] = useState<any[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [formData, setFormData] = useState({ widget_name: "", widget_color: "#6366f1", greeting: "", fallback_message: "" });
@@ -22,16 +25,27 @@ export default function Chat() {
     try {
       const me = await getMe();
       setCustomer(me.customer);
-      const cid = me.customer.id;
-      const [cfg, sess] = await Promise.all([getChatConfig(cid), getChatSessions(cid)]);
+      const cid = me.customer?.id;
+      if (!cid) {
+        setSessionsLoading(false);
+        return;
+      }
+
+      getChatSessions(cid)
+        .then((sess) => setSessions(Array.isArray(sess) ? sess : []))
+        .catch(() => setSessions([]))
+        .finally(() => setSessionsLoading(false));
+
+      const cfg = await getChatConfig(cid);
       const cfgRows = Array.isArray(cfg) ? cfg : [];
-      const sessRows = Array.isArray(sess) ? sess : [];
       if (cfgRows.length) {
         setConfig(cfgRows[0]);
         setFormData({ widget_name: cfgRows[0].widget_name || "", widget_color: cfgRows[0].widget_color || "#6366f1", greeting: cfgRows[0].greeting || "", fallback_message: cfgRows[0].fallback_message || "" });
       }
-      setSessions(sessRows);
-    } catch {}
+    } catch {
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function handleSave() {
@@ -49,6 +63,8 @@ export default function Chat() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  const view = chatPageView({ loading, hasConfig: !!config });
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -58,45 +74,44 @@ export default function Chat() {
         </div>
       </div>
 
-      {!config ? (
+      {view === "loading" ? (
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="animate-spin text-yellow-400" size={32} />
+        </div>
+      ) : view === "enable" || !config ? (
         <div className="aurora-card p-8 text-center">
           <MessageSquare className="mx-auto mb-4 text-white/20" size={48} />
-          {customer?.plan === "full_stack" || customer?.plan === "voice_inbox" ? (
-            <>
-              <p className="text-white/50 mb-4">Setting up your chat widget...</p>
-              <button
-                onClick={async () => {
-                  try {
-                    const res = await fetch(
-                      `https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_chat_config`,
-                      {
-                        method: "POST",
-                        headers: {
-                          apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
-                          Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw`,
-                          "Content-Type": "application/json",
-                          Prefer: "return=representation",
-                        },
-                        body: JSON.stringify({
-                          customer_id: customer.id,
-                          widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
-                        }),
-                      }
-                    );
-                    if (res.ok) loadData();
-                  } catch {}
-                }}
-                className="px-6 py-3 rounded-xl bg-yellow-500/20 text-yellow-400 font-medium hover:bg-yellow-500/30 transition-all"
-              >
-                Enable Chat Widget
-              </button>
-            </>
-          ) : (
-            <>
-              <p className="text-white/50 mb-4">Chat widget is available on the Full Stack plan.</p>
-              <p className="text-sm text-white/30">Upgrade your plan to get a live chat widget for your website.</p>
-            </>
-          )}
+          <p className="text-white/50 mb-4">Setting up your chat widget...</p>
+          <button
+            onClick={async () => {
+              if (!customer?.id) return;
+              try {
+                const res = await fetch(
+                  `https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_chat_config`,
+                  {
+                    method: "POST",
+                    headers: {
+                      apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
+                      Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw`,
+                      "Content-Type": "application/json",
+                      Prefer: "return=representation",
+                    },
+                    body: JSON.stringify({
+                      customer_id: customer.id,
+                      widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
+                    }),
+                  }
+                );
+                if (res.ok) {
+                  setLoading(true);
+                  await loadData();
+                }
+              } catch {}
+            }}
+            className="px-6 py-3 rounded-xl bg-yellow-500/20 text-yellow-400 font-medium hover:bg-yellow-500/30 transition-all"
+          >
+            Enable Chat Widget
+          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -165,7 +180,9 @@ export default function Chat() {
           {/* Chat history */}
           <div className="aurora-card p-6 lg:col-span-2">
             <h2 className="font-semibold mb-4">Recent Conversations</h2>
-            {!Array.isArray(sessions) || sessions.length === 0 ? (
+            {sessionsLoading ? (
+              <p className="text-sm text-white/40">Loading conversations…</p>
+            ) : !Array.isArray(sessions) || sessions.length === 0 ? (
               <p className="text-sm text-white/40">No conversations yet. Deploy the widget and start chatting!</p>
             ) : (
               <div className="space-y-2">
