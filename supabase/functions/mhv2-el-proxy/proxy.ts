@@ -1,3 +1,5 @@
+import { padCallOpening } from "../_shared/voice-greeting.ts";
+
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -81,7 +83,10 @@ export function agentVoicePatch(body: Record<string, unknown>) {
   }
 
   if (greeting) {
-    conversation_config.agent = { first_message: greeting };
+    conversation_config.agent = {
+      first_message: padCallOpening(greeting),
+      disable_first_message_interruptions: true,
+    };
   }
 
   return { conversation_config };
