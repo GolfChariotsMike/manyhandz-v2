@@ -9,7 +9,8 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:grokbot": "node --experimental-strip-types --test supabase/functions/mhv2-grokbot/handler.test.ts",
-    "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts"
+    "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts",
+    "test:widget-preview": "node --experimental-strip-types --test src/lib/chat-widget-preview.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
