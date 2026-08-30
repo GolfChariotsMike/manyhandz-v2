@@ -4,7 +4,7 @@
  * Dashboard (mh_token via mh-v2-auth/me): GET|POST /keys, POST /keys/revoke
  * Grok Bot (Bearer mh_live_… only): GET /me, GET|PATCH /voice, GET /voices,
  *   GET /calls, POST /voice/provision, GET|PATCH /knowledge-base,
- *   GET|PATCH /knowledge-base/:id
+ *   GET|PATCH /knowledge-base/:id, POST /mcp (Streamable HTTP MCP wrapping those routes)
  *
  * After PATCH /voice: persist mh_voice_config, then mh-sync-agent + mhv2-el-proxy.
  * After PATCH /knowledge-base: persist mh_knowledge_base, then mh-sync-agent

@@ -1,6 +1,7 @@
 import {
   bearerToken,
   callPublic,
+  corsHeaders,
   customerFromMePayload,
   generateRawKey,
   jsonResponse,
@@ -20,12 +21,9 @@ import {
   voicePublic,
   type VoicePatch,
 } from "./helpers.ts";
+import { handleMcp } from "./mcp.ts";
 
-export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-};
+export { corsHeaders };
 
 export type QueryResult = { data: unknown; error: { message: string } | null };
 
@@ -407,6 +405,7 @@ export async function handleRequest(req: Request, env: GrokbotEnv): Promise<Resp
 
   const path = routePath(new URL(req.url));
 
+  if (path === "/mcp") return handleMcp(req, env, handleRequest);
   if (DASHBOARD_ROUTES.has(path)) return handleDashboard(req, path, env);
   if (isGrokbotRoute(path)) return handleGrokbotApi(req, path, env);
 
