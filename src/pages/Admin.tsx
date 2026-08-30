@@ -603,7 +603,7 @@ export default function Admin() {
                                 const data = await res.json();
                                 if (data.token) {
                                   localStorage.setItem('mh_token', data.token);
-                                  window.location.href = '/dashboard';
+                                  window.location.href = '/';
                                 } else {
                                   alert(data.error || 'Failed to assume account');
                                 }
