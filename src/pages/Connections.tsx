@@ -172,7 +172,7 @@ function GrokBotCard() {
       </div>
 
       <p className="text-white/55 text-sm leading-relaxed mb-4">
-        Inbox work happens in Grok Bot with your own Gmail. Generate a ManyHandz key so Grok can use this dashboard&apos;s knowledge base and voice settings — the same ones Voice and Chat already share. Connect Gmail inside Grok Bot, not here.
+        Inbox work happens in Grok Bot with your own Gmail or Outlook. Generate a ManyHandz key so Grok can use this dashboard&apos;s knowledge base and voice settings. Connect Gmail or Outlook inside Grok Bot, not here.
       </p>
 
       {loading ? (
@@ -195,13 +195,13 @@ function GrokBotCard() {
             </button>
           </div>
           <p className="text-white/50 text-xs">
-            In Grok Bot, open the ManyHandz connector and paste this API key, then connect Gmail there. Grok can use this knowledge base and change greeting, voice, capabilities, and whitelist — it does not answer your phone.
+            In Grok Bot, open the ManyHandz connector and paste this API key, then connect Gmail or Outlook there. Grok can use this knowledge base and change greeting, voice, capabilities, and whitelist — it does not answer your phone.
           </p>
         </div>
       ) : connected ? (
         <div className="space-y-3">
           <p className="text-white/50 text-xs">
-            Connect Gmail inside Grok Bot. This key lets Grok use the knowledge base and voice settings from this dashboard.
+            Connect Gmail or Outlook inside Grok Bot. This key lets Grok use the knowledge base and voice settings from this dashboard.
           </p>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
@@ -235,7 +235,7 @@ function GrokBotCard() {
       ) : (
         <div className="space-y-3">
           <p className="text-white/50 text-xs">
-            Generate a key, paste it into the ManyHandz connector in Grok Bot, and connect Gmail there.
+            Generate a key, paste it into the ManyHandz connector in Grok Bot, and connect Gmail or Outlook there.
           </p>
           <button
             onClick={generate}
@@ -270,17 +270,11 @@ export default function Connections() {
   const [simpropLoading, setSimpropLoading] = useState(false);
   const [simpropError, setSimpropError] = useState("");
 
-  // Tradify form state
-  const [tradifyApiKey, setTradifyApiKey] = useState("");
-  const [tradifyLoading, setTradifyLoading] = useState(false);
-  const [tradifyError, setTradifyError] = useState("");
-
   // Sync state
   const [syncingPlatform, setSyncingPlatform] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState("");
 
   const simpropConn = connections.find(c => c.platform === "simpro");
-  const tradifyConn = connections.find(c => c.platform === "tradify");
 
   async function loadConnections(cid?: string) {
     setLoading(true);
@@ -320,28 +314,11 @@ export default function Connections() {
     setSimpropLoading(false);
   }
 
-  async function connectTradify() {
-    setTradifyLoading(true);
-    setTradifyError("");
-    try {
-      await callFn("mhv2-tradify-connect", {
-        customer_id: customerId,
-        api_key: tradifyApiKey,
-      });
-      setTradifyApiKey("");
-      await loadConnections();
-    } catch (e: any) {
-      setTradifyError(e.message);
-    }
-    setTradifyLoading(false);
-  }
-
   async function syncNow(platform: string) {
     setSyncingPlatform(platform);
     setSyncMsg("");
     try {
-      const fn = platform === "simpro" ? "mhv2-simpro-sync" : "mhv2-tradify-sync";
-      const result = await callFn(fn, { customer_id: customerId });
+      const result = await callFn("mhv2-simpro-sync", { customer_id: customerId });
       setSyncMsg(`Synced ${result.synced || 0} jobs`);
       await loadConnections();
     } catch (e: any) {
@@ -473,88 +450,6 @@ export default function Connections() {
             >
               {simpropLoading ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
               Connect SimPRO
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Tradify Card */}
-      <div className="glass-card rounded-2xl p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center">
-              <span className="text-orange-300 font-bold text-sm">TF</span>
-            </div>
-            <div>
-              <h2 className="text-white font-semibold">Tradify</h2>
-              <p className="text-white/40 text-xs">Job management for tradespeople</p>
-            </div>
-          </div>
-          {tradifyConn ? (
-            <div className="flex items-center gap-2 text-green-400 text-sm">
-              <CheckCircle size={16} />
-              Connected
-            </div>
-          ) : (
-            <span className="text-white/30 text-sm">Not connected</span>
-          )}
-        </div>
-
-        {tradifyConn ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <p className="text-white/40 text-xs mb-1">Last synced</p>
-                <p className="text-white">{formatDate(tradifyConn.last_synced_at)}</p>
-              </div>
-              <div>
-                <p className="text-white/40 text-xs mb-1">Jobs synced</p>
-                <p className="text-white">{tradifyConn.jobs_synced_count ?? 0}</p>
-              </div>
-            </div>
-            <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => syncNow("tradify")}
-                disabled={syncingPlatform === "tradify"}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-orange-500/20 text-orange-300 text-sm hover:bg-orange-500/30 transition-all disabled:opacity-50"
-              >
-                {syncingPlatform === "tradify" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                Sync Now
-              </button>
-              <button
-                onClick={() => disconnect(tradifyConn)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
-              >
-                <Trash2 size={14} />
-                Disconnect
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <p className="text-white/50 text-xs mb-4">
-              To connect Tradify, go to <strong>Settings → API</strong> in your Tradify account, copy your API key and paste it below.
-            </p>
-            <input
-              type="password"
-              placeholder="Tradify API Key"
-              value={tradifyApiKey}
-              onChange={e => setTradifyApiKey(e.target.value)}
-              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-orange-500/50"
-            />
-            {tradifyError && (
-              <div className="flex items-center gap-2 text-red-400 text-sm">
-                <AlertCircle size={14} />
-                {tradifyError}
-              </div>
-            )}
-            <button
-              onClick={connectTradify}
-              disabled={tradifyLoading || !tradifyApiKey}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-orange-600 text-white text-sm font-medium hover:bg-orange-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {tradifyLoading ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
-              Connect Tradify
             </button>
           </div>
         )}
