@@ -302,7 +302,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { id: "voice", icon: Phone, name: "Voice", desc: "AI phone answering", link: "/voice", color: "from-green-500/20 to-emerald-500/20", active: !!customer?.voice_active },
-          { id: "grok", icon: Bot, name: "Grok Bot", desc: "Inbox with your Gmail", link: "/connections", color: "from-blue-500/20 to-cyan-500/20", active: grokConnected },
+          { id: "grok", icon: Bot, name: "Grok Bot", desc: "Inbox with your Gmail or Outlook", link: "/connections", color: "from-blue-500/20 to-cyan-500/20", active: grokConnected },
           { id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI website chat", link: "/chat", color: "from-yellow-600/20 to-yellow-400/20", active: false },
         ].map(p => (
           <Link key={p.id} to={p.link} className="aurora-card p-5 hover:bg-white/5 transition-all group">
