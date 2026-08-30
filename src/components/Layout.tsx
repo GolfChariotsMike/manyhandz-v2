@@ -295,7 +295,7 @@ export default function Layout() {
       {/* Main content */}
       <main className="flex-1 md:ml-64 pt-16 md:pt-0 overflow-y-auto min-h-screen">
         {isAssumed && accountLabel && (
-          <div className="mx-4 md:mx-8 mt-4 md:mt-6 px-4 py-2 rounded-xl bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 text-sm font-medium">
+          <div className="sticky top-16 md:top-0 z-20 mx-4 md:mx-8 mt-4 md:mt-6 px-4 py-2 rounded-xl bg-yellow-500/15 border border-yellow-500/40 text-yellow-300 text-sm font-medium backdrop-blur">
             Viewing as {accountLabel}
           </div>
         )}
