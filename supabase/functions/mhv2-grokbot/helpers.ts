@@ -201,4 +201,114 @@ export function callPublic(row: Record<string, unknown>) {
   };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const TONES = new Set(["friendly", "formal", "casual"]);
+const ABOUT_MAX = 8000;
+const SERVICE_MAX = 200;
+const FAQ_MAX = 2000;
+const MAX_SERVICES = 50;
+const MAX_FAQS = 50;
+
+export type KnowledgePatch = {
+  about?: string;
+  tone?: string;
+  services?: string[];
+  faqs?: { q: string; a: string }[];
+  hours?: Record<string, unknown>;
+  custom_instructions?: unknown;
+};
+
+/** `/knowledge-base` or `/knowledge-base/:uuid`. Other paths are not KB routes. */
+export function parseKnowledgePath(path: string): { id: string | null } | null {
+  if (path === "/knowledge-base") return { id: null };
+  if (!path.startsWith("/knowledge-base/")) return null;
+  const rest = path.slice("/knowledge-base/".length);
+  if (!rest || rest.includes("/")) return null;
+  if (!UUID_RE.test(rest)) return null;
+  return { id: rest };
+}
+
+export function parseKnowledgePatch(body: unknown): { patch: KnowledgePatch; error?: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { patch: {}, error: "JSON object required" };
+  }
+  const src = body as Record<string, unknown>;
+  const patch: KnowledgePatch = {};
+
+  if (src.about !== undefined) {
+    if (typeof src.about !== "string") return { patch, error: "about must be a string" };
+    const trimmed = src.about.trim();
+    if (trimmed.length > ABOUT_MAX) return { patch, error: "about is too long" };
+    patch.about = trimmed;
+  }
+
+  if (src.tone !== undefined) {
+    if (typeof src.tone !== "string") return { patch, error: "tone must be a string" };
+    const tone = src.tone.trim().toLowerCase();
+    if (!TONES.has(tone)) return { patch, error: "tone must be friendly, formal, or casual" };
+    patch.tone = tone;
+  }
+
+  if (src.services !== undefined) {
+    if (!Array.isArray(src.services) || src.services.some(s => typeof s !== "string")) {
+      return { patch, error: "services must be an array of strings" };
+    }
+    if (src.services.length > MAX_SERVICES) return { patch, error: "too many services" };
+    const services = src.services.map(s => s.trim()).filter(Boolean);
+    if (services.some(s => s.length > SERVICE_MAX)) return { patch, error: "a service name is too long" };
+    patch.services = services;
+  }
+
+  if (src.faqs !== undefined) {
+    if (!Array.isArray(src.faqs)) return { patch, error: "faqs must be an array" };
+    if (src.faqs.length > MAX_FAQS) return { patch, error: "too many faqs" };
+    const faqs: { q: string; a: string }[] = [];
+    for (const item of src.faqs) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) {
+        return { patch, error: "each faq must be an object with q and a" };
+      }
+      const faq = item as Record<string, unknown>;
+      const q = faq.q ?? faq.question;
+      const a = faq.a ?? faq.answer;
+      if (typeof q !== "string" || typeof a !== "string") {
+        return { patch, error: "each faq must have q and a strings" };
+      }
+      const qt = q.trim();
+      const at = a.trim();
+      if (qt.length > FAQ_MAX || at.length > FAQ_MAX) return { patch, error: "a faq is too long" };
+      faqs.push({ q: qt, a: at });
+    }
+    patch.faqs = faqs;
+  }
+
+  if (src.hours !== undefined) {
+    if (!src.hours || typeof src.hours !== "object" || Array.isArray(src.hours)) {
+      return { patch, error: "hours must be an object" };
+    }
+    patch.hours = src.hours as Record<string, unknown>;
+  }
+
+  if (src.custom_instructions !== undefined) {
+    patch.custom_instructions = src.custom_instructions;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { patch, error: "No supported knowledge-base fields to update" };
+  }
+  return { patch };
+}
+
+export function knowledgePublic(row: Record<string, unknown> | null) {
+  return {
+    id: row?.id ?? null,
+    updated_at: row?.updated_at ?? null,
+    about: row?.about ?? null,
+    tone: row?.tone ?? null,
+    services: Array.isArray(row?.services) ? row.services : [],
+    faqs: Array.isArray(row?.faqs) ? row.faqs : [],
+    hours: row?.hours && typeof row.hours === "object" ? row.hours : {},
+    custom_instructions: row?.custom_instructions ?? {},
+  };
+}
+
 export { VOICES, findVoice };

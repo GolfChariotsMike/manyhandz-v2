@@ -110,7 +110,7 @@ function GrokBotCard() {
   }
 
   async function revoke() {
-    if (!confirm("Revoke the Grok Bot key? Chat will stop being able to change voice settings until you generate a new one.")) return;
+    if (!confirm("Revoke the Grok Bot key? Chat will stop being able to change voice settings and the knowledge base until you generate a new one.")) return;
     setBusy(true);
     setError("");
     try {
@@ -156,7 +156,7 @@ function GrokBotCard() {
           </div>
           <div>
             <h2 className="text-white font-semibold">Grok Bot</h2>
-            <p className="text-white/40 text-xs">Change greeting and voice from chat</p>
+            <p className="text-white/40 text-xs">Change greeting, voice, and knowledge base from chat</p>
           </div>
         </div>
         {loading ? (
@@ -191,7 +191,7 @@ function GrokBotCard() {
             </button>
           </div>
           <p className="text-white/50 text-xs">
-            In Grok Bot, open the ManyHandz connector and paste this API key. Grok Bot can then change greeting, voice, capabilities, and whitelist — it does not answer your phone.
+            In Grok Bot, open the ManyHandz connector and paste this API key. Grok Bot can then change greeting, voice, capabilities, whitelist, and the knowledge base — it does not answer your phone.
           </p>
         </div>
       ) : connected ? (
@@ -228,7 +228,7 @@ function GrokBotCard() {
       ) : (
         <div className="space-y-3">
           <p className="text-white/50 text-xs">
-            Change greeting and voice from chat. Generate a key, then paste it into the ManyHandz connector in Grok Bot.
+            Change greeting, voice, and knowledge base from chat. Generate a key, then paste it into the ManyHandz connector in Grok Bot.
           </p>
           <button
             onClick={generate}
