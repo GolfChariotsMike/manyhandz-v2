@@ -76,7 +76,7 @@ export async function scrapeWebsite(url: string) {
 
 // Direct Supabase REST calls for dashboard data
 // Always use anon key for Authorization — custom JWT is not signed by Supabase and will 401
-function asRows(data: unknown): any[] {
+export function asRows(data: unknown): any[] {
   return Array.isArray(data) ? data : [];
 }
 
