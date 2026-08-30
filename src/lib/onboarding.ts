@@ -97,6 +97,45 @@ export function provisionNumberBody(customerId: string) {
   return { customer_id: customerId, country: "AU" as const };
 }
 
+export function profileUpdatesFromForm(input: {
+  businessName: string;
+  website: string;
+  industry: string;
+  onboardingComplete?: boolean;
+}) {
+  const updates: {
+    business_name: string;
+    website_url: string | null;
+    industry: string | null;
+    onboarding_complete?: boolean;
+  } = {
+    business_name: input.businessName,
+    website_url: input.website || null,
+    industry: input.industry || null,
+  };
+  if (input.onboardingComplete) updates.onboarding_complete = true;
+  return updates;
+}
+
+export function knowledgePayloadFromForm(input: {
+  about: string;
+  services: string[];
+  faqs: { q: string; a: string }[];
+  hours: { day: string; open: string; close: string; closed: boolean }[];
+  tone: string;
+}) {
+  return {
+    about: input.about,
+    services: input.services,
+    faqs: input.faqs,
+    hours: input.hours.reduce((acc, h) => {
+      acc[h.day.toLowerCase()] = { open: h.open, close: h.close, closed: h.closed };
+      return acc;
+    }, {} as Record<string, { open: string; close: string; closed: boolean }>),
+    tone: input.tone,
+  };
+}
+
 export function loadDraftForCustomer(customerId: string): OnboardingDraft | null {
   try {
     const raw = localStorage.getItem(ONBOARDING_STORAGE_KEY);

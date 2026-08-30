@@ -76,6 +76,33 @@ export async function getMe() {
   return meCache.get(() => callFn("mh-v2-auth", "me", "GET"));
 }
 
+export type ProfileUpdates = {
+  business_name?: string;
+  website_url?: string | null;
+  industry?: string | null;
+  onboarding_complete?: boolean;
+};
+
+/** Persist mh_v2_customers via mh-v2-save (service role). Do not PATCH REST with the anon key. */
+export async function updateProfile(updates: ProfileUpdates) {
+  const data = await callFn("mh-v2-save", "profile", "POST", updates);
+  meCache.clear();
+  return data;
+}
+
+export type OnboardingKnowledge = {
+  about: string;
+  services: unknown[];
+  faqs: unknown[];
+  hours: Record<string, unknown>;
+  tone: string;
+};
+
+/** Persist mh_knowledge_base via mh-v2-save (JWT sub = customer). */
+export async function saveOnboardingKnowledge(kb: OnboardingKnowledge) {
+  return callFn("mh-v2-save", "knowledge", "POST", kb);
+}
+
 export async function scrapeWebsite(url: string) {
   return callFn("mh-v2-scrape", "", "POST", { url });
 }

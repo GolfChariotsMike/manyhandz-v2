@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getMe, scrapeWebsite, upsertKnowledgeBase } from "../lib/api";
+import { getMe, scrapeWebsite, updateProfile, saveOnboardingKnowledge } from "../lib/api";
+import { meCache } from "../lib/meCache";
 import {
   canApplyScrapedKb,
   clearOnboardingDraft,
   initialWebsite,
+  knowledgePayloadFromForm,
   loadDraftForCustomer,
+  profileUpdatesFromForm,
   provisionNumberBody,
   saveOnboardingDraft,
 } from "../lib/onboarding";
@@ -179,6 +182,12 @@ export default function Onboarding() {
   const [scanRequestedUrl, setScanRequestedUrl] = useState("");
   const [scanFinalUrl, setScanFinalUrl] = useState("");
   const [scanNote, setScanNote] = useState("");
+  const [step1Error, setStep1Error] = useState("");
+  const [step1Saving, setStep1Saving] = useState(false);
+  const [kbError, setKbError] = useState("");
+  const [kbSaving, setKbSaving] = useState(false);
+  const [finishError, setFinishError] = useState("");
+  const [finishSaving, setFinishSaving] = useState(false);
 
   // Scraping animation
   const [scrapePhase, setScrapePhase] = useState(0);
@@ -263,27 +272,20 @@ export default function Onboarding() {
   // Step 1 → Step 2/3
   async function handleStep1() {
     if (!businessName.trim()) return;
-    
-    // Update customer record with business details via API
+    setStep1Error("");
+    setStep1Saving(true);
     try {
-      const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
-      if (customer?.id) {
-        await fetch(`${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${customer.id}`, {
-          method: "PATCH",
-          headers: {
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            business_name: businessName,
-            website_url: website || null,
-            industry: industry || null,
-          }),
-        });
-      }
-    } catch {}
+      await updateProfile(profileUpdatesFromForm({
+        businessName,
+        website: website || "",
+        industry,
+      }));
+    } catch (e: unknown) {
+      setStep1Error(e instanceof Error ? e.message : "Could not save business details. Please try again.");
+      setStep1Saving(false);
+      return;
+    }
+    setStep1Saving(false);
 
     if (website.trim()) {
       goStep(2);
@@ -360,18 +362,22 @@ export default function Onboarding() {
   const [provisionError, setProvisionError] = useState("");
 
   async function handleSaveKB() {
-    if (customer?.id) {
-      try {
-        // Upsert KB — creates if missing, updates if exists
-        await upsertKnowledgeBase(customer.id, {
-          about,
-          services,
-          faqs,
-          hours: hours.reduce((acc, h) => ({ ...acc, [h.day.toLowerCase()]: { open: h.open, close: h.close, closed: h.closed } }), {}),
-          tone,
-        });
-      } catch {}
+    setKbError("");
+    setKbSaving(true);
+    try {
+      await saveOnboardingKnowledge(knowledgePayloadFromForm({
+        about,
+        services,
+        faqs,
+        hours,
+        tone,
+      }));
+    } catch (e: unknown) {
+      setKbError(e instanceof Error ? e.message : "Could not save knowledge base. Please try again.");
+      setKbSaving(false);
+      return;
     }
+    setKbSaving(false);
     // Auto-provision voice number — skip if already provisioned
     if (customer?.id && !customer.twilio_number && !provisionedNumber) {
       setProvisioning(true);
@@ -399,25 +405,23 @@ export default function Onboarding() {
 
   // Finish onboarding
   async function handleFinish() {
+    setFinishError("");
+    setFinishSaving(true);
     try {
-      const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
-      if (customer?.id) {
-        const token = localStorage.getItem("mh_token") || SUPABASE_ANON_KEY;
-        await fetch(`${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${customer.id}`, {
-          method: "PATCH",
-          headers: {
-            "apikey": SUPABASE_ANON_KEY,
-            "Authorization": `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ onboarding_complete: true }),
-        });
-      }
-    } catch {}
-    clearOnboardingDraft();
-    goStep(5);
-    setTimeout(() => navigate("/"), 2000);
+      await updateProfile(profileUpdatesFromForm({
+        businessName,
+        website: website || "",
+        industry,
+        onboardingComplete: true,
+      }));
+      meCache.clear();
+      clearOnboardingDraft();
+      goStep(5);
+      setTimeout(() => navigate("/"), 2000);
+    } catch (e: unknown) {
+      setFinishError(e instanceof Error ? e.message : "Could not finish onboarding. Please try again.");
+      setFinishSaving(false);
+    }
   }
 
   function addService() {
@@ -517,7 +521,10 @@ export default function Onboarding() {
             </div>
           </div>
 
-          <button className="btn-primary w-full mt-6 flex items-center justify-center gap-2" onClick={handleStep1} disabled={!businessName.trim()}>
+          {step1Error && <p className="text-red-400 text-sm mt-4">{step1Error}</p>}
+
+          <button className="btn-primary w-full mt-6 flex items-center justify-center gap-2" onClick={handleStep1} disabled={!businessName.trim() || step1Saving}>
+            {step1Saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Next <ChevronRight size={18} />
           </button>
         </div>
@@ -697,8 +704,11 @@ export default function Onboarding() {
             </div>
           </div>
 
+          {kbError && <p className="text-red-400 text-sm mt-6">{kbError}</p>}
+
           <div className="flex gap-3 mt-8">
-            <button className="btn-primary flex-1 flex items-center justify-center gap-2" onClick={handleSaveKB}>
+            <button className="btn-primary flex-1 flex items-center justify-center gap-2" onClick={handleSaveKB} disabled={kbSaving}>
+              {kbSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Looks good <ChevronRight size={18} />
             </button>
             <button className="btn-secondary px-5 text-sm text-white/50 hover:text-white/70" onClick={() => goStep(4)}>
@@ -740,7 +750,10 @@ export default function Onboarding() {
 
           <p className="text-white/30 text-sm mb-8">Call it right now to hear your AI in action. We'll walk you through going live from your dashboard.</p>
 
-          <button className="btn-primary w-full flex items-center justify-center gap-2" onClick={handleFinish}>
+          {finishError && <p className="text-red-400 text-sm mb-4">{finishError}</p>}
+
+          <button className="btn-primary w-full flex items-center justify-center gap-2" onClick={handleFinish} disabled={finishSaving}>
+            {finishSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Go to dashboard <ChevronRight size={18} />
           </button>
         </div>
