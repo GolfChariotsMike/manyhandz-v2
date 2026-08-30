@@ -192,7 +192,7 @@ export default function Layout() {
           <h1 className="text-2xl font-bold bg-gradient-to-r from-yellow-600 to-yellow-400 bg-clip-text text-transparent">
             ManyHandz
           </h1>
-          <p className="text-xs text-white/40 mt-0.5 truncate" title={accountLabel || undefined}>
+          <p className="text-xs text-white/70 mt-1 truncate" title={accountLabel || undefined}>
             {accountLabel || "Your AI team"}
           </p>
         </div>
