@@ -2,7 +2,7 @@ export const VOICE_CONTROL_DEFAULTS = {
   tts_stability: 0.75,
   tts_similarity: 0.75,
   tts_speed: 0.95,
-  turn_eagerness: "normal" as const,
+  turn_eagerness: "patient" as const,
   turn_timeout: 7,
 };
 

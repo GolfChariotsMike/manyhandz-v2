@@ -11,6 +11,25 @@ test("preview_tts defaults match the live 0.75/0.75 settings when sliders are om
   });
 });
 
+test("agentVoicePatch pads greeting and disables first-message interruptions", () => {
+  const patch = agentVoicePatch({
+    voice_id: "voice-1",
+    greeting: "Hey, thanks for calling Acme.",
+  });
+  assert.deepEqual(patch.conversation_config.agent, {
+    first_message: "... Hey, thanks for calling Acme.",
+    disable_first_message_interruptions: true,
+  });
+
+  assert.deepEqual(agentVoicePatch({
+    voice_id: "voice-1",
+    greeting: "... Hi, this is Acme.",
+  }).conversation_config.agent, {
+    first_message: "... Hi, this is Acme.",
+    disable_first_message_interruptions: true,
+  });
+});
+
 test("update_agent_voice with only voice_id stays a tts.voice_id PATCH (greeting still optional)", () => {
   assert.deepEqual(agentVoicePatch({ voice_id: "voice-1" }), {
     conversation_config: { tts: { voice_id: "voice-1" } },
@@ -35,7 +54,10 @@ test("update_agent_voice sends tts + turn + greeting when provided", () => {
         speed: 0.95,
       },
       turn: { turn_eagerness: "patient", turn_timeout: 7 },
-      agent: { first_message: "G'day, thanks for calling." },
+      agent: {
+        first_message: "... G'day, thanks for calling.",
+        disable_first_message_interruptions: true,
+      },
     },
   });
 });
@@ -100,7 +122,10 @@ test("handleElProxy keeps existing actions and forwards slider voice_settings", 
     speed: 0.95,
   });
   assert.deepEqual(patch.conversation_config.turn, { turn_eagerness: "eager", turn_timeout: 7 });
-  assert.deepEqual(patch.conversation_config.agent, { first_message: "Hey, thanks for calling." });
+  assert.deepEqual(patch.conversation_config.agent, {
+    first_message: "... Hey, thanks for calling.",
+    disable_first_message_interruptions: true,
+  });
 
   const transcript = await handleElProxy(new Request("https://example.com", {
     method: "POST",

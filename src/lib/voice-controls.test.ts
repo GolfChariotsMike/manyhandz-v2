@@ -69,7 +69,7 @@ test("DB patch includes new columns without dropping greeting", () => {
   assert.equal(patch.tts_stability, 0.75);
   assert.equal(patch.tts_similarity, 0.75);
   assert.equal(patch.tts_speed, 0.95);
-  assert.equal(patch.turn_eagerness, "normal");
+  assert.equal(patch.turn_eagerness, "patient");
   assert.equal(patch.turn_timeout, 7);
   assert.equal("greeting_script" in patch, false);
 });

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { padCallOpening } from "../_shared/voice-greeting.ts";
 import { auMobileSearchFallbackPath, auMobileSearchPath } from "./search.ts";
 
 const cors = {
@@ -169,12 +170,13 @@ serve(async (req) => {
       name: `${businessName} Receptionist`,
       conversation_config: {
         agent: {
-          first_message: greeting,
+          first_message: padCallOpening(greeting),
+          disable_first_message_interruptions: true,
           prompt: { prompt: systemPrompt, llm: "gpt-4o-mini", temperature: 0.7, tools: agentTools },
         },
         tts: { voice_id: EL_DEFAULT_VOICE, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
         asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
-        turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "normal" },
+        turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "patient" },
       },
       platform_settings: { auth: { enable_auth: false } },
     });
@@ -237,6 +239,7 @@ serve(async (req) => {
         system_prompt: systemPrompt,
         active: true,
         el_agent_id: elAgentId,
+        turn_eagerness: "patient",
       });
     } else {
       await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", {
