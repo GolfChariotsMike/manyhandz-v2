@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { getMe, getVoiceCalls } from "../lib/api";
-import { Phone, BookOpen, Zap, Check, ArrowRight, Mail, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
+import { getMe, getVoiceCalls, getGrokbotKey } from "../lib/api";
+import { Phone, BookOpen, Zap, Check, ArrowRight, Bot, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 const EL_PROXY = `${"https://kouembkldbpdbhzeaoth.supabase.co"}/functions/v1/mhv2-el-proxy`;
@@ -194,6 +194,7 @@ export default function Dashboard() {
   const [customer, setCustomer] = useState<any>(null);
   const [completedSteps, setCompletedSteps] = useState<string[]>([]);
   const [calls, setCalls] = useState<any[]>([]);
+  const [grokConnected, setGrokConnected] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -205,6 +206,7 @@ export default function Dashboard() {
         getVoiceCalls(d.customer.id).then(data => setCalls(Array.isArray(data) ? data.slice(0, 10) : []));
       }
     }).catch(() => {});
+    getGrokbotKey().then(d => setGrokConnected(!!d.connected)).catch(() => {});
   }, []);
 
   function markDone(stepId: string) {
@@ -300,7 +302,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
           { id: "voice", icon: Phone, name: "Voice", desc: "AI phone answering", link: "/voice", color: "from-green-500/20 to-emerald-500/20", active: !!customer?.voice_active },
-          { id: "email", icon: Mail, name: "DraftPilot", desc: "AI email drafts", link: "/email", color: "from-blue-500/20 to-cyan-500/20", active: false },
+          { id: "grok", icon: Bot, name: "Grok Bot", desc: "Inbox with your Gmail", link: "/connections", color: "from-blue-500/20 to-cyan-500/20", active: grokConnected },
           { id: "chat", icon: MessageSquare, name: "Chat Widget", desc: "AI website chat", link: "/chat", color: "from-yellow-600/20 to-yellow-400/20", active: false },
         ].map(p => (
           <Link key={p.id} to={p.link} className="aurora-card p-5 hover:bg-white/5 transition-all group">

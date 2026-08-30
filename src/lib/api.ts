@@ -135,7 +135,7 @@ export async function getUsage(customerId: string) {
   return supabaseRest("mh_usage_v2", `customer_id=eq.${customerId}&select=*&order=period_start.desc`);
 }
 
-// Email (DraftPilot) APIs
+// Email APIs (legacy inbox endpoints; customer email now lives in Grok Bot)
 export async function getEmailAccounts(customerId: string) {
   return supabaseRest("mh_email_accounts", `customer_id=eq.${customerId}&select=*&is_active=eq.true`);
 }

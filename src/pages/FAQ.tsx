@@ -21,6 +21,10 @@ const FAQS = [
         q: "Why isn't call forwarding working?",
         a: "Some mobile carriers don't support call forwarding on certain plans — particularly basic prepaid plans. If the option is greyed out in your phone settings or forwarding just doesn't activate, contact your carrier and ask if call forwarding is included on your plan. If it's not, the simplest fix is to use your ManyHandz number as your main number instead.",
       },
+      {
+        q: "How do I handle email?",
+        a: "Inbox work happens in Grok Bot with your own Gmail. Go to Connections, generate a ManyHandz key, and paste it into the ManyHandz connector in Grok Bot. Connect Gmail inside Grok Bot — not in this dashboard. Voice, Chat, and Grok share the same knowledge base.",
+      },
     ],
   },
   {

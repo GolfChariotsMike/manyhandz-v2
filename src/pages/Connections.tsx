@@ -156,7 +156,7 @@ function GrokBotCard() {
           </div>
           <div>
             <h2 className="text-white font-semibold">Grok Bot</h2>
-            <p className="text-white/40 text-xs">Change greeting, voice, and knowledge base from chat</p>
+            <p className="text-white/40 text-xs">Inbox, knowledge base, and voice</p>
           </div>
         </div>
         {loading ? (
@@ -170,6 +170,10 @@ function GrokBotCard() {
           <span className="text-white/30 text-sm">Not connected</span>
         )}
       </div>
+
+      <p className="text-white/55 text-sm leading-relaxed mb-4">
+        Inbox work happens in Grok Bot with your own Gmail. Generate a ManyHandz key so Grok can use this dashboard&apos;s knowledge base and voice settings — the same ones Voice and Chat already share. Connect Gmail inside Grok Bot, not here.
+      </p>
 
       {loading ? (
         <p className="text-white/40 text-sm">Loading…</p>
@@ -191,11 +195,14 @@ function GrokBotCard() {
             </button>
           </div>
           <p className="text-white/50 text-xs">
-            In Grok Bot, open the ManyHandz connector and paste this API key. Grok Bot can then change greeting, voice, capabilities, whitelist, and the knowledge base — it does not answer your phone.
+            In Grok Bot, open the ManyHandz connector and paste this API key, then connect Gmail there. Grok can use this knowledge base and change greeting, voice, capabilities, and whitelist — it does not answer your phone.
           </p>
         </div>
       ) : connected ? (
         <div className="space-y-3">
+          <p className="text-white/50 text-xs">
+            Connect Gmail inside Grok Bot. This key lets Grok use the knowledge base and voice settings from this dashboard.
+          </p>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-white/40 text-xs mb-1">API key</p>
@@ -228,7 +235,7 @@ function GrokBotCard() {
       ) : (
         <div className="space-y-3">
           <p className="text-white/50 text-xs">
-            Change greeting, voice, and knowledge base from chat. Generate a key, then paste it into the ManyHandz connector in Grok Bot.
+            Generate a key, paste it into the ManyHandz connector in Grok Bot, and connect Gmail there.
           </p>
           <button
             onClick={generate}
@@ -363,7 +370,7 @@ export default function Connections() {
           Connections
         </h1>
         <p className="text-white/50 mt-1 text-sm">
-          Connect Grok Bot and your job management software. ManyHandz stays the source of truth for your phone agent.
+          Connect Grok Bot for inbox and knowledge base, plus your job management software. ManyHandz stays the source of truth for Voice, Chat, and Grok.
         </p>
       </div>
 
