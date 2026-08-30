@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { VOICES } from "../lib/voices";
+import {
+  previewVoiceSettings,
+  updateAgentVoicePayload,
+  voiceConfigDbPatch,
+  voiceControlsFromConfig,
+  type TurnEagerness,
+  type VoiceControls,
+} from "../lib/voice-controls";
 import { Phone, PhoneIncoming, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -262,6 +270,143 @@ function WhitelistSection({ config, anon, url }: { config: any, anon: string, ur
   );
 }
 
+function VoiceSlider({
+  label,
+  left,
+  right,
+  min,
+  max,
+  step,
+  value,
+  onChange,
+}: {
+  label: string;
+  left: string;
+  right: string;
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (n: number) => void;
+}) {
+  return (
+    <div>
+      <p className="text-sm font-medium mb-2">{label}</p>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={e => onChange(Number(e.target.value))}
+        className="w-full accent-yellow-400 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer"
+      />
+      <div className="flex justify-between text-xs text-white/40 mt-1">
+        <span>{left}</span>
+        <span>{right}</span>
+      </div>
+    </div>
+  );
+}
+
+function VoiceControlsCard({
+  controls,
+  onChange,
+  onSave,
+  saving,
+  saved,
+  canSave,
+}: {
+  controls: VoiceControls;
+  onChange: (next: VoiceControls) => void;
+  onSave: () => void;
+  saving: boolean;
+  saved: boolean;
+  canSave: boolean;
+}) {
+  const eagerness: { key: TurnEagerness; label: string; hint: string }[] = [
+    { key: "patient", label: "Patient", hint: "Waits a bit" },
+    { key: "normal", label: "Normal", hint: "Everyday pace" },
+    { key: "eager", label: "Eager", hint: "Jumps in quick" },
+  ];
+
+  return (
+    <div className="aurora-card p-6 mb-8">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="font-semibold">Voice controls</h3>
+        <button
+          onClick={onSave}
+          disabled={saving || !canSave}
+          className="btn-primary text-sm flex items-center gap-2"
+        >
+          {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+          {saved ? "Saved!" : saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+      <p className="text-sm text-white/40 mb-5">
+        How your receptionist sounds on the phone. Hit play on a voice above to hear these settings, then Save.
+      </p>
+
+      <div className="space-y-5">
+        <VoiceSlider
+          label="Stability"
+          left="Consistent"
+          right="Expressive"
+          min={0}
+          max={1}
+          step={0.05}
+          value={1 - controls.tts_stability}
+          onChange={n => onChange({ ...controls, tts_stability: Math.round((1 - n) * 100) / 100 })}
+        />
+        <VoiceSlider
+          label="Clarity / similarity"
+          left="Softer"
+          right="Closer to the voice"
+          min={0}
+          max={1}
+          step={0.05}
+          value={controls.tts_similarity}
+          onChange={n => onChange({ ...controls, tts_similarity: n })}
+        />
+        <VoiceSlider
+          label="Talking speed"
+          left="A bit slower"
+          right="A bit quicker"
+          min={0.7}
+          max={1.2}
+          step={0.05}
+          value={controls.tts_speed}
+          onChange={n => onChange({ ...controls, tts_speed: n })}
+        />
+
+        <div>
+          <p className="text-sm font-medium mb-2">How quickly it jumps in</p>
+          <div className="grid grid-cols-3 gap-2">
+            {eagerness.map(opt => {
+              const active = controls.turn_eagerness === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => onChange({ ...controls, turn_eagerness: opt.key })}
+                  className={`rounded-xl px-3 py-2.5 text-left border transition-all ${
+                    active
+                      ? "border-yellow-400 bg-yellow-500/15"
+                      : "border-white/10 bg-white/5 hover:border-white/20"
+                  }`}
+                >
+                  <p className={`text-sm font-medium ${active ? "text-yellow-300" : ""}`}>{opt.label}</p>
+                  <p className="text-xs text-white/40">{opt.hint}</p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Voice() {
   const [config, setConfig] = useState<any>(null);
   const [calls, setCalls] = useState<any[]>([]);
@@ -277,6 +422,7 @@ export default function Voice() {
   const [greeting, setGreeting] = useState("");
   const [savingGreeting, setSavingGreeting] = useState(false);
   const [greetingSaved, setGreetingSaved] = useState(false);
+  const [controls, setControls] = useState<VoiceControls>(() => voiceControlsFromConfig(null));
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const loadData = async () => {
@@ -292,6 +438,7 @@ export default function Voice() {
         setConfig(cfgRow);
         if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
         if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
+        setControls(voiceControlsFromConfig(cfgRow));
       }
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
@@ -335,7 +482,12 @@ export default function Voice() {
       const res = await fetch(EL_PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "preview_tts", voice_id: voiceId, text: PREVIEW_TEXT }),
+        body: JSON.stringify({
+          action: "preview_tts",
+          voice_id: voiceId,
+          text: PREVIEW_TEXT,
+          voice_settings: previewVoiceSettings(controls),
+        }),
       });
       if (!res.ok) throw new Error("Preview failed");
       const blob = await res.blob();
@@ -360,7 +512,12 @@ export default function Voice() {
       await fetch(EL_PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "update_agent_voice", agent_id: agentId, voice_id: activeVoiceId, greeting: greeting.trim() }),
+        body: JSON.stringify(updateAgentVoicePayload({
+          agentId,
+          voiceId: activeVoiceId,
+          controls,
+          greeting: greeting.trim(),
+        })),
       });
       if (config?.id) {
         await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
@@ -380,18 +537,23 @@ export default function Voice() {
     if (!agentId) return;
     setSavingVoice(true);
     try {
-      // Update EL agent voice
-      await fetch(EL_PROXY, {
+      const elRes = await fetch(EL_PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "update_agent_voice", agent_id: agentId, voice_id: activeVoiceId }),
+        body: JSON.stringify(updateAgentVoicePayload({
+          agentId,
+          voiceId: activeVoiceId,
+          controls,
+        })),
       });
-      // Save to voice_config
-      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-        method: "PATCH",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ voice_id: activeVoiceId }),
-      });
+      if (!elRes.ok) throw new Error("Could not update the live agent");
+      if (config?.id) {
+        await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+          method: "PATCH",
+          headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify(voiceConfigDbPatch(activeVoiceId, controls)),
+        });
+      }
       setVoiceSaved(true);
       setTimeout(() => setVoiceSaved(false), 2500);
     } catch (e) { console.error("Save voice error:", e); }
@@ -578,8 +740,19 @@ export default function Voice() {
         )}
       </div>
 
+      <VoiceControlsCard
+        controls={controls}
+        onChange={setControls}
+        onSave={handleSaveVoice}
+        saving={savingVoice}
+        saved={voiceSaved}
+        canSave={Boolean(config?.el_agent_id || customer?.el_agent_id)}
+      />
+
       {/* Capabilities */}
-      <CapabilitiesSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <div className="mb-8">
+        <CapabilitiesSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      </div>
 
       {/* Whitelist + Bridge */}
       <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />

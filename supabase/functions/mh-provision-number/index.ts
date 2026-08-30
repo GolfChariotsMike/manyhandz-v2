@@ -174,7 +174,7 @@ serve(async (req) => {
         },
         tts: { voice_id: EL_DEFAULT_VOICE, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
         asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
-        turn: { mode: "turn", turn_timeout: 7 },
+        turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "normal" },
       },
       platform_settings: { auth: { enable_auth: false } },
     });
