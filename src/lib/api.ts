@@ -76,6 +76,10 @@ export async function scrapeWebsite(url: string) {
 
 // Direct Supabase REST calls for dashboard data
 // Always use anon key for Authorization — custom JWT is not signed by Supabase and will 401
+function asRows(data: unknown): any[] {
+  return Array.isArray(data) ? data : [];
+}
+
 async function supabaseRest(table: string, params: string = "") {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
     headers: {
@@ -84,7 +88,15 @@ async function supabaseRest(table: string, params: string = "") {
       "Content-Type": "application/json",
     },
   });
-  return res.json();
+  let data: unknown;
+  try {
+    data = await res.json();
+  } catch {
+    return [];
+  }
+  // PostgREST 4xx/5xx bodies are {code, message, details} objects, not row arrays.
+  if (!res.ok) return [];
+  return asRows(data);
 }
 
 export async function getKnowledgeBase(customerId: string) {
@@ -217,7 +229,11 @@ export async function saveChatConfig(id: string, updates: Record<string, unknown
 }
 
 export async function getChatSessions(customerId: string) {
-  return supabaseRest("mh_chat_sessions", `customer_id=eq.${customerId}&select=*&order=last_message_at.desc&limit=50`);
+  // mh_chat_sessions has created_at, not last_message_at (ordering by the latter 400s)
+  return supabaseRest(
+    "mh_chat_sessions",
+    `customer_id=eq.${customerId}&select=id,customer_id,visitor_id,created_at,resolved&order=created_at.desc&limit=50`
+  );
 }
 
 
