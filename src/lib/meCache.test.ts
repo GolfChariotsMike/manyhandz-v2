@@ -107,3 +107,109 @@ test("expired entries refetch", async () => {
     Date.now = realNow;
   }
 });
+
+test("clear then get returns a fresh customer (assume-account)", async () => {
+  const cache = createMeCache(memoryStore());
+  await cache.get(async () => ({ customer: { id: "stik-stickers" } }));
+  cache.clear();
+
+  let calls = 0;
+  const next = await cache.get(async () => {
+    calls += 1;
+    return { customer: { id: "rhen-electrical" } };
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(next, { customer: { id: "rhen-electrical" } });
+  assert.deepEqual(cache.peek(), next);
+});
+
+test("cache from customer A is not served after token switches to customer B", async () => {
+  let token = "token-a";
+  const store = memoryStore();
+  const cache = createMeCache(store, 60_000, () => token);
+
+  await cache.get(async () => ({ customer: { id: "A", business_name: "Stik Stickers" } }));
+  token = "token-b";
+
+  let calls = 0;
+  const next = await cache.get(async () => {
+    calls += 1;
+    return { customer: { id: "B", business_name: "Rhen Electrical" } };
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(next, { customer: { id: "B", business_name: "Rhen Electrical" } });
+  assert.deepEqual(cache.peek(), next);
+});
+
+test("hydrated cache from customer A is not served after a token switch (forgotten clear)", async () => {
+  let token = "token-a";
+  const store = memoryStore();
+  const first = createMeCache(store, 60_000, () => token);
+  await first.get(async () => ({ customer: { id: "A", business_name: "Stik Stickers" } }));
+
+  token = "token-b";
+  const second = createMeCache(store, 60_000, () => token);
+  let calls = 0;
+  const next = await second.get(async () => {
+    calls += 1;
+    return { customer: { id: "B", business_name: "Rhen Electrical" } };
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(next, { customer: { id: "B", business_name: "Rhen Electrical" } });
+});
+
+test("hydrate preserves stored TTL and does not reset at to Date.now()", async () => {
+  const store = memoryStore();
+  const realNow = Date.now;
+  let now = 10_000;
+  Date.now = () => now;
+  try {
+    const first = createMeCache(store, 60_000);
+    await first.get(async () => ({ customer: { id: "A" } }));
+
+    const persisted = JSON.parse(store.getItem("mh_me") ?? "null");
+    assert.equal(persisted.at, 10_000);
+    assert.deepEqual(persisted.data, { customer: { id: "A" } });
+
+    now = 40_000;
+    const second = createMeCache(store, 60_000);
+    let calls = 0;
+    const stillFresh = await second.get(async () => {
+      calls += 1;
+      return { customer: { id: "fresh" } };
+    });
+    assert.equal(calls, 0);
+    assert.deepEqual(stillFresh, { customer: { id: "A" } });
+
+    // If hydrate had stamped at=40000, this 35s-later peek would still hit.
+    // Preserved at=10000 means the entry expired 5s ago.
+    now = 75_000;
+    assert.equal(second.peek(), null);
+    const refetched = await second.get(async () => {
+      calls += 1;
+      return { customer: { id: "fresh" } };
+    });
+    assert.equal(calls, 1);
+    assert.deepEqual(refetched, { customer: { id: "fresh" } });
+  } finally {
+    Date.now = realNow;
+  }
+});
+
+test("legacy bare mh_me blob is not hydrated with a reset TTL", async () => {
+  const store = memoryStore();
+  store.setItem("mh_me", JSON.stringify({ customer: { id: "stale-legacy" } }));
+  const cache = createMeCache(store, 60_000);
+
+  let calls = 0;
+  const next = await cache.get(async () => {
+    calls += 1;
+    return { customer: { id: "fresh" } };
+  });
+
+  assert.equal(calls, 1);
+  assert.deepEqual(next, { customer: { id: "fresh" } });
+});

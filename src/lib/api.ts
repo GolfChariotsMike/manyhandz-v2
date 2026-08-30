@@ -10,7 +10,9 @@ function getToken(): string | null {
 }
 
 export function setToken(token: string) {
+  const prev = localStorage.getItem("mh_token");
   localStorage.setItem("mh_token", token);
+  if (prev !== token) meCache.clear();
 }
 
 export function clearToken() {
