@@ -30,6 +30,7 @@ export default function App() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/verify" element={<Verify />} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<Navigate to="/" replace />} />
         <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
