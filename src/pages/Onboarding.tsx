@@ -1,11 +1,17 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getMe, scrapeWebsite, updateKnowledgeBase, upsertKnowledgeBase, getKnowledgeBase } from "../lib/api";
+import { getMe, scrapeWebsite, upsertKnowledgeBase } from "../lib/api";
+import {
+  canApplyScrapedKb,
+  clearOnboardingDraft,
+  initialWebsite,
+  loadDraftForCustomer,
+  provisionNumberBody,
+  saveOnboardingDraft,
+} from "../lib/onboarding";
 import { Check, Loader2, Plus, X, ChevronRight } from "lucide-react";
 
 type Step = 1 | 2 | 3 | 4 | 5;
-
-const STORAGE_KEY = "mh_onboarding_state";
 
 interface FAQ { q: string; a: string }
 interface HoursRow { day: string; open: string; close: string; closed: boolean }
@@ -109,21 +115,6 @@ const industryTemplates: Record<string, { about: string; services: string[]; faq
   },
 };
 
-function saveState(state: Record<string, unknown>) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
-}
-
-function loadState(): Record<string, unknown> | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
-}
-
-function clearState() {
-  try { localStorage.removeItem(STORAGE_KEY); } catch {}
-}
-
 const stepLabels = ["Business Details", "Scanning", "Knowledge Base", "Connect", "Done"];
 
 function ProgressBar({ step }: { step: Step }) {
@@ -162,36 +153,32 @@ function ProgressBar({ step }: { step: Step }) {
 
 export default function Onboarding() {
   const navigate = useNavigate();
-  const saved = loadState();
 
-  const [step, setStep] = useState<Step>((saved?.step as Step) || 1);
+  // Do not hydrate from localStorage until we know customer.id — leftover
+  // drafts from the last account Mike onboarded in this browser used to stick.
+  const [step, setStep] = useState<Step>(1);
   const [customer, setCustomer] = useState<any>(null);
-  const [kbId, setKbId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Step 1
-  const [businessName, setBusinessName] = useState<string>((saved?.businessName as string) || "");
-  const [website, setWebsite] = useState<string>((saved?.website as string) || "");
-  const [industry, setIndustry] = useState<string>((saved?.industry as string) || "");
-  const [contactAbout, setContactAbout] = useState<string>((saved?.contactAbout as string) || "");
+  const [businessName, setBusinessName] = useState("");
+  const [website, setWebsite] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [contactAbout, setContactAbout] = useState("");
 
-  // Step 3
-  const [about, setAbout] = useState<string>((saved?.about as string) || "");
-  const [services, setServices] = useState<string[]>((saved?.services as string[]) || []);
+  const [about, setAbout] = useState("");
+  const [services, setServices] = useState<string[]>([]);
   const [newService, setNewService] = useState("");
-  const [faqs, setFaqs] = useState<FAQ[]>((saved?.faqs as FAQ[]) || []);
-  const [hours, setHours] = useState<HoursRow[]>((saved?.hours as HoursRow[]) || defaultHours);
-  const [tone, setTone] = useState<string>((saved?.tone as string) || "friendly");
+  const [faqs, setFaqs] = useState<FAQ[]>([]);
+  const [hours, setHours] = useState<HoursRow[]>(defaultHours);
+  const [tone, setTone] = useState("friendly");
 
-  const [noWebsite, setNoWebsite] = useState<boolean>((saved?.noWebsite as boolean) || false);
+  const [noWebsite, setNoWebsite] = useState(false);
 
-  // Step 4/5
-  const [selectedProduct] = useState<string>("");
-  const [provisionedNumber, setProvisionedNumber] = useState<string>((saved?.provisionedNumber as string) || "");
-  const [notifyMobile, setNotifyMobile] = useState<string>((saved?.notifyMobile as string) || "");
-  const [country, setCountry] = useState<string>((saved?.country as string) || "AU");
-  const [state, setState] = useState<string>((saved?.state as string) || "WA");
-  // copied state removed (chat widget step removed)
+  const [provisionedNumber, setProvisionedNumber] = useState("");
+  const [notifyMobile, setNotifyMobile] = useState("");
+  const [scanRequestedUrl, setScanRequestedUrl] = useState("");
+  const [scanFinalUrl, setScanFinalUrl] = useState("");
+  const [scanNote, setScanNote] = useState("");
 
   // Scraping animation
   const [scrapePhase, setScrapePhase] = useState(0);
@@ -202,26 +189,43 @@ export default function Onboarding() {
     "Almost ready..."
   ];
 
-  // Init — load customer
+  // Init — load this customer only. Discard a draft that belongs to someone else.
   useEffect(() => {
     (async () => {
       try {
         const { customer: c } = await getMe();
         setCustomer(c);
-        if (c.business_name && !businessName) setBusinessName(c.business_name);
-        if (c.website_url && !website) setWebsite(c.website_url);
-        if (c.industry && !industry) setIndustry(c.industry);
 
-        const kbRows = await getKnowledgeBase(c.id);
-        if (kbRows.length > 0) setKbId(kbRows[0].id);
+        const draft = loadDraftForCustomer(c.id);
+        const belongs = Boolean(draft);
+        setBusinessName((draft?.businessName as string) || c.business_name || "");
+        setWebsite(initialWebsite({
+          typedThisSession: "",
+          draftWebsite: (draft?.website as string) || "",
+          customerWebsite: c.website_url || "",
+          draftBelongsToCustomer: belongs,
+        }));
+        setIndustry((draft?.industry as string) || c.industry || "");
+        setContactAbout((draft?.contactAbout as string) || "");
+        setAbout((draft?.about as string) || "");
+        setServices((draft?.services as string[]) || []);
+        setFaqs((draft?.faqs as FAQ[]) || []);
+        setHours((draft?.hours as HoursRow[]) || defaultHours);
+        setTone((draft?.tone as string) || "friendly");
+        setNoWebsite(Boolean(draft?.noWebsite));
+        setProvisionedNumber((draft?.provisionedNumber as string) || "");
+        setNotifyMobile((draft?.notifyMobile as string) || "");
+        setScanRequestedUrl((draft?.scanRequestedUrl as string) || "");
+        setScanFinalUrl((draft?.scanFinalUrl as string) || "");
+        setScanNote((draft?.scanNote as string) || "");
+        const restored = belongs && draft?.step ? (draft.step as Step) : 1;
+        setStep(restored === 2 ? 1 : restored);
 
         if (c.onboarding_complete) {
+          clearOnboardingDraft();
           navigate("/");
           return;
         }
-        // Clear any stale onboarding state from a previous session
-        clearState();
-        setStep(1);
       } catch {
         navigate("/login");
         return;
@@ -230,12 +234,29 @@ export default function Onboarding() {
     })();
   }, []);
 
-  // Persist state
   useEffect(() => {
-    if (!loading) {
-      saveState({ step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, noWebsite, notifyMobile, country, state });
+    if (!loading && customer?.id) {
+      saveOnboardingDraft({
+        customerId: customer.id,
+        step,
+        businessName,
+        website,
+        industry,
+        contactAbout,
+        about,
+        services,
+        faqs,
+        hours,
+        tone,
+        provisionedNumber,
+        noWebsite,
+        notifyMobile,
+        scanRequestedUrl,
+        scanFinalUrl,
+        scanNote,
+      });
     }
-  }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, selectedProduct, provisionedNumber, loading]);
+  }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, provisionedNumber, noWebsite, notifyMobile, scanRequestedUrl, scanFinalUrl, scanNote, loading, customer?.id]);
 
   function goStep(s: Step) { setStep(s); }
 
@@ -266,44 +287,59 @@ export default function Onboarding() {
 
     if (website.trim()) {
       goStep(2);
-      // Start scraping animation
       setScrapePhase(0);
       const interval = setInterval(() => {
         setScrapePhase(p => Math.min(p + 1, scrapeMessages.length - 1));
       }, 3000);
 
-      try {
-        const url = website.startsWith("http") ? website : `https://${website}`;
-        const data = await scrapeWebsite(url);
-        if (data.about) setAbout(data.about);
-        if (data.services?.length) setServices(data.services);
-        if (data.faqs?.length) setFaqs(data.faqs);
-        if (data.hours) {
-          const merged = defaultHours.map(h => {
-            const scraped = data.hours?.[h.day.toLowerCase()];
-            if (scraped) return { ...h, open: scraped.open || h.open, close: scraped.close || h.close, closed: scraped.closed ?? h.closed };
-            return h;
-          });
-          setHours(merged);
-        }
-        if (data.tone) setTone(data.tone);
-
-        // Save to KB
-        if (kbId) {
-          await updateKnowledgeBase(kbId, {
-            about: data.about || "",
-            services: data.services || [],
-            faqs: data.faqs || [],
-            hours: data.hours || {},
-            tone: data.tone || "friendly",
-          });
-        }
-      } catch {
-        // Scrape failed — fall through to template
+      const applyTemplate = () => {
         if (industry && industryTemplates[industry]) {
           const t = industryTemplates[industry];
-          setAbout(t.about); setServices(t.services); setFaqs(t.faqs);
+          setAbout(t.about);
+          setServices(t.services);
+          setFaqs(t.faqs);
         }
+      };
+
+      try {
+        const typedUrl = website.trim();
+        const url = typedUrl.startsWith("http") ? typedUrl : `https://${typedUrl}`;
+        const data = await scrapeWebsite(url);
+        const requested = data.requested_url || url;
+        const finalUrl = data.final_url || requested;
+        setScanRequestedUrl(requested);
+        setScanFinalUrl(finalUrl);
+
+        if (canApplyScrapedKb(typedUrl, data)) {
+          setScanNote("");
+          setAbout(data.about || "");
+          setServices(data.services || []);
+          setFaqs(data.faqs || []);
+          if (data.hours) {
+            const merged = defaultHours.map(h => {
+              const scraped = data.hours?.[h.day.toLowerCase()];
+              if (scraped) return { ...h, open: scraped.open || h.open, close: scraped.close || h.close, closed: scraped.closed ?? h.closed };
+              return h;
+            });
+            setHours(merged);
+          }
+          if (data.tone) setTone(data.tone);
+        } else {
+          if (data.thin_content) {
+            setScanNote("We couldn't read enough from that site (it might be pictures or a login page). Fill this in yourself.");
+          } else {
+            setScanNote("That address sent us to a different site, so we left this blank rather than guess.");
+          }
+          setAbout("");
+          setServices([]);
+          setFaqs([]);
+          applyTemplate();
+        }
+      } catch {
+        setScanRequestedUrl(website.trim());
+        setScanFinalUrl("");
+        setScanNote("We couldn't scan that site. Fill this in yourself.");
+        applyTemplate();
       }
       clearInterval(interval);
       goStep(3);
@@ -344,7 +380,7 @@ export default function Onboarding() {
         const res = await fetch(`https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-provision-number`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw` },
-          body: JSON.stringify({ customer_id: customer.id, country, state: country === "AU" ? state : undefined }),
+          body: JSON.stringify(provisionNumberBody(customer.id)),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to provision number");
@@ -379,7 +415,7 @@ export default function Onboarding() {
         });
       }
     } catch {}
-    clearState();
+    clearOnboardingDraft();
     goStep(5);
     setTimeout(() => navigate("/"), 2000);
   }
@@ -514,37 +550,21 @@ export default function Onboarding() {
           <p className="text-white/50 mb-6 text-sm">This is what your AI knows about your business. Edit anything that's wrong.</p>
 
           <div className="space-y-6">
-            {/* Country + State picker */}
-            <div className="aurora-card p-5">
-              <label className="text-sm font-semibold text-yellow-400 mb-3 block">📞 Your phone number location</label>
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-xs text-white/40 block mb-1">Country</label>
-                  <select value={country} onChange={e => { setCountry(e.target.value); setState(""); }} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none">
-                    <option value="AU">🇦🇺 Australia</option>
-                    <option value="US">🇺🇸 United States</option>
-                    <option value="GB">🇬🇧 United Kingdom</option>
-                    <option value="CA">🇨🇦 Canada</option>
-                    <option value="NZ">🇳🇿 New Zealand</option>
-                  </select>
-                </div>
-                {country === "AU" && (
-                  <div className="flex-1">
-                    <label className="text-xs text-white/40 block mb-1">State</label>
-                    <select value={state} onChange={e => setState(e.target.value)} className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white outline-none">
-                      <option value="WA">WA — Western Australia (08)</option>
-                      <option value="SA">SA — South Australia (08)</option>
-                      <option value="NT">NT — Northern Territory (08)</option>
-                      <option value="NSW">NSW — New South Wales (02)</option>
-                      <option value="ACT">ACT — Australian Capital Territory (02)</option>
-                      <option value="VIC">VIC — Victoria (03)</option>
-                      <option value="TAS">TAS — Tasmania (03)</option>
-                      <option value="QLD">QLD — Queensland (07)</option>
-                    </select>
-                  </div>
+            {scanRequestedUrl && (
+              <div className="aurora-card p-5">
+                <label className="text-sm font-semibold text-yellow-400 mb-2 block">Website we scanned</label>
+                <p className="text-sm text-white/80 break-all">{scanRequestedUrl}</p>
+                {scanFinalUrl && scanFinalUrl !== scanRequestedUrl && (
+                  <p className="text-xs text-white/50 mt-2 break-all">
+                    After redirects that became: {scanFinalUrl}
+                  </p>
                 )}
+                {scanNote && <p className="text-xs text-yellow-400/80 mt-2">{scanNote}</p>}
               </div>
-              <p className="text-xs text-white/30 mt-2">We'll provision a local number for your area.</p>
+            )}
+            <div className="aurora-card p-5">
+              <label className="text-sm font-semibold text-yellow-400 mb-2 block">📞 Your ManyHandz number</label>
+              <p className="text-sm text-white/70">We'll give you an Australian mobile (04…). State doesn't matter.</p>
             </div>
             {/* About */}
             <div className="aurora-card p-5">

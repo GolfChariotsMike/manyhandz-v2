@@ -4,3 +4,9 @@
 
 [functions.mhv2-grokbot]
 verify_jwt = false
+
+[functions.mh-v2-scrape]
+verify_jwt = false
+
+[functions.mh-provision-number]
+verify_jwt = false
