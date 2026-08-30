@@ -18,11 +18,13 @@ export default function Chat() {
       setCustomer(me.customer);
       const cid = me.customer.id;
       const [cfg, sess] = await Promise.all([getChatConfig(cid), getChatSessions(cid)]);
-      if (cfg?.length) {
-        setConfig(cfg[0]);
-        setFormData({ widget_name: cfg[0].widget_name || "", widget_color: cfg[0].widget_color || "#6366f1", greeting: cfg[0].greeting || "", fallback_message: cfg[0].fallback_message || "" });
+      const cfgRows = Array.isArray(cfg) ? cfg : [];
+      const sessRows = Array.isArray(sess) ? sess : [];
+      if (cfgRows.length) {
+        setConfig(cfgRows[0]);
+        setFormData({ widget_name: cfgRows[0].widget_name || "", widget_color: cfgRows[0].widget_color || "#6366f1", greeting: cfgRows[0].greeting || "", fallback_message: cfgRows[0].fallback_message || "" });
       }
-      setSessions(sess || []);
+      setSessions(sessRows);
     } catch {}
   }
 
@@ -154,17 +156,17 @@ export default function Chat() {
           {/* Chat history */}
           <div className="aurora-card p-6 lg:col-span-2">
             <h2 className="font-semibold mb-4">Recent Conversations</h2>
-            {sessions.length === 0 ? (
+            {!Array.isArray(sessions) || sessions.length === 0 ? (
               <p className="text-sm text-white/40">No conversations yet. Deploy the widget and start chatting!</p>
             ) : (
               <div className="space-y-2">
                 {sessions.map((s: any) => (
                   <div key={s.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
                     <div>
-                      <p className="text-sm font-medium">Session {s.session_key?.slice(0, 8)}...</p>
-                      <p className="text-xs text-white/40">{new Date(s.last_message_at || s.created_at).toLocaleString()}</p>
+                      <p className="text-sm font-medium">Session {(s.visitor_id || s.id)?.toString().slice(0, 8)}...</p>
+                      <p className="text-xs text-white/40">{s.created_at ? new Date(s.created_at).toLocaleString() : ""}</p>
                     </div>
-                    <span className="text-xs text-white/30 capitalize">{s.channel || "web"}</span>
+                    <span className="text-xs text-white/30 capitalize">{s.resolved ? "resolved" : "open"}</span>
                   </div>
                 ))}
               </div>

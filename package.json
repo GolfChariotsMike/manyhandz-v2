@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test:grokbot": "node --experimental-strip-types --test supabase/functions/mhv2-grokbot/handler.test.ts"
+    "test:grokbot": "node --experimental-strip-types --test supabase/functions/mhv2-grokbot/handler.test.ts",
+    "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
