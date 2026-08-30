@@ -32,71 +32,35 @@ function GrokBotSetupSteps({
   onCopy,
 }: {
   rawKey: string | null;
-  copied: "key" | "url" | "paste" | null;
-  onCopy: (value: string, which: "key" | "url" | "paste") => void;
+  copied: "key" | "paste" | null;
+  onCopy: (value: string, which: "key" | "paste") => void;
 }) {
   const paste = grokBotPasteLine(rawKey);
   return (
     <div className="space-y-3">
-      <ol className="text-white/65 text-sm space-y-2 list-decimal pl-5 leading-relaxed">
-        <li>
-          Download Grok Bot for Mac, Windows, iPhone, or Android from{" "}
-          <a
-            href={GROK_BOT_DOWNLOAD_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-yellow-400 hover:text-yellow-300"
-          >
-            x.ai/bot
-          </a>
-          .
-        </li>
-        <li>Open Grok Bot and start a new bot.</li>
-        <li>
-          Add a custom connector named ManyHandz. Use the MCP URL below and this key as{" "}
-          <span className="text-white/80">Authorization: Bearer</span>. There is no ManyHandz plugin in the Grok catalog — add it yourself.
-        </li>
-        <li>Connect Gmail or Outlook inside Grok Bot, not here.</li>
+      <ol className="text-white/70 text-sm space-y-1.5 list-decimal pl-5">
+        <li>Download Grok Bot</li>
+        <li>Start a new bot</li>
+        <li>Copy this into Grok Bot</li>
       </ol>
-      {!rawKey && (
-        <p className="text-white/45 text-xs">
-          If you lost the key, tap Regenerate. ManyHandz stays the source of truth for Voice, Chat, and Grok.
-        </p>
-      )}
-      <div>
-        <p className="text-white/40 text-xs mb-1">MCP URL</p>
-        <div className="flex gap-2">
-          <code className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white/80 text-xs break-all font-mono">
-            {GROK_BOT_MCP_URL}
-          </code>
-          <button
-            type="button"
-            onClick={() => onCopy(GROK_BOT_MCP_URL, "url")}
-            className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white/70 text-sm hover:bg-white/10 hover:text-white transition-all"
-          >
-            {copied === "url" ? <Check size={14} /> : <Copy size={14} />}
-            {copied === "url" ? "Copied" : "Copy"}
-          </button>
-        </div>
-      </div>
       <div>
         <p className="text-white/40 text-xs mb-1">Copy this into Grok Bot</p>
         <div className="flex gap-2">
-          <code className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-white/70 text-xs break-all">
+          <code className="flex-1 bg-black/40 border border-yellow-500/20 rounded-xl px-3 py-2.5 text-white/80 text-xs break-all">
             {paste}
           </code>
           <button
             type="button"
             onClick={() => onCopy(paste, "paste")}
-            className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white/70 text-sm hover:bg-white/10 hover:text-white transition-all"
+            className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 text-sm hover:bg-yellow-500/30 transition-all"
           >
             {copied === "paste" ? <Check size={14} /> : <Copy size={14} />}
             {copied === "paste" ? "Copied" : "Copy"}
           </button>
         </div>
       </div>
-      <p className="text-white/45 text-xs">
-        Grok can use this knowledge base and change greeting, voice, capabilities, and whitelist — it does not answer your phone. ManyHandz stays the source of truth.
+      <p className="text-white/40 text-xs">
+        Connect Gmail or Outlook inside Grok Bot, not here.
       </p>
     </div>
   );
@@ -172,7 +136,7 @@ function GrokBotCard() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [copied, setCopied] = useState<"key" | "url" | "paste" | null>(null);
+  const [copied, setCopied] = useState<"key" | "paste" | null>(null);
 
   async function loadStatus() {
     try {
@@ -229,7 +193,7 @@ function GrokBotCard() {
     await generate();
   }
 
-  async function copyText(value: string, which: "key" | "url" | "paste") {
+  async function copyText(value: string, which: "key" | "paste") {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(which);
@@ -355,7 +319,7 @@ function GrokBotCard() {
       ) : (
         <div className="space-y-3">
           <p className="text-white/50 text-xs">
-            Generate a key, then add a custom ManyHandz connector in Grok Bot with the MCP URL and that key. Connect Gmail or Outlook inside Grok Bot, not here.
+            Generate a key, then copy the setup line into Grok Bot. Connect Gmail or Outlook inside Grok Bot, not here.
           </p>
         </div>
       )}
