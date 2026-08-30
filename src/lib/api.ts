@@ -249,6 +249,18 @@ export async function analyzeVoice(customerId: string) {
   return callFn("mhv2-analyze-voice", "", "POST", { customer_id: customerId });
 }
 
+export async function getGrokbotKey() {
+  return callFn("mhv2-grokbot", "keys", "GET");
+}
+
+export async function generateGrokbotKey() {
+  return callFn("mhv2-grokbot", "keys", "POST");
+}
+
+export async function revokeGrokbotKey() {
+  return callFn("mhv2-grokbot", "keys/revoke", "POST");
+}
+
 export async function suppressDraft(emailId: string, customerId: string) {
   const SB_URL = import.meta.env.VITE_SUPABASE_URL;
   const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;

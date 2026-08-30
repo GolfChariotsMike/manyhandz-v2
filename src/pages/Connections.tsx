@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2 } from "lucide-react";
-import { getMe } from "../lib/api";
+import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound } from "lucide-react";
+import { generateGrokbotKey, getGrokbotKey, getMe, revokeGrokbotKey } from "../lib/api";
 
 function getToken(): string | null { return localStorage.getItem("mh_token"); }
 
@@ -54,6 +54,201 @@ interface Connection {
   platform: string;
   last_synced_at: string | null;
   jobs_synced_count: number;
+}
+
+type GrokbotStatus = {
+  connected: boolean;
+  key: {
+    masked: string;
+    label: string | null;
+    created_at: string;
+    last_used_at: string | null;
+  } | null;
+};
+
+function GrokBotCard() {
+  const [status, setStatus] = useState<GrokbotStatus | null>(null);
+  const [rawKey, setRawKey] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [copied, setCopied] = useState(false);
+
+  async function loadStatus() {
+    try {
+      const data = await getGrokbotKey();
+      setStatus({ connected: !!data.connected, key: data.key || null });
+    } catch {
+      setStatus({ connected: false, key: null });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadStatus(); }, []);
+
+  async function generate() {
+    setBusy(true);
+    setError("");
+    try {
+      const data = await generateGrokbotKey();
+      if (!data.key) throw new Error("Key was not returned");
+      setRawKey(data.key);
+      setStatus({
+        connected: true,
+        key: {
+          masked: data.masked,
+          label: "Grok Bot",
+          created_at: new Date().toISOString(),
+          last_used_at: null,
+        },
+      });
+    } catch (e: any) {
+      setError(e.message || "Could not generate key");
+    }
+    setBusy(false);
+  }
+
+  async function revoke() {
+    if (!confirm("Revoke the Grok Bot key? Chat will stop being able to change voice settings until you generate a new one.")) return;
+    setBusy(true);
+    setError("");
+    try {
+      await revokeGrokbotKey();
+      setRawKey(null);
+      setStatus({ connected: false, key: null });
+    } catch (e: any) {
+      setError(e.message || "Could not revoke key");
+    }
+    setBusy(false);
+  }
+
+  async function regenerate() {
+    if (!confirm("Regenerate the Grok Bot key? The current key stops working immediately.")) return;
+    setRawKey(null);
+    await generate();
+  }
+
+  async function copyKey() {
+    if (!rawKey) return;
+    try {
+      await navigator.clipboard.writeText(rawKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Could not copy — select the key and copy it manually.");
+    }
+  }
+
+  function formatDate(d: string | null) {
+    if (!d) return "Never";
+    return new Date(d).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" });
+  }
+
+  const connected = status?.connected && status.key;
+
+  return (
+    <div className="glass-card rounded-2xl p-6 mb-6 border border-yellow-500/20">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-yellow-500/20 flex items-center justify-center">
+            <Bot size={18} className="text-yellow-400" />
+          </div>
+          <div>
+            <h2 className="text-white font-semibold">Grok Bot</h2>
+            <p className="text-white/40 text-xs">Change greeting and voice from chat</p>
+          </div>
+        </div>
+        {loading ? (
+          <Loader2 size={16} className="animate-spin text-white/30" />
+        ) : connected ? (
+          <div className="flex items-center gap-2 text-green-400 text-sm">
+            <CheckCircle size={16} />
+            Connected
+          </div>
+        ) : (
+          <span className="text-white/30 text-sm">Not connected</span>
+        )}
+      </div>
+
+      {loading ? (
+        <p className="text-white/40 text-sm">Loading…</p>
+      ) : rawKey ? (
+        <div className="space-y-3">
+          <p className="text-amber-300/90 text-xs bg-amber-400/5 border border-amber-400/20 rounded-xl px-3 py-2">
+            Copy this key now. ManyHandz only stores a hash — it cannot be shown again.
+          </p>
+          <div className="flex gap-2">
+            <code className="flex-1 bg-black/40 border border-white/10 rounded-xl px-3 py-2 text-yellow-300 text-xs break-all font-mono">
+              {rawKey}
+            </code>
+            <button
+              onClick={copyKey}
+              className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 text-sm hover:bg-yellow-500/30 transition-all"
+            >
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <p className="text-white/50 text-xs">
+            In Grok Bot, open the ManyHandz connector and paste this API key. Grok Bot can then change greeting, voice, capabilities, and whitelist — it does not answer your phone.
+          </p>
+        </div>
+      ) : connected ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-white/40 text-xs mb-1">API key</p>
+              <p className="text-white font-mono text-sm">{status!.key!.masked}</p>
+            </div>
+            <div>
+              <p className="text-white/40 text-xs mb-1">Last used</p>
+              <p className="text-white">{formatDate(status!.key!.last_used_at)}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={regenerate}
+              disabled={busy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-yellow-500/20 text-yellow-300 text-sm hover:bg-yellow-500/30 transition-all disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              Regenerate
+            </button>
+            <button
+              onClick={revoke}
+              disabled={busy}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+              Revoke
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-white/50 text-xs">
+            Change greeting and voice from chat. Generate a key, then paste it into the ManyHandz connector in Grok Bot.
+          </p>
+          <button
+            onClick={generate}
+            disabled={busy}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-500 text-[#0f1f3d] text-sm font-semibold hover:bg-yellow-400 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <KeyRound size={14} />}
+            Generate key
+          </button>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-center gap-2 text-red-400 text-sm mt-3">
+          <AlertCircle size={14} />
+          {error}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Connections() {
@@ -168,7 +363,7 @@ export default function Connections() {
           Connections
         </h1>
         <p className="text-white/50 mt-1 text-sm">
-          Connect your job management software so your AI can look up jobs, customers, and quotes in real time.
+          Connect Grok Bot and your job management software. ManyHandz stays the source of truth for your phone agent.
         </p>
       </div>
 
@@ -177,6 +372,8 @@ export default function Connections() {
           {syncMsg}
         </div>
       )}
+
+      <GrokBotCard />
 
       {/* SimPRO Card */}
       <div className="glass-card rounded-2xl p-6 mb-6">
