@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio } from "lucide-react";
+import { setToken } from "../lib/api";
+import { meCache } from "../lib/meCache";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
@@ -602,7 +604,8 @@ export default function Admin() {
                                 });
                                 const data = await res.json();
                                 if (data.token) {
-                                  localStorage.setItem('mh_token', data.token);
+                                  meCache.clear();
+                                  setToken(data.token);
                                   window.location.href = '/';
                                 } else {
                                   alert(data.error || 'Failed to assume account');

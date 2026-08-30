@@ -1,10 +1,17 @@
 const STORAGE_KEY = "mh_me";
+const TOKEN_KEY = "mh_token";
 export const ME_CACHE_TTL_MS = 60_000;
 
 export type MeCacheStore = {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
   removeItem(key: string): void;
+};
+
+type MeCacheEntry = {
+  data: unknown;
+  at: number;
+  token: string | null;
 };
 
 export function memoryStore(): MeCacheStore {
@@ -25,18 +32,74 @@ function browserSessionStore(): MeCacheStore | null {
   }
 }
 
-export function createMeCache(store: MeCacheStore | null = null, ttlMs = ME_CACHE_TTL_MS) {
-  let memory: { data: unknown; at: number } | null = null;
+function browserToken(): string | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    return localStorage.getItem(TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function isEnvelope(parsed: unknown): parsed is MeCacheEntry {
+  return (
+    !!parsed &&
+    typeof parsed === "object" &&
+    "data" in parsed &&
+    typeof (parsed as { at?: unknown }).at === "number"
+  );
+}
+
+export function createMeCache(
+  store: MeCacheStore | null = null,
+  ttlMs = ME_CACHE_TTL_MS,
+  getToken: () => string | null = () => null,
+) {
+  let memory: MeCacheEntry | null = null;
   let inflight: Promise<unknown> | null = null;
+
+  function currentToken(): string | null {
+    try {
+      return getToken();
+    } catch {
+      return null;
+    }
+  }
+
+  function dropPersisted() {
+    try { store?.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+  }
+
+  function dropStaleIdentity() {
+    if (!memory) return;
+    if (memory.token === currentToken()) return;
+    memory = null;
+    inflight = null;
+    dropPersisted();
+  }
+
+  function persist(entry: MeCacheEntry) {
+    try { store?.setItem(STORAGE_KEY, JSON.stringify(entry)); } catch { /* ignore */ }
+  }
 
   function hydrate() {
     if (memory || !store) return;
     try {
       const raw = store.getItem(STORAGE_KEY);
       if (!raw) return;
-      memory = { data: JSON.parse(raw), at: Date.now() };
+      const parsed = JSON.parse(raw);
+      if (!isEnvelope(parsed)) {
+        dropPersisted();
+        return;
+      }
+      memory = {
+        data: parsed.data,
+        at: parsed.at,
+        token: parsed.token ?? null,
+      };
+      dropStaleIdentity();
     } catch {
-      try { store.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      dropPersisted();
     }
   }
 
@@ -44,6 +107,7 @@ export function createMeCache(store: MeCacheStore | null = null, ttlMs = ME_CACH
 
   return {
     peek(): unknown | null {
+      dropStaleIdentity();
       if (memory && Date.now() - memory.at < ttlMs) return memory.data;
       return null;
     },
@@ -51,17 +115,18 @@ export function createMeCache(store: MeCacheStore | null = null, ttlMs = ME_CACH
     clear() {
       memory = null;
       inflight = null;
-      try { store?.removeItem(STORAGE_KEY); } catch { /* ignore */ }
+      dropPersisted();
     },
 
     async get<T>(fetcher: () => Promise<T>): Promise<T> {
+      dropStaleIdentity();
       if (memory && Date.now() - memory.at < ttlMs) return memory.data as T;
       if (inflight) return inflight as Promise<T>;
 
       inflight = fetcher()
         .then((data) => {
-          memory = { data, at: Date.now() };
-          try { store?.setItem(STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+          memory = { data, at: Date.now(), token: currentToken() };
+          persist(memory);
           return data;
         })
         .finally(() => {
@@ -73,4 +138,4 @@ export function createMeCache(store: MeCacheStore | null = null, ttlMs = ME_CACH
   };
 }
 
-export const meCache = createMeCache(browserSessionStore());
+export const meCache = createMeCache(browserSessionStore(), ME_CACHE_TTL_MS, browserToken);
