@@ -1,3 +1,5 @@
+import { meCache } from "./meCache.ts";
+
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
@@ -13,6 +15,7 @@ export function setToken(token: string) {
 
 export function clearToken() {
   localStorage.removeItem("mh_token");
+  meCache.clear();
 }
 
 export function isLoggedIn(): boolean {
@@ -44,7 +47,7 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
     if (res.status === 401) {
       // If it's a /me call (session expired), clear token and redirect to login
       if (path === "me" || fn === "mh-v2-auth" && path === "me") {
-        localStorage.removeItem("mh_token");
+        clearToken();
         window.location.href = "/login";
       }
       throw new Error(msg || "Incorrect email or password.");
@@ -61,13 +64,14 @@ export async function requestMagicLink(email: string, business_name?: string, in
 }
 
 export async function verifyMagicLink(token: string) {
+  meCache.clear();
   const data = await callFn("mh-v2-auth", "verify", "POST", { token });
   setToken(data.token);
   return data;
 }
 
 export async function getMe() {
-  return callFn("mh-v2-auth", "me", "GET");
+  return meCache.get(() => callFn("mh-v2-auth", "me", "GET"));
 }
 
 export async function scrapeWebsite(url: string) {
