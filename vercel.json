@@ -1,3 +1,13 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/mcp",
+      "destination": "https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-grokbot/mcp"
+    },
+    {
+      "source": "/mcp/",
+      "destination": "https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-grokbot/mcp"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

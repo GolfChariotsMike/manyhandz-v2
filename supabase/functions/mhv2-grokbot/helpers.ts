@@ -5,6 +5,15 @@ export const SECRET_BYTES = 32;
 
 export type Json = Record<string, unknown>;
 
+/** REST + Streamable HTTP MCP. Extra MCP headers so Grok Bot preflight succeeds. */
+export const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers":
+    "authorization, x-client-info, apikey, content-type, mcp-session-id, mcp-protocol-version, last-event-id",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+  "Access-Control-Expose-Headers": "mcp-session-id, mcp-protocol-version",
+};
+
 export function jsonResponse(
   body: unknown,
   status: number,

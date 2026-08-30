@@ -291,6 +291,7 @@ describe("helpers", () => {
       routePath(new URL(`https://x.supabase.co/functions/v1/mhv2-grokbot/knowledge-base/${KB_A}`)),
       `/knowledge-base/${KB_A}`,
     );
+    assert.equal(routePath(new URL("https://x.supabase.co/functions/v1/mhv2-grokbot/mcp")), "/mcp");
   });
 
   it("parses knowledge-base paths and rejects non-uuid ids", () => {
@@ -501,6 +502,92 @@ describe("mhv2-grokbot handler", () => {
     assert.equal(byId.status, 200);
     assert.equal(store.knowledge[CUST_A].faqs[0].q, "Are you licensed?");
     assert.equal(store.syncCalls.length, 2);
+  });
+
+  it("serves Streamable HTTP MCP initialize, tools/list, and tools/call with an mh_live_ key", async () => {
+    const store = seedStore();
+    const e = envFor(store);
+    const created = await json(await handleRequest(req("POST", "/keys", DASH_TOKEN), e));
+    const key = created.body.key as string;
+
+    const noAuth = await json(await handleRequest(req("POST", "/mcp", null, {
+      jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" },
+    }), e));
+    assert.equal(noAuth.status, 401);
+
+    const dash = await json(await handleRequest(req("POST", "/mcp", DASH_TOKEN, {
+      jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26" },
+    }), e));
+    assert.equal(dash.status, 401);
+
+    const init = await json(await handleRequest(req("POST", "/mcp", key, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "grok-bot" } },
+    }), e));
+    assert.equal(init.status, 200);
+    assert.equal(init.body.jsonrpc, "2.0");
+    assert.equal(init.body.id, 1);
+    assert.equal(init.body.result.protocolVersion, "2025-03-26");
+    assert.equal(init.body.result.serverInfo.name, "manyhandz");
+    assert.equal(typeof init.body.result.capabilities.tools, "object");
+    assert.equal(String(init.body.result.instructions).includes("source of truth"), true);
+
+    const listed = await json(await handleRequest(req("POST", "/mcp", key, {
+      jsonrpc: "2.0", id: 2, method: "tools/list",
+    }), e));
+    assert.equal(listed.status, 200);
+    const names = (listed.body.result.tools as { name: string }[]).map(t => t.name);
+    for (const expected of [
+      "get_account", "get_voice", "list_voices", "update_voice",
+      "list_calls", "get_knowledge_base", "update_knowledge_base", "provision_number",
+    ]) {
+      assert.equal(names.includes(expected), true, `missing tool ${expected}`);
+    }
+
+    const called = await json(await handleRequest(req("POST", "/mcp", key, {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: { name: "get_account", arguments: {} },
+    }), e));
+    assert.equal(called.status, 200);
+    assert.equal(called.body.result.isError, false);
+    const payload = JSON.parse(called.body.result.content[0].text);
+    assert.equal(payload.business_name, "Acme Plumbing");
+    assert.equal(payload.phone_number, "+61411111111");
+    assert.equal(payload.id, undefined);
+  });
+
+  it("MCP update_voice wraps PATCH /voice and stays on this customer", async () => {
+    const store = seedStore();
+    const e = envFor(store);
+    const keyA = (await json(await handleRequest(req("POST", "/keys", DASH_TOKEN), e))).body.key as string;
+    const keyB = (await json(await handleRequest(req("POST", "/keys", OTHER_DASH), e))).body.key as string;
+
+    const patched = await json(await handleRequest(req("POST", "/mcp", keyA, {
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: { name: "update_voice", arguments: { greeting: "G'day from MCP", voice: "Charlie" } },
+    }), e));
+    assert.equal(patched.status, 200);
+    assert.equal(patched.body.result.isError, false);
+    assert.equal(store.voice[CUST_A].greeting_script, "G'day from MCP");
+    assert.equal(store.voice[CUST_A].voice_id, "IKne3meq5aSn9XLyUdCD");
+    assert.equal(store.voice[CUST_B].greeting_script, "Beta Electrical, how can we help?");
+    assert.equal(store.syncCalls.length, 1);
+
+    const other = await json(await handleRequest(req("POST", "/mcp", keyB, {
+      jsonrpc: "2.0",
+      id: 5,
+      method: "tools/call",
+      params: { name: "get_account", arguments: {} },
+    }), e));
+    const otherPayload = JSON.parse(other.body.result.content[0].text);
+    assert.equal(otherPayload.business_name, "Beta Electrical");
+    assert.notEqual(otherPayload.business_name, "Acme Plumbing");
   });
 
   it("revokes a key so it cannot be used again", async () => {

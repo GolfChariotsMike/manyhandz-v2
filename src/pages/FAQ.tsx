@@ -23,7 +23,7 @@ const FAQS = [
       },
       {
         q: "How do I handle email?",
-        a: "Inbox work happens in Grok Bot with your own Gmail or Outlook. Go to Connections, generate a ManyHandz key, and paste it into the ManyHandz connector in Grok Bot. Connect Gmail or Outlook inside Grok Bot — not in this dashboard. Voice, Chat, and Grok share the same knowledge base.",
+        a: "Inbox work happens in Grok Bot with your own Gmail or Outlook. Go to Connections, download Grok Bot, generate a ManyHandz key, and add a custom ManyHandz connector using the MCP URL and that key. Connect Gmail or Outlook inside Grok Bot — not in this dashboard. Voice, Chat, and Grok share the same knowledge base.",
       },
     ],
   },
