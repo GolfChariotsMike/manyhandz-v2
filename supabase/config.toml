@@ -25,3 +25,6 @@ verify_jwt = false
 
 [functions.mhv2-leads]
 verify_jwt = false
+
+[functions.mh-sync-agent]
+verify_jwt = true

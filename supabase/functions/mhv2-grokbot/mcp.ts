@@ -64,6 +64,7 @@ export const MCP_TOOLS: McpToolDef[] = [
         cap_quote_prices: { type: "boolean" },
         cap_transfer_calls: { type: "boolean" },
         cap_send_sms: { type: "boolean" },
+        cap_hangup_on_goodbye: { type: "boolean" },
         whitelist: { type: "array", items: { type: "string" }, description: "Numbers the agent may call. Confirm before changing." },
         bridge_to_number: { type: ["string", "null"], description: "Number to transfer calls to." },
       },

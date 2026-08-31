@@ -108,6 +108,7 @@ const CAP_KEYS = [
   "cap_quote_prices",
   "cap_transfer_calls",
   "cap_send_sms",
+  "cap_hangup_on_goodbye",
 ] as const;
 
 export type VoicePatch = {
@@ -117,6 +118,7 @@ export type VoicePatch = {
   cap_quote_prices?: boolean;
   cap_transfer_calls?: boolean;
   cap_send_sms?: boolean;
+  cap_hangup_on_goodbye?: boolean;
   whitelist?: string[];
   bridge_to_number?: string | null;
 };
@@ -185,6 +187,7 @@ export function voicePublic(config: Record<string, unknown> | null) {
     cap_quote_prices: config?.cap_quote_prices ?? false,
     cap_transfer_calls: config?.cap_transfer_calls ?? true,
     cap_send_sms: config?.cap_send_sms ?? true,
+    cap_hangup_on_goodbye: config?.cap_hangup_on_goodbye ?? true,
     whitelist: Array.isArray(config?.whitelist) ? config.whitelist : [],
     bridge_to_number: config?.bridge_to_number ?? null,
   };
