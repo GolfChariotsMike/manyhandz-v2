@@ -444,7 +444,7 @@ export default function Connections() {
             </div>
             <div>
               <h2 className="text-white font-semibold">SimPRO</h2>
-              <p className="text-white/40 text-xs">Field service management</p>
+              <p className="text-white/40 text-xs">Look up jobs and create new ones from a call</p>
             </div>
           </div>
           {simpropConn ? (
@@ -541,6 +541,7 @@ export default function Connections() {
       <div className="rounded-2xl border border-white/5 bg-white/3 p-5 text-white/40 text-sm space-y-2">
         <p className="font-medium text-white/60">What your AI can do with connected data:</p>
         <ul className="space-y-1 list-disc list-inside">
+          <li>Create a new SimPRO job from a phone call (name, phone, site, description) and confirm the job number</li>
           <li>Look up job status when a customer calls ("What's the status of my job?")</li>
           <li>Pull customer and site details for smarter email replies</li>
           <li>Reference open quotes and pending work in conversations</li>

@@ -17,6 +17,7 @@ const base = {
   capSendSms: true,
   capDiscloseAi: false,
   capHangupOnGoodbye: true,
+  capCreateSimproJob: true,
   closingMessage: null as string | null,
 };
 
@@ -41,6 +42,15 @@ test("hangup off keeps the live anything-else closer and omits the hangup rule",
   assert.doesNotMatch(prompt, /HANG UP AFTER GOODBYE/);
   assert.doesNotMatch(prompt, /end_call/);
   assert.match(prompt, /Always end with: "Is there anything else I can help you with\?"/);
+});
+
+test("simpro create-job rule is default-on and honest on failure", () => {
+  const on = buildSystemPrompt(base);
+  assert.match(on, /create_simpro_job/);
+  assert.match(on, /do not pretend a job was created/i);
+  const off = buildSystemPrompt({ ...base, capCreateSimproJob: false });
+  assert.match(off, /Do not create jobs in SimPRO/);
+  assert.doesNotMatch(off, /use the create_simpro_job tool/);
 });
 
 test("disclosure and pricing sections still match the live builder", () => {
