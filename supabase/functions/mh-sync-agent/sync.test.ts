@@ -80,8 +80,31 @@ function makeEnv(opts?: {
         return Response.json(agent);
       }
       if (url.includes("/convai/agents/") && init?.method === "PATCH") {
-        patches.push({ url, body: JSON.parse(String(init.body || "{}")) });
+        const body = JSON.parse(String(init.body || "{}")) as Record<string, unknown>;
+        patches.push({ url, body });
         if (opts?.patchOk === false) return new Response("nope", { status: 500 });
+        const id = url.split("/convai/agents/")[1];
+        const prev = agents[id] || {
+          conversation_config: {
+            agent: {
+              prompt: { prompt: "You are Jake.", tools: [{ type: "webhook", name: "save_message" }], built_in_tools: {} },
+            },
+          },
+        };
+        const nextAgent = (body.conversation_config as { agent?: Record<string, unknown> } | undefined)?.agent || {};
+        const nextPrompt = (nextAgent.prompt || {}) as Record<string, unknown>;
+        agents[id] = {
+          conversation_config: {
+            agent: {
+              ...prev.conversation_config.agent,
+              ...nextAgent,
+              prompt: {
+                ...prev.conversation_config.agent.prompt,
+                ...nextPrompt,
+              },
+            },
+          },
+        };
         return Response.json({ agent_id: "ok" });
       }
       return Response.json([]);
@@ -120,9 +143,20 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   const { env, patches, gets } = makeEnv();
   const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
   assert.equal(res.status, 200);
-  const body = await res.json() as { ok: boolean; agent_id: string };
+  const body = await res.json() as {
+    ok: boolean;
+    agent_id: string;
+    has_end_call: boolean;
+    has_hangup_rule: boolean;
+    tool_names: string[];
+    extras: Array<{ agent_id: string; has_end_call: boolean }>;
+  };
   assert.equal(body.ok, true);
   assert.equal(body.agent_id, "agent-cust");
+  assert.equal(body.has_end_call, true);
+  assert.equal(body.has_hangup_rule, true);
+  assert.equal(body.tool_names.includes("end_call"), true);
+  assert.equal(body.extras.every((e) => e.has_end_call), true);
   assert.equal(gets.length >= 1, true);
   const patchedIds = patches.map((p) => p.url.split("/convai/agents/")[1]);
   assert.equal(patchedIds.includes("agent-cust"), true);
@@ -193,6 +227,32 @@ test("backfill requires service role and patches customers plus Jake", async () 
   assert.deepEqual(EXTRA_HANGUP_AGENT_IDS.slice().sort(), [JAKE_DEMO_AGENT_ID, JAKE_OUTBOUND_AGENT_ID].sort());
   assert.equal(body.extras.length, 2);
   assert.equal(JSON.stringify(patches).includes(SERVICE), false);
+});
+
+test("inspect reports end_call without PATCHing", async () => {
+  const { env, patches } = makeEnv({
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "CAPABILITIES & RULES:\n- HANG UP AFTER GOODBYE: use the end_call tool",
+              tools: [{ type: "webhook", name: "save_message" }, { type: "system", name: "end_call" }],
+              built_in_tools: { end_call: END_CALL_BUILT_IN },
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ inspect: true, customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const body = await res.json() as { has_end_call: boolean; has_hangup_rule: boolean; tool_names: string[] };
+  assert.equal(body.has_end_call, true);
+  assert.equal(body.has_hangup_rule, true);
+  assert.equal(body.tool_names.includes("save_message"), true);
+  assert.equal(body.tool_names.includes("end_call"), true);
+  assert.equal(patches.length, 0);
 });
 
 test("index never hardcodes an API key", async () => {

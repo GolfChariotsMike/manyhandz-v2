@@ -1,6 +1,7 @@
 import { padCallOpening } from "../_shared/voice-greeting.ts";
 import {
   applyHangupRule,
+  isEndCallTool,
   mergeEndCallBuiltIn,
   mergeEndCallTools,
 } from "../_shared/hangup-on-goodbye.ts";
@@ -30,6 +31,13 @@ export type SyncEnv = {
 export type SyncBody = {
   customer_id?: string;
   backfill?: boolean;
+  inspect?: boolean;
+};
+
+export type HangupAttachSummary = {
+  has_end_call: boolean;
+  has_hangup_rule: boolean;
+  tool_names: string[];
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -73,6 +81,24 @@ function agentPromptBag(agent: Record<string, unknown> | null): {
     tools: promptObj.tools,
     builtIn: promptObj.built_in_tools,
     prompt: typeof promptObj.prompt === "string" ? promptObj.prompt : "",
+  };
+}
+
+export function hangupAttachSummary(agent: Record<string, unknown> | null): HangupAttachSummary {
+  const bag = agentPromptBag(agent);
+  const tools = Array.isArray(bag.tools) ? bag.tools : [];
+  const tool_names = tools.map((tool) => {
+    if (tool && typeof tool === "object" && "name" in tool) return String((tool as { name: unknown }).name);
+    return "?";
+  });
+  const builtIn = bag.builtIn && typeof bag.builtIn === "object" && !Array.isArray(bag.builtIn)
+    ? (bag.builtIn as Record<string, unknown>).end_call
+    : null;
+  const hasBuiltIn = !!(builtIn && typeof builtIn === "object" && (builtIn as { name?: unknown }).name === "end_call");
+  return {
+    has_end_call: tools.some(isEndCallTool) || hasBuiltIn,
+    has_hangup_rule: /HANG UP AFTER GOODBYE|\[ManyHandz hang-up-on-goodbye\]|end_call tool/.test(bag.prompt),
+    tool_names,
   };
 }
 
@@ -128,11 +154,29 @@ export async function patchElAgent(
   return { ok: true };
 }
 
+export async function inspectElAgent(
+  env: SyncEnv,
+  agentId: string,
+): Promise<{ ok: boolean; agent_id: string; error?: string } & HangupAttachSummary> {
+  const existing = await getElAgent(env, agentId);
+  if (!existing) {
+    return {
+      ok: false,
+      agent_id: agentId,
+      error: "agent not found",
+      has_end_call: false,
+      has_hangup_rule: false,
+      tool_names: [],
+    };
+  }
+  return { ok: true, agent_id: agentId, ...hangupAttachSummary(existing) };
+}
+
 export async function syncHangupOnly(
   env: SyncEnv,
   agentId: string,
   closingMessage?: string | null,
-): Promise<{ ok: boolean; agent_id: string; error?: string }> {
+): Promise<{ ok: boolean; agent_id: string; error?: string } & HangupAttachSummary> {
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);
   const systemPrompt = applyHangupRule(bag.prompt || "You are a phone assistant.", true, closingMessage);
@@ -142,8 +186,18 @@ export async function syncHangupOnly(
     existingBuiltIn: bag.builtIn,
     hangupEnabled: true,
   }));
-  if (!patched.ok) return { ok: false, agent_id: agentId, error: patched.error };
-  return { ok: true, agent_id: agentId };
+  if (!patched.ok) {
+    return {
+      ok: false,
+      agent_id: agentId,
+      error: patched.error,
+      has_end_call: false,
+      has_hangup_rule: false,
+      tool_names: [],
+    };
+  }
+  const after = await inspectElAgent(env, agentId);
+  return { ...after, agent_id: agentId };
 }
 
 type CustomerRow = { business_name?: string; el_agent_id?: string | null };
@@ -170,7 +224,15 @@ type KbRow = {
 export async function syncCustomerAgent(
   env: SyncEnv,
   customerId: string,
-): Promise<{ ok: boolean; agent_id?: string; prompt_length?: number; error?: string }> {
+): Promise<{
+  ok: boolean;
+  agent_id?: string;
+  prompt_length?: number;
+  error?: string;
+  has_end_call?: boolean;
+  has_hangup_rule?: boolean;
+  tool_names?: string[];
+}> {
   const [custRows, kbRows, vcRows, plRows] = await Promise.all([
     rest<CustomerRow[] | CustomerRow>(
       env,
@@ -229,7 +291,15 @@ export async function syncCustomerAgent(
     hangupEnabled,
   }));
   if (!patched.ok) return { ok: false, agent_id: agentId, error: patched.error };
-  return { ok: true, agent_id: agentId, prompt_length: systemPrompt.length };
+  const after = await inspectElAgent(env, agentId);
+  return {
+    ok: true,
+    agent_id: agentId,
+    prompt_length: systemPrompt.length,
+    has_end_call: after.has_end_call,
+    has_hangup_rule: after.has_hangup_rule,
+    tool_names: after.tool_names,
+  };
 }
 
 async function listCustomerIdsWithAgents(env: SyncEnv): Promise<string[]> {
@@ -297,13 +367,57 @@ export async function handleSyncAgent(req: Request, env: SyncEnv): Promise<Respo
     }
 
     const customerId = typeof body.customer_id === "string" ? body.customer_id.trim() : "";
+
+    if (body.inspect === true) {
+      const extras = await Promise.all(EXTRA_HANGUP_AGENT_IDS.map((id) => inspectElAgent(env, id)));
+      if (!customerId) return jsonResponse({ ok: true, extras });
+      const [custRows, vcRows] = await Promise.all([
+        rest<CustomerRow[] | CustomerRow>(
+          env,
+          `/rest/v1/mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=business_name,el_agent_id`,
+        ),
+        rest<VoiceRow[] | VoiceRow>(
+          env,
+          `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=el_agent_id`,
+        ),
+      ]);
+      const customer = firstRow(custRows);
+      const vc = firstRow(vcRows);
+      const agentId = (vc?.el_agent_id || customer?.el_agent_id || "").trim();
+      if (!agentId) return jsonResponse({ error: "No EL agent found for this customer", extras }, 400);
+      const agent = await inspectElAgent(env, agentId);
+      return jsonResponse({
+        ok: agent.ok,
+        agent_id: agent.agent_id,
+        has_end_call: agent.has_end_call,
+        has_hangup_rule: agent.has_hangup_rule,
+        tool_names: agent.tool_names,
+        extras,
+      });
+    }
+
     if (!customerId) return jsonResponse({ error: "customer_id required" }, 400);
 
     const result = await syncCustomerAgent(env, customerId);
     if (!result.ok) return jsonResponse({ error: result.error }, 400);
     // Same hangup on Jake outbound + demo inbound so two ManyHandz bots cannot goodbye-loop.
-    await Promise.all(EXTRA_HANGUP_AGENT_IDS.map((id) => syncHangupOnly(env, id).catch(() => null)));
-    return jsonResponse({ ok: true, prompt_length: result.prompt_length, agent_id: result.agent_id });
+    const extras = await Promise.all(EXTRA_HANGUP_AGENT_IDS.map((id) => syncHangupOnly(env, id)));
+    return jsonResponse({
+      ok: true,
+      prompt_length: result.prompt_length,
+      agent_id: result.agent_id,
+      has_end_call: result.has_end_call,
+      has_hangup_rule: result.has_hangup_rule,
+      tool_names: result.tool_names,
+      extras: extras.map((item) => ({
+        ok: item.ok,
+        agent_id: item.agent_id,
+        has_end_call: item.has_end_call,
+        has_hangup_rule: item.has_hangup_rule,
+        tool_names: item.tool_names,
+        error: item.error,
+      })),
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return jsonResponse({ error: msg }, 400);
