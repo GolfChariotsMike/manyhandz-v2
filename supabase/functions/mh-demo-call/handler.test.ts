@@ -497,7 +497,9 @@ describe("handleRequest", () => {
     assert.match(visitor.html || "", /Hey Alex,/);
     assert.match(visitor.html || "", /\$199/);
     assert.match(visitor.html || "", /600/);
-    assert.match(visitor.text || "", /Get started free/);
+    assert.match(visitor.html || "", /14-day free trial/);
+    assert.match(visitor.text || "", /Start your 14-day free trial/);
+    assert.match(visitor.text || "", /14-day free trial/);
   });
 
   it("sends both emails when the Twilio call fails", async () => {
@@ -566,6 +568,8 @@ describe("visitor email helpers", () => {
     assert.match(html, /\$199/);
     assert.match(html, /600 mins|600 minutes/);
     assert.match(html, /Hey Alex,/);
+    assert.match(html, /14-day free trial/);
+    assert.match(html, /Start your 14-day free trial →/);
     assert.equal(html.includes("DraftPilot"), false);
     assert.equal(html.includes("Tradify"), false);
     assert.equal(html.includes("SimPRO"), false);
@@ -576,5 +580,7 @@ describe("visitor email helpers", () => {
     assert.match(text, new RegExp(SIGNUP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(text, /Hey Alex,/);
     assert.match(text, /\$199/);
+    assert.match(text, /14-day free trial/);
+    assert.match(text, /Start your 14-day free trial \(about 5 minutes\)/);
   });
 });
