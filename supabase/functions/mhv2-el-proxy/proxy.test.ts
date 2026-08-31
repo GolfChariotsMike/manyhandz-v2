@@ -17,15 +17,39 @@ test("agentVoicePatch pads greeting and disables first-message interruptions", (
     greeting: "Hey, thanks for calling Acme.",
   });
   assert.deepEqual(patch.conversation_config.agent, {
-    first_message: "... Hey, thanks for calling Acme.",
+    first_message: "... ... Hey, thanks for calling Acme.",
     disable_first_message_interruptions: true,
   });
 
   assert.deepEqual(agentVoicePatch({
     voice_id: "voice-1",
-    greeting: "... Hi, this is Acme.",
+    greeting: "Hey, thanks",
   }).conversation_config.agent, {
-    first_message: "... Hi, this is Acme.",
+    first_message: "... ... Hey, thanks",
+    disable_first_message_interruptions: true,
+  });
+
+  assert.deepEqual(agentVoicePatch({
+    voice_id: "voice-1",
+    greeting: "... Hey",
+  }).conversation_config.agent, {
+    first_message: "... ... Hey",
+    disable_first_message_interruptions: true,
+  });
+
+  assert.deepEqual(agentVoicePatch({
+    voice_id: "voice-1",
+    greeting: "… Hi",
+  }).conversation_config.agent, {
+    first_message: "... ... Hi",
+    disable_first_message_interruptions: true,
+  });
+
+  assert.deepEqual(agentVoicePatch({
+    voice_id: "voice-1",
+    greeting: "... ... Hi",
+  }).conversation_config.agent, {
+    first_message: "... ... Hi",
     disable_first_message_interruptions: true,
   });
 });
@@ -55,7 +79,7 @@ test("update_agent_voice sends tts + turn + greeting when provided", () => {
       },
       turn: { turn_eagerness: "patient", turn_timeout: 7 },
       agent: {
-        first_message: "... G'day, thanks for calling.",
+        first_message: "... ... G'day, thanks for calling.",
         disable_first_message_interruptions: true,
       },
     },
@@ -123,7 +147,7 @@ test("handleElProxy keeps existing actions and forwards slider voice_settings", 
   });
   assert.deepEqual(patch.conversation_config.turn, { turn_eagerness: "eager", turn_timeout: 7 });
   assert.deepEqual(patch.conversation_config.agent, {
-    first_message: "... Hey, thanks for calling.",
+    first_message: "... ... Hey, thanks for calling.",
     disable_first_message_interruptions: true,
   });
 
