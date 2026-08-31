@@ -4,6 +4,22 @@
  * ManyHandz demo ConvAI agent. Not a customer-account feature.
  */
 
+import {
+  VISITOR_FROM,
+  VISITOR_SUBJECT,
+  visitorEmailHtml,
+  visitorEmailText,
+} from "./visitor-email.ts";
+
+export {
+  SIGNUP_URL,
+  VISITOR_FROM,
+  VISITOR_SUBJECT,
+  visitorEmailHtml,
+  visitorEmailText,
+  visitorFirstName,
+} from "./visitor-email.ts";
+
 export const DEMO_AGENT_ID = "agent_4701kzv3pb8sfkwrdbja7s22rk75";
 export const DEMO_FROM_NUMBER = "+61485021312";
 export const DEMO_STREAM_URL =
@@ -69,6 +85,7 @@ export type DemoEnv = {
   twimlUrl: string;
   resendApiKey: string | null;
   fromEmail: string;
+  visitorFromEmail?: string;
   notifyEmail: string;
   elApiKey: string;
   demoAgentId: string;
@@ -328,6 +345,33 @@ async function notifyLead(env: DemoEnv, lead: ParsedLead, ip: string | null): Pr
   }
 }
 
+async function sendVisitorEmail(env: DemoEnv, lead: ParsedLead): Promise<void> {
+  if (!env.resendApiKey) return;
+  try {
+    await env.fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.resendApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: env.visitorFromEmail || VISITOR_FROM,
+        to: [lead.email],
+        reply_to: NOTIFY_EMAIL,
+        subject: VISITOR_SUBJECT,
+        html: visitorEmailHtml(lead.name),
+        text: visitorEmailText(lead.name),
+      }),
+    });
+  } catch {
+    // Email must not block or fail the call.
+  }
+}
+
+async function sendDemoEmails(env: DemoEnv, lead: ParsedLead, ip: string | null): Promise<void> {
+  await Promise.all([notifyLead(env, lead, ip), sendVisitorEmail(env, lead)]);
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -416,11 +460,11 @@ export async function handleRequest(req: Request, env: DemoEnv): Promise<Respons
   const call = await placeTwilioCall(env, lead.phone_e164);
   if ("sid" in call) {
     await env.leads.update(inserted.id, { twilio_sid: call.sid });
-    await notifyLead(env, lead, ip);
+    await sendDemoEmails(env, lead, ip);
     return jsonResponse({ ok: true }, 200, origin);
   }
 
   await env.leads.update(inserted.id, { status: "failed" });
-  await notifyLead(env, lead, ip);
+  await sendDemoEmails(env, lead, ip);
   return jsonResponse({ error: GENERIC_CALL_ERROR }, 500, origin);
 }
