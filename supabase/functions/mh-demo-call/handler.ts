@@ -69,11 +69,17 @@ export type LeadRecord = {
   status: string;
 };
 
+export type LeadUpdate = {
+  status?: string;
+  twilio_sid?: string;
+  followup_email_sent_at?: string;
+};
+
 export type LeadsStore = {
   listByPhoneSince(phone: string, sinceIso: string): Promise<LeadRecord[]>;
   countByIpSince(ip: string, sinceIso: string): Promise<number>;
   insert(row: LeadInsert): Promise<{ id: string } | { error: string }>;
-  update(id: string, patch: { status?: string; twilio_sid?: string }): Promise<void>;
+  update(id: string, patch: LeadUpdate): Promise<void>;
 };
 
 export type DemoEnv = {
@@ -345,10 +351,10 @@ async function notifyLead(env: DemoEnv, lead: ParsedLead, ip: string | null): Pr
   }
 }
 
-async function sendVisitorEmail(env: DemoEnv, lead: ParsedLead): Promise<void> {
-  if (!env.resendApiKey) return;
+async function sendVisitorEmail(env: DemoEnv, lead: ParsedLead): Promise<boolean> {
+  if (!env.resendApiKey) return false;
   try {
-    await env.fetch("https://api.resend.com/emails", {
+    const res = await env.fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${env.resendApiKey}`,
@@ -363,13 +369,29 @@ async function sendVisitorEmail(env: DemoEnv, lead: ParsedLead): Promise<void> {
         text: visitorEmailText(lead.name),
       }),
     });
+    return res.ok;
   } catch {
     // Email must not block or fail the call.
+    return false;
   }
 }
 
-async function sendDemoEmails(env: DemoEnv, lead: ParsedLead, ip: string | null): Promise<void> {
-  await Promise.all([notifyLead(env, lead, ip), sendVisitorEmail(env, lead)]);
+async function sendDemoEmails(
+  env: DemoEnv,
+  lead: ParsedLead,
+  ip: string | null,
+  leadId: string,
+): Promise<void> {
+  const [, visitorOk] = await Promise.all([
+    notifyLead(env, lead, ip),
+    sendVisitorEmail(env, lead),
+  ]);
+  if (!visitorOk) return;
+  try {
+    await env.leads.update(leadId, { followup_email_sent_at: env.now().toISOString() });
+  } catch {
+    // Stamp must not fail the demo call.
+  }
 }
 
 function escapeHtml(value: string): string {
@@ -460,11 +482,11 @@ export async function handleRequest(req: Request, env: DemoEnv): Promise<Respons
   const call = await placeTwilioCall(env, lead.phone_e164);
   if ("sid" in call) {
     await env.leads.update(inserted.id, { twilio_sid: call.sid });
-    await sendDemoEmails(env, lead, ip);
+    await sendDemoEmails(env, lead, ip, inserted.id);
     return jsonResponse({ ok: true }, 200, origin);
   }
 
   await env.leads.update(inserted.id, { status: "failed" });
-  await sendDemoEmails(env, lead, ip);
+  await sendDemoEmails(env, lead, ip, inserted.id);
   return jsonResponse({ error: GENERIC_CALL_ERROR }, 500, origin);
 }

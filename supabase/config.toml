@@ -19,3 +19,6 @@ verify_jwt = false
 
 [functions.mh-demo-call]
 verify_jwt = false
+
+[functions.mhv2-leads]
+verify_jwt = false

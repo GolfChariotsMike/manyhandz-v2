@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio } from "lucide-react";
+import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio, Mail } from "lucide-react";
 import { setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
 
@@ -59,6 +59,18 @@ type OutboundCall = {
 
 type OutreachStats = { total: number; new: number; contacted: number; not_interested: number };
 
+type DemoLead = {
+  id: string;
+  name: string;
+  email: string;
+  phone_e164: string;
+  status: string;
+  twilio_sid: string | null;
+  created_at: string;
+  followup_email_sent_at: string | null;
+  followup_called_at: string | null;
+};
+
 function statusBadge(c: Customer) {
   if (c.subscription_status === "active") return <span className="px-2 py-0.5 rounded-full text-xs bg-green-500/20 text-green-400">Active</span>;
   if (c.subscription_status === "past_due") return <span className="px-2 py-0.5 rounded-full text-xs bg-orange-500/20 text-orange-400">Past Due</span>;
@@ -69,6 +81,11 @@ function statusBadge(c: Customer) {
 function fmt(date: string | null) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "2-digit" });
+}
+
+function fmtDateTime(date: string | null) {
+  if (!date) return "—";
+  return new Date(date).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 }
 
 export default function Admin() {
@@ -83,6 +100,8 @@ export default function Admin() {
   const [outreachContacts, setOutreachContacts] = useState<OutreachContact[]>([]);
   const [outboundCalls, setOutboundCalls] = useState<OutboundCall[]>([]);
   const [outreachStats, setOutreachStats] = useState<OutreachStats>({ total: 0, new: 0, contacted: 0, not_interested: 0 });
+  const [leads, setLeads] = useState<DemoLead[]>([]);
+  const [leadsSearch, setLeadsSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
@@ -100,15 +119,19 @@ export default function Admin() {
   const [testDialing, setTestDialing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"created" | "status">("created");
-  const [tab, setTab] = useState<"accounts" | "demo" | "outreach">("accounts");
+  const [tab, setTab] = useState<"accounts" | "demo" | "leads" | "outreach">("accounts");
 
   async function load() {
     setLoading(true);
     setError("");
+    const adminReq = fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin`, {
+      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+    });
+    const leadsReq = fetch(`${SUPABASE_URL}/functions/v1/mhv2-leads`, {
+      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+    });
     try {
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin`, {
-        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
-      });
+      const res = await adminReq;
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setCustomers(Array.isArray(data.customers) ? data.customers : []);
@@ -121,7 +144,34 @@ export default function Admin() {
     } catch (e: unknown) {
       setError(String(e));
     }
+    try {
+      const leadsRes = await leadsReq;
+      const leadsData = await leadsRes.json();
+      if (!leadsData.error && Array.isArray(leadsData.leads)) setLeads(leadsData.leads);
+    } catch {
+      // Accounts / Demo Line / Outreach still load if leads fail.
+    }
     setLoading(false);
+  }
+
+  async function setFollowupCalled(id: string, followup_called: boolean) {
+    const prev = leads;
+    const stamp = followup_called ? new Date().toISOString() : null;
+    setLeads((rows) => rows.map((row) => row.id === id ? { ...row, followup_called_at: stamp } : row));
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-leads`, {
+        method: "PATCH",
+        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ id, followup_called }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.id) {
+        setLeads((rows) => rows.map((row) => row.id === id ? { ...row, followup_called_at: data.followup_called_at ?? null } : row));
+      }
+    } catch {
+      setLeads(prev);
+    }
   }
 
   useEffect(() => { if (authed) load(); }, [authed]);
@@ -148,6 +198,10 @@ export default function Admin() {
       if (sortBy === "status") return a.subscription_status.localeCompare(b.subscription_status);
       return b.created_at.localeCompare(a.created_at);
     });
+
+  const filteredLeads = [...leads]
+    .filter((l) => !leadsSearch || [l.name, l.email, l.phone_e164].join(" ").toLowerCase().includes(leadsSearch.toLowerCase()))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 
   const activeCount = customers.filter(c => c.subscription_status === "active").length;
   const trialCount = customers.filter(c => c.subscription_status === "trial").length;
@@ -209,6 +263,9 @@ export default function Admin() {
         </button>
         <button onClick={() => setTab("demo")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "demo" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
           <span className="flex items-center gap-2"><PhoneCall size={14} /> Demo Line ({demoCalls.length})</span>
+        </button>
+        <button onClick={() => setTab("leads")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "leads" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
+          <span className="flex items-center gap-2"><Mail size={14} /> Leads ({leads.length})</span>
         </button>
         <button onClick={() => setTab("outreach")} className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${tab === "outreach" ? "bg-yellow-500/20 text-yellow-400" : "bg-white/5 text-white/50 hover:text-white/80"}`}>
           <span className="flex items-center gap-2"><Radio size={14} /> Outreach ({outreachStats.total})</span>
@@ -520,6 +577,73 @@ export default function Admin() {
           </div>
         </div>
         </div>
+      )}
+
+      {tab === "leads" && (
+          <div className="aurora-card overflow-hidden">
+            <div className="p-4 border-b border-white/10 flex items-center gap-3">
+              <div className="relative flex-1 max-w-sm">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+                <input value={leadsSearch} onChange={e => setLeadsSearch(e.target.value)} placeholder="Search name, email, phone..." className="w-full pl-8 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none text-sm" />
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40 text-xs uppercase tracking-wider">
+                    <th className="text-left p-4">Name</th>
+                    <th className="text-left p-4">Email</th>
+                    <th className="text-left p-4">Phone</th>
+                    <th className="text-left p-4">Requested</th>
+                    <th className="text-left p-4">Demo call</th>
+                    <th className="text-left p-4">Follow-up email</th>
+                    <th className="text-left p-4">Follow-up call</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredLeads.length === 0 && (
+                    <tr><td colSpan={7} className="text-center py-12 text-white/30">No /try leads yet</td></tr>
+                  )}
+                  {filteredLeads.map((l) => (
+                    <tr key={l.id} className="border-b border-white/5 hover:bg-white/3">
+                      <td className="p-4 font-medium">{l.name}</td>
+                      <td className="p-4 text-white/70">{l.email}</td>
+                      <td className="p-4 font-mono text-xs">{l.phone_e164}</td>
+                      <td className="p-4 text-white/70 text-xs">{fmtDateTime(l.created_at)}</td>
+                      <td className="p-4">
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${
+                          l.status === "calling" ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"
+                        }`}>{l.status}</span>
+                      </td>
+                      <td className="p-4 text-xs">
+                        {l.followup_email_sent_at
+                          ? <span className="text-green-400">Sent <span className="text-white/40">{fmtDateTime(l.followup_email_sent_at)}</span></span>
+                          : <span className="text-white/40">Not sent</span>}
+                      </td>
+                      <td className="p-4">
+                        {l.followup_called_at
+                          ? <div className="flex items-center gap-2">
+                              <span className="text-xs text-white/70">{fmtDateTime(l.followup_called_at)}</span>
+                              <button
+                                onClick={() => setFollowupCalled(l.id, false)}
+                                className="px-2 py-1 rounded-lg text-xs bg-white/5 text-white/50 hover:bg-white/10 hover:text-white/80 transition-all"
+                              >
+                                Unmark
+                              </button>
+                            </div>
+                          : <button
+                              onClick={() => setFollowupCalled(l.id, true)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 transition-all"
+                            >
+                              Mark called
+                            </button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
       )}
 
       {tab === "accounts" && <div className="flex items-center gap-3 mb-4">
