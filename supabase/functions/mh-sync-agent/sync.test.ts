@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { END_CALL_BUILT_IN } from "../_shared/hangup-on-goodbye.ts";
+import { TOOL_CALL_TYPING } from "../_shared/tool-call-typing.ts";
 import {
   EXTRA_HANGUP_AGENT_IDS,
   handleSyncAgent,
@@ -125,16 +126,35 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   const patch = hangupAgentPatch({
     systemPrompt: "prompt",
     firstMessage: "... ... Hey",
-    existingTools: [{ type: "webhook", name: "save_message" }],
+    existingTools: [
+      { type: "webhook", name: "save_message" },
+      { type: "webhook", name: "send_sms", extra: "keep-me" },
+    ],
     existingBuiltIn: {},
     hangupEnabled: true,
   });
   const agent = (patch.conversation_config as { agent: Record<string, unknown> }).agent;
-  const prompt = agent.prompt as { prompt: string; tools: Array<{ name: string; type: string }>; built_in_tools: { end_call: unknown } };
+  const prompt = agent.prompt as {
+    prompt: string;
+    tools: Array<{
+      name: string;
+      type: string;
+      extra?: string;
+      tool_call_sound?: string;
+      tool_call_sound_behavior?: string;
+    }>;
+    built_in_tools: { end_call: unknown };
+  };
   assert.equal(prompt.prompt, "prompt");
   assert.equal(prompt.tools[0].name, "save_message");
-  assert.equal(prompt.tools[1].name, "end_call");
-  assert.equal(prompt.tools[1].type, "system");
+  assert.equal(prompt.tools[0].tool_call_sound, TOOL_CALL_TYPING.tool_call_sound);
+  assert.equal(prompt.tools[0].tool_call_sound_behavior, TOOL_CALL_TYPING.tool_call_sound_behavior);
+  assert.equal(prompt.tools[1].name, "send_sms");
+  assert.equal(prompt.tools[1].extra, "keep-me");
+  assert.equal(prompt.tools[1].tool_call_sound, "typing");
+  assert.equal(prompt.tools[2].name, "end_call");
+  assert.equal(prompt.tools[2].type, "system");
+  assert.equal(prompt.tools[2].tool_call_sound, undefined);
   assert.deepEqual(prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey");
 });
@@ -167,7 +187,11 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   const agent = (customerPatch.body as {
     conversation_config: {
       agent: {
-        prompt: { prompt: string; tools: Array<{ name: string }>; built_in_tools: { end_call: unknown } };
+        prompt: {
+          prompt: string;
+          tools: Array<{ name: string; tool_call_sound?: string; tool_call_sound_behavior?: string }>;
+          built_in_tools: { end_call: unknown };
+        };
         first_message: string;
       };
     };
@@ -175,11 +199,30 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.match(agent.prompt.prompt, /HANG UP AFTER GOODBYE/);
   assert.match(agent.prompt.prompt, /end_call/);
   assert.doesNotMatch(agent.prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
-  assert.equal(agent.prompt.tools.some((t) => t.name === "save_message"), true);
-  assert.equal(agent.prompt.tools.some((t) => t.name === "end_call"), true);
+  const save = agent.prompt.tools.find((t) => t.name === "save_message");
+  const endCall = agent.prompt.tools.find((t) => t.name === "end_call");
+  assert.ok(save);
+  assert.ok(endCall);
+  assert.equal(save.tool_call_sound, "typing");
+  assert.equal(save.tool_call_sound_behavior, "always");
+  assert.equal(endCall.tool_call_sound, undefined);
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
   assert.equal(JSON.stringify(patches).includes(EL_KEY), false);
+  assert.doesNotMatch(JSON.stringify(patches), /background_sound/);
+  for (const extraId of [JAKE_OUTBOUND_AGENT_ID, JAKE_DEMO_AGENT_ID]) {
+    const extraPatch = patches.find((p) => p.url.endsWith(`/convai/agents/${extraId}`));
+    assert.ok(extraPatch);
+    const extraTools = (extraPatch.body as {
+      conversation_config: {
+        agent: { prompt: { tools: Array<{ name: string; type?: string; tool_call_sound?: string }> } };
+      };
+    }).conversation_config.agent.prompt.tools;
+    const extraSave = extraTools.find((t) => t.name === "save_message");
+    const extraEnd = extraTools.find((t) => t.name === "end_call");
+    assert.equal(extraSave?.tool_call_sound, "typing");
+    assert.equal(extraEnd?.tool_call_sound, undefined);
+  }
 });
 
 test("customer sync omits end_call and hangup rule when cap is off", async () => {
@@ -195,11 +238,23 @@ test("customer sync omits end_call and hangup rule when cap is off", async () =>
   });
   const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
   assert.equal(res.status, 200);
-  const prompt = (patches[0].body as { conversation_config: { agent: { prompt: { prompt: string; tools: Array<{ name: string }>; built_in_tools: { end_call: unknown } } } } })
-    .conversation_config.agent.prompt;
+  const prompt = (patches[0].body as {
+    conversation_config: {
+      agent: {
+        prompt: {
+          prompt: string;
+          tools: Array<{ name: string; tool_call_sound?: string; tool_call_sound_behavior?: string }>;
+          built_in_tools: { end_call: unknown };
+        };
+      };
+    };
+  }).conversation_config.agent.prompt;
   assert.doesNotMatch(prompt.prompt, /HANG UP AFTER GOODBYE/);
   assert.equal(prompt.tools.some((t) => t.name === "end_call"), false);
   assert.equal(prompt.built_in_tools.end_call, null);
+  const save = prompt.tools.find((t) => t.name === "save_message");
+  assert.equal(save?.tool_call_sound, "typing");
+  assert.equal(save?.tool_call_sound_behavior, "always");
   assert.match(prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
 });
 
@@ -229,6 +284,42 @@ test("backfill requires service role and patches customers plus Jake", async () 
   assert.equal(JSON.stringify(patches).includes(SERVICE), false);
 });
 
+test("inspect reports typing on webhook tools without PATCHing", async () => {
+  const { env, patches } = makeEnv({
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "You are Jake.",
+              tools: [
+                { type: "webhook", name: "save_message", tool_call_sound: "typing", tool_call_sound_behavior: "always" },
+                { type: "system", name: "end_call" },
+              ],
+              built_in_tools: { end_call: END_CALL_BUILT_IN },
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ inspect: true, customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const body = await res.json() as {
+    has_tool_call_typing: boolean;
+    tool_sounds: Array<{ name: string; type: string; tool_call_sound: string | null; tool_call_sound_behavior: string | null }>;
+  };
+  assert.equal(body.has_tool_call_typing, true);
+  assert.deepEqual(body.tool_sounds.find((t) => t.name === "save_message"), {
+    name: "save_message",
+    type: "webhook",
+    tool_call_sound: "typing",
+    tool_call_sound_behavior: "always",
+  });
+  assert.equal(body.tool_sounds.find((t) => t.name === "end_call")?.tool_call_sound, null);
+  assert.equal(patches.length, 0);
+});
+
 test("inspect reports end_call without PATCHing", async () => {
   const { env, patches } = makeEnv({
     agents: {
@@ -247,11 +338,19 @@ test("inspect reports end_call without PATCHing", async () => {
   });
   const res = await handleSyncAgent(post({ inspect: true, customer_id: "cust-1" }), env);
   assert.equal(res.status, 200);
-  const body = await res.json() as { has_end_call: boolean; has_hangup_rule: boolean; tool_names: string[] };
+  const body = await res.json() as {
+    has_end_call: boolean;
+    has_hangup_rule: boolean;
+    has_tool_call_typing: boolean;
+    tool_names: string[];
+    tool_sounds: Array<{ name: string; tool_call_sound: string | null }>;
+  };
   assert.equal(body.has_end_call, true);
   assert.equal(body.has_hangup_rule, true);
+  assert.equal(body.has_tool_call_typing, false);
   assert.equal(body.tool_names.includes("save_message"), true);
   assert.equal(body.tool_names.includes("end_call"), true);
+  assert.equal(body.tool_sounds.find((t) => t.name === "save_message")?.tool_call_sound, null);
   assert.equal(patches.length, 0);
 });
 

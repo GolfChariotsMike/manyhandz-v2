@@ -174,7 +174,7 @@ function CapabilitiesSection({ config, customerId, anon, url }: { config: any, c
           {saved ? "Saved ✓" : saving ? "Saving..." : "Save"}
         </button>
       </div>
-      <p className="text-xs text-white/40 mb-4">Controls what your agent is allowed to do on calls. Changes sync to the agent immediately.</p>
+      <p className="text-xs text-white/40 mb-4">Controls what your agent is allowed to do on calls. Changes sync to the agent immediately. Callers hear faint typing while the agent looks something up.</p>
       <div className="space-y-3">
         {CAPS.map(c => (
           <div key={c.key} className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
