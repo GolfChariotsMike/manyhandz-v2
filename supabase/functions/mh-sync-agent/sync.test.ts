@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { END_CALL_BUILT_IN } from "../_shared/hangup-on-goodbye.ts";
 import {
   EXTRA_HANGUP_AGENT_IDS,
   handleSyncAgent,
@@ -111,7 +112,7 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   assert.equal(prompt.tools[0].name, "save_message");
   assert.equal(prompt.tools[1].name, "end_call");
   assert.equal(prompt.tools[1].type, "system");
-  assert.deepEqual(prompt.built_in_tools.end_call, {});
+  assert.deepEqual(prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey");
 });
 
@@ -142,7 +143,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.doesNotMatch(agent.prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
   assert.equal(agent.prompt.tools.some((t) => t.name === "save_message"), true);
   assert.equal(agent.prompt.tools.some((t) => t.name === "end_call"), true);
-  assert.deepEqual(agent.prompt.built_in_tools.end_call, {});
+  assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
   assert.equal(JSON.stringify(patches).includes(EL_KEY), false);
 });

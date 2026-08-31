@@ -4,7 +4,7 @@
  *
  * ElevenLabs ConvAI accepts end_call as:
  *   - tools[] item { type: "system", name: "end_call" }
- *   - conversation_config.agent.prompt.built_in_tools.end_call: {}
+ *   - conversation_config.agent.prompt.built_in_tools.end_call: { name, params }
  * Attach both. Prompt-only goodbye does not drop the Twilio Media Stream.
  */
 
@@ -18,6 +18,15 @@ export const END_CALL_SYSTEM_TOOL = {
   name: "end_call",
   description:
     "End the phone call immediately after a short goodbye. Use when the caller says goodbye, bye, thanks that's all, cheers, have a good one, or talk later — or when you have already said goodbye once. Do not keep talking.",
+  params: { system_tool_type: "end_call" },
+};
+
+/** ElevenLabs rejects `end_call: {}` — name + params.system_tool_type are required. */
+export const END_CALL_BUILT_IN = {
+  name: "end_call",
+  type: "system",
+  description: END_CALL_SYSTEM_TOOL.description,
+  params: { system_tool_type: "end_call" },
 };
 
 export function hangupOnGoodbyePromptRule(
@@ -73,10 +82,16 @@ export function mergeEndCallBuiltIn(
   builtIn: unknown,
   enabled: boolean,
 ): Record<string, unknown> {
-  const next = builtIn && typeof builtIn === "object" && !Array.isArray(builtIn)
-    ? { ...(builtIn as Record<string, unknown>) }
-    : {};
-  next.end_call = enabled ? {} : null;
+  const next: Record<string, unknown> = {};
+  if (builtIn && typeof builtIn === "object" && !Array.isArray(builtIn)) {
+    for (const [key, value] of Object.entries(builtIn as Record<string, unknown>)) {
+      if (key === "end_call") continue;
+      if (value && typeof value === "object" && !Array.isArray(value) && "name" in value) {
+        next[key] = value;
+      }
+    }
+  }
+  next.end_call = enabled ? { ...END_CALL_BUILT_IN } : null;
   return next;
 }
 

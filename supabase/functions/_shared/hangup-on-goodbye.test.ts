@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   applyHangupRule,
+  END_CALL_BUILT_IN,
   END_CALL_SYSTEM_TOOL,
   hangupOnGoodbyePromptRule,
   isEndCallTool,
@@ -21,9 +22,9 @@ test("merge adds system end_call and built_in_tools.end_call when on", () => {
   assert.equal(tools[0], webhook);
   assert.deepEqual(tools[1], END_CALL_SYSTEM_TOOL);
   assert.equal(isEndCallTool(tools[1]), true);
-  assert.deepEqual(mergeEndCallBuiltIn({ skip_turn: {} }, true), {
-    skip_turn: {},
-    end_call: {},
+  assert.deepEqual(mergeEndCallBuiltIn({ skip_turn: { name: "skip_turn" } }, true), {
+    skip_turn: { name: "skip_turn" },
+    end_call: END_CALL_BUILT_IN,
   });
 });
 
