@@ -6,6 +6,7 @@ import {
   mergeEndCallTools,
 } from "../_shared/hangup-on-goodbye.ts";
 import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
+import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
 import {
   defaultVoiceId,
   noNumbersError,
@@ -139,6 +140,7 @@ serve(async (req) => {
 
     const SAVE_MESSAGE_URL = `${mhBase}/mh-save-message?customer_id=${customer_id}`;
     const TRANSFER_URL = `${mhBase}/mh-customer-transfer/transfer?customer_id=${customer_id}`;
+    const CREATE_JOB_URL = createSimproJobUrl(supabaseUrl, customer_id);
     const CALL_STATUS_URL = Deno.env.get("TWILIO_STATUS_CALLBACK") ||
       `${mhBase}/mh-call-status?customer_id=${customer_id}`;
 
@@ -179,6 +181,7 @@ serve(async (req) => {
           },
         },
       },
+      createSimproJobWebhookTool(CREATE_JOB_URL),
     ];
     const tools = mergeToolCallTyping(mergeEndCallTools(agentTools, true));
 

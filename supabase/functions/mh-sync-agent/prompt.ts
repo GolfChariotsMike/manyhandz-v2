@@ -1,7 +1,7 @@
 /**
  * Live mh-sync-agent prompt builder, ported into this repo.
- * Hang-up-on-goodbye is the only new capability section; disclosure wording
- * matches the currently deployed function so existing agents do not shift.
+ * Hang-up-on-goodbye and SimPRO create-job are the extra capability sections;
+ * disclosure wording matches the live function so existing agents do not shift.
  */
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
 
@@ -30,6 +30,7 @@ export type PromptInput = {
   capSendSms: boolean;
   capDiscloseAi: boolean;
   capHangupOnGoodbye: boolean;
+  capCreateSimproJob?: boolean;
   closingMessage?: string | null;
 };
 
@@ -75,7 +76,7 @@ export function buildSystemPrompt(data: PromptInput): string {
   const {
     aiName, businessName, about, services, faqs, hours, tone, priceList,
     capConfirmBookings, capQuotePrices, capTransferCalls, capSendSms,
-    capDiscloseAi, capHangupOnGoodbye, closingMessage,
+    capDiscloseAi, capHangupOnGoodbye, capCreateSimproJob, closingMessage,
   } = data;
 
   const toneDesc = tone === "formal" ? "professional and formal"
@@ -110,11 +111,16 @@ export function buildSystemPrompt(data: PromptInput): string {
     ? `- SMS: You can send the caller a text message with links or information if helpful.`
     : "";
 
+  const createJobOn = capCreateSimproJob ?? true;
+  const simproJobRule = createJobOn
+    ? `- SIMPRO JOBS: When a caller wants work done, collect their name, the job site/address, and a short description (phone comes from caller ID). Then use the create_simpro_job tool. If the tool returns a job number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a job was created — take a message and say the team will set the job up.`
+    : `- SIMPRO JOBS: Do not create jobs in SimPRO. Take a message instead.`;
+
   const hangupRule = hangupOnGoodbyePromptRule(capHangupOnGoodbye, closingMessage);
   const hangupCap = hangupRule ? `\n- HANG UP AFTER GOODBYE: ${hangupRule}` : "";
 
   const capabilitySection =
-    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
 
   // Live function always asked "anything else?" — that is why two bots goodbye-looped.
   const callHandlingEnd = capHangupOnGoodbye

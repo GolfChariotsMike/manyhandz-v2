@@ -58,6 +58,7 @@ function makeEnv(opts?: {
           cap_send_sms: true,
           cap_disclose_ai: false,
           cap_hangup_on_goodbye: true,
+          cap_create_simpro_job: true,
         }]);
       }
       if (url.includes("/rest/v1/mh_price_list")) {
@@ -200,12 +201,18 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.match(agent.prompt.prompt, /end_call/);
   assert.doesNotMatch(agent.prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
   const save = agent.prompt.tools.find((t) => t.name === "save_message");
+  const createJob = agent.prompt.tools.find((t) => t.name === "create_simpro_job");
   const endCall = agent.prompt.tools.find((t) => t.name === "end_call");
   assert.ok(save);
+  assert.ok(createJob);
   assert.ok(endCall);
   assert.equal(save.tool_call_sound, "typing");
   assert.equal(save.tool_call_sound_behavior, "always");
+  assert.equal(createJob.tool_call_sound, "typing");
+  assert.equal(createJob.tool_call_sound_behavior, "always");
   assert.equal(endCall.tool_call_sound, undefined);
+  assert.match(agent.prompt.prompt, /create_simpro_job/);
+  assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
   assert.equal(JSON.stringify(patches).includes(EL_KEY), false);
@@ -222,6 +229,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     const extraEnd = extraTools.find((t) => t.name === "end_call");
     assert.equal(extraSave?.tool_call_sound, "typing");
     assert.equal(extraEnd?.tool_call_sound, undefined);
+    assert.equal(extraTools.some((t) => t.name === "create_simpro_job"), false);
   }
 });
 

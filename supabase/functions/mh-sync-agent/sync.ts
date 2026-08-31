@@ -11,6 +11,7 @@ import {
   toolSoundRows,
   type ToolSoundRow,
 } from "../_shared/tool-call-typing.ts";
+import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
 import { buildSystemPrompt, type PriceItem } from "./prompt.ts";
 
 export const corsHeaders = {
@@ -226,6 +227,7 @@ type VoiceRow = {
   cap_send_sms?: boolean | null;
   cap_disclose_ai?: boolean | null;
   cap_hangup_on_goodbye?: boolean | null;
+  cap_create_simpro_job?: boolean | null;
 };
 type KbRow = {
   about?: string | null;
@@ -260,7 +262,7 @@ export async function syncCustomerAgent(
     ),
     rest<VoiceRow[] | VoiceRow>(
       env,
-      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye`,
+      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job`,
     ),
     rest<PriceItem[] | PriceItem>(
       env,
@@ -292,17 +294,22 @@ export async function syncCustomerAgent(
     capSendSms: vc?.cap_send_sms ?? true,
     capDiscloseAi: vc?.cap_disclose_ai ?? false,
     capHangupOnGoodbye: hangupEnabled,
+    capCreateSimproJob: vc?.cap_create_simpro_job ?? true,
     closingMessage: vc?.closing_message || null,
   });
 
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);
   const firstMessage = padCallOpening(vc?.greeting_script || "") || undefined;
+  const toolsWithCreate = mergeCreateSimproJobTool(
+    bag.tools,
+    createSimproJobUrl(env.supabaseUrl, customerId),
+  );
 
   const patched = await patchElAgent(env, agentId, hangupAgentPatch({
     systemPrompt,
     firstMessage,
-    existingTools: bag.tools,
+    existingTools: toolsWithCreate,
     existingBuiltIn: bag.builtIn,
     hangupEnabled,
   }));
