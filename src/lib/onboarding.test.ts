@@ -6,10 +6,16 @@ import {
   initialWebsite,
   knowledgePayloadFromForm,
   normalizeHost,
+  normalizeMarket,
+  notifyMobilePlaceholder,
+  onboardingNumberBlurb,
   parseOnboardingDraft,
+  parseSignupCountry,
   profileUpdatesFromForm,
   provisionNumberBody,
+  provisionedNumberPlaceholder,
   shouldDiscardOnboardingDraft,
+  signupWebsitePlaceholder,
 } from "./onboarding.ts";
 
 test("normalizeHost ignores www, scheme, and trailing slash", () => {
@@ -105,9 +111,33 @@ test("initialWebsite prefers what they typed this session over leftover draft / 
   );
 });
 
-test("provision body is AU only — no state", () => {
+test("provision body follows stored market and never includes state", () => {
   assert.deepEqual(provisionNumberBody("cust-1"), { customer_id: "cust-1", country: "AU" });
+  assert.deepEqual(provisionNumberBody("cust-1", "AU"), { customer_id: "cust-1", country: "AU" });
+  assert.deepEqual(provisionNumberBody("cust-1", "US"), { customer_id: "cust-1", country: "US" });
+  assert.deepEqual(provisionNumberBody("cust-1", "us"), { customer_id: "cust-1", country: "US" });
+  assert.equal("state" in provisionNumberBody("cust-1", "US"), false);
   assert.equal("state" in provisionNumberBody("cust-1"), false);
+});
+
+test("signup country query param is US or AU only — no geo guess", () => {
+  assert.equal(parseSignupCountry("US"), "US");
+  assert.equal(parseSignupCountry("us"), "US");
+  assert.equal(parseSignupCountry(null), "AU");
+  assert.equal(parseSignupCountry("AU"), "AU");
+  assert.equal(normalizeMarket("NZ"), "AU");
+});
+
+test("onboarding copy matches market without claiming a US company", () => {
+  assert.match(onboardingNumberBlurb("AU"), /Australian mobile \(04/);
+  assert.match(onboardingNumberBlurb("US"), /US phone number/);
+  assert.doesNotMatch(onboardingNumberBlurb("US"), /LLC|headquarters|HQ|US address/i);
+  assert.equal(provisionedNumberPlaceholder("AU"), "+61 4XX XXX XXX");
+  assert.equal(provisionedNumberPlaceholder("US"), "+1 XXX XXX XXXX");
+  assert.equal(notifyMobilePlaceholder("AU"), "e.g. 0412 345 678");
+  assert.equal(notifyMobilePlaceholder("US"), "e.g. +1 555 123 4567");
+  assert.equal(signupWebsitePlaceholder("AU"), "yoursite.com.au");
+  assert.equal(signupWebsitePlaceholder("US"), "yoursite.com");
 });
 
 test("step 1 profile payload keeps empty website/industry as null", () => {

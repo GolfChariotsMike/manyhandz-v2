@@ -24,7 +24,7 @@ Apply `supabase/migrations/20260830000000_mh_grokbot_tokens.sql` on the project 
 | `list_calls` | `GET /calls` | This customer only |
 | `get_knowledge_base` | `GET /knowledge-base` | One dashboard document |
 | `update_knowledge_base` | `PATCH /knowledge-base` | Same row the dashboard Save button writes |
-| `provision_number` | `POST /voice/provision` | Confirm before provisioning an AU number |
+| `provision_number` | `POST /voice/provision` | Confirm before provisioning a number |
 
 Optional alias if the Vercel rewrite is live: `https://app.manyhandz.ai/mcp` proxies to the function MCP URL.
 

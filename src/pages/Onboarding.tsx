@@ -8,9 +8,13 @@ import {
   initialWebsite,
   knowledgePayloadFromForm,
   loadDraftForCustomer,
+  onboardingNumberBlurb,
+  notifyMobilePlaceholder,
   profileUpdatesFromForm,
   provisionNumberBody,
+  provisionedNumberPlaceholder,
   saveOnboardingDraft,
+  signupWebsitePlaceholder,
 } from "../lib/onboarding";
 import { Check, Loader2, Plus, X, ChevronRight } from "lucide-react";
 
@@ -386,7 +390,7 @@ export default function Onboarding() {
         const res = await fetch(`https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-provision-number`, {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw` },
-          body: JSON.stringify(provisionNumberBody(customer.id)),
+          body: JSON.stringify(provisionNumberBody(customer.id, customer.country)),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Failed to provision number");
@@ -488,7 +492,7 @@ export default function Onboarding() {
             </div>
             <div>
               <label className="text-sm text-white/60 mb-1 block">Website URL <span className="text-white/30">(optional)</span></label>
-              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder="yoursite.com.au" disabled={noWebsite} className={noWebsite ? "opacity-40" : ""} />
+              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder={signupWebsitePlaceholder(customer?.country)} disabled={noWebsite} className={noWebsite ? "opacity-40" : ""} />
               <div className="flex items-center gap-3 mt-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -571,7 +575,7 @@ export default function Onboarding() {
             )}
             <div className="aurora-card p-5">
               <label className="text-sm font-semibold text-yellow-400 mb-2 block">📞 Your ManyHandz number</label>
-              <p className="text-sm text-white/70">We'll give you an Australian mobile (04…). State doesn't matter.</p>
+              <p className="text-sm text-white/70">{onboardingNumberBlurb(customer?.country)}</p>
             </div>
             {/* About */}
             <div className="aurora-card p-5">
@@ -734,7 +738,7 @@ export default function Onboarding() {
             <label className="text-xs text-white/40 block mb-1">Where should we SMS you when someone leaves a message?</label>
             <input
               type="tel"
-              placeholder="e.g. 0412 345 678"
+              placeholder={notifyMobilePlaceholder(customer?.country)}
               value={notifyMobile}
               onChange={e => setNotifyMobile(e.target.value)}
               className="w-full bg-transparent text-white text-sm outline-none placeholder:text-white/20"
@@ -743,7 +747,7 @@ export default function Onboarding() {
 
           <div className="aurora-card p-6 mb-8 inline-block w-full">
             <div className="text-4xl font-bold text-yellow-400 tracking-wider mb-1">
-              {provisionedNumber || "+61 4XX XXX XXX"}
+              {provisionedNumber || provisionedNumberPlaceholder(customer?.country)}
             </div>
             <p className="text-xs text-white/40">Your AI answers calls to this number 24/7</p>
           </div>

@@ -1,13 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { padCallOpening } from "../_shared/voice-greeting.ts";
-import { auMobileSearchFallbackPath, auMobileSearchPath } from "./search.ts";
+import {
+  defaultVoiceId,
+  noNumbersError,
+  resolveMarket,
+  searchPathsForMarket,
+  twilioPurchaseFields,
+} from "./search.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
-
-const EL_DEFAULT_VOICE = Deno.env.get("ELEVENLABS_DEFAULT_VOICE") || "IKne3meq5aSn9XLyUdCD"; // Charlie — Aussie male
 
 function envOrThrow(name: string, aliases: string[] = []): string {
   for (const key of [name, ...aliases]) {
@@ -91,9 +95,12 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   try {
-    // country is accepted for compatibility; numbers are always AU mobile.
-    // state / AreaCode must not be used — they filter geographic landlines.
-    const { customer_id } = await req.json() as { customer_id?: string; country?: string; state?: string };
+    // state / AreaCode must not be used on AU mobile — they filter geographic landlines.
+    const { customer_id, country: requestCountry } = await req.json() as {
+      customer_id?: string;
+      country?: string;
+      state?: string;
+    };
     if (!customer_id) throw new Error("customer_id required");
 
     const twilioSid = envOrThrow("TWILIO_ACCOUNT_SID");
@@ -101,17 +108,17 @@ serve(async (req) => {
     const elApiKey = envOrThrow("ELEVENLABS_API_KEY");
     const serviceKey = envOrThrow("SUPABASE_SERVICE_ROLE_KEY");
     const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://kouembkldbpdbhzeaoth.supabase.co";
-    const addressSid = envOrThrow("TWILIO_ADDRESS_SID", ["AU_MOBILE_ADDRESS_SID"]);
-    const bundleSid = envOrThrow("TWILIO_BUNDLE_SID", ["AU_MOBILE_BUNDLE_SID"]);
 
     const voiceRouterUrl = Deno.env.get("TWILIO_VOICE_URL") || `${supabaseUrl}/functions/v1/mh-voice-router`;
     const mhBase = `${supabaseUrl}/functions/v1`;
 
-    console.log(`[provision] customer=${customer_id} country=AU (mobile, no AreaCode)`);
-
     const custRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_v2_customers?id=eq.${customer_id}&select=*`);
     const customer = Array.isArray(custRows) ? custRows[0] : null;
     if (!customer) throw new Error("Customer not found");
+
+    const market = resolveMarket(requestCountry, customer.country);
+    const elVoiceId = defaultVoiceId(market, Deno.env.get("ELEVENLABS_DEFAULT_VOICE") || undefined);
+    console.log(`[provision] customer=${customer_id} country=${market}${market === "AU" ? " (mobile, no AreaCode)" : " (US Local, no AU bundle)"}`);
 
     const kbRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_knowledge_base?customer_id=eq.${customer_id}&select=*`);
     const kb = Array.isArray(kbRows) ? kbRows[0] : null;
@@ -174,7 +181,7 @@ serve(async (req) => {
           disable_first_message_interruptions: true,
           prompt: { prompt: systemPrompt, llm: "gpt-4o-mini", temperature: 0.7, tools: agentTools },
         },
-        tts: { voice_id: EL_DEFAULT_VOICE, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
+        tts: { voice_id: elVoiceId, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
         asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
         turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "patient" },
       },
@@ -185,25 +192,30 @@ serve(async (req) => {
     const elAgentId = agentRes.agent_id;
     console.log(`[provision] EL agent created: ${elAgentId}`);
 
-    let searchRes = await twilio(auMobileSearchPath(twilioSid), twilioSid, twilioToken);
+    const search = searchPathsForMarket(market, twilioSid);
+    let searchRes = await twilio(search.primary, twilioSid, twilioToken);
     if (!searchRes.available_phone_numbers?.length) {
-      searchRes = await twilio(auMobileSearchFallbackPath(twilioSid), twilioSid, twilioToken);
+      searchRes = await twilio(search.fallback, twilioSid, twilioToken);
     }
-    if (!searchRes.available_phone_numbers?.length) throw new Error("No available AU mobile numbers");
+    if (!searchRes.available_phone_numbers?.length) throw new Error(noNumbersError(market));
 
     const phoneNumber = searchRes.available_phone_numbers[0].phone_number;
     console.log(`[provision] Purchasing ${phoneNumber}...`);
 
-    const purchaseBody = new URLSearchParams({
-      PhoneNumber: phoneNumber,
-      VoiceUrl: voiceRouterUrl,
-      VoiceMethod: "POST",
-      StatusCallback: CALL_STATUS_URL,
-      StatusCallbackMethod: "POST",
-      FriendlyName: `ManyHandz - ${businessName.slice(0, 20)}`,
-      AddressSid: addressSid,
-      BundleSid: bundleSid,
+    const purchaseFields = twilioPurchaseFields({
+      market,
+      phoneNumber,
+      voiceUrl: voiceRouterUrl,
+      statusCallback: CALL_STATUS_URL,
+      friendlyName: `ManyHandz - ${businessName.slice(0, 20)}`,
+      ...(market === "AU"
+        ? {
+          addressSid: envOrThrow("TWILIO_ADDRESS_SID", ["AU_MOBILE_ADDRESS_SID"]),
+          bundleSid: envOrThrow("TWILIO_BUNDLE_SID", ["AU_MOBILE_BUNDLE_SID"]),
+        }
+        : {}),
     });
+    const purchaseBody = new URLSearchParams(purchaseFields);
 
     const purchaseRes = await twilio(
       `/2010-04-01/Accounts/${twilioSid}/IncomingPhoneNumbers.json`,
@@ -227,6 +239,7 @@ serve(async (req) => {
       trial_started_at: trialStart.toISOString(),
       trial_ends_at: trialEnd.toISOString(),
       onboarding_complete: true,
+      country: market,
     });
 
     const vcRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`);
@@ -239,6 +252,7 @@ serve(async (req) => {
         system_prompt: systemPrompt,
         active: true,
         el_agent_id: elAgentId,
+        voice_id: elVoiceId,
         turn_eagerness: "patient",
       });
     } else {

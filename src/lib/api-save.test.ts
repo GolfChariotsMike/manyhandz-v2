@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { meCache } from "./meCache.ts";
-import { saveOnboardingKnowledge, updateProfile } from "./api.ts";
+import { requestMagicLink, saveOnboardingKnowledge, updateProfile } from "./api.ts";
 
 const origFetch = globalThis.fetch;
 const origLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -112,3 +112,35 @@ test("saveOnboardingKnowledge POSTs mh-v2-save/knowledge and surfaces errors", a
     /Could not save knowledge base|Server error/,
   );
 });
+
+test("requestMagicLink sends country so a US signup survives the email click", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage("");
+  const calls: { url: string; body: unknown }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    return new Response(JSON.stringify({ ok: true, isNew: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await requestMagicLink("us@example.com", "Acme", "Retail", "acme.com", "US");
+  assert.match(calls[0].url, /\/functions\/v1\/mh-v2-auth\/magic-link$/);
+  assert.deepEqual(calls[0].body, {
+    email: "us@example.com",
+    business_name: "Acme",
+    industry: "Retail",
+    website_url: "acme.com",
+    country: "US",
+  });
+
+  await requestMagicLink("au@example.com", "Smith Plumbing", "Trade / Construction", "", "AU");
+  assert.equal((calls[1].body as { country: string }).country, "AU");
+
+  await requestMagicLink("login@example.com");
+  assert.equal("country" in (calls[2].body as object), false);
+});
+

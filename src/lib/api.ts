@@ -61,8 +61,16 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   return data;
 }
 
-export async function requestMagicLink(email: string, business_name?: string, industry?: string, website_url?: string) {
-  return callFn("mh-v2-auth", "magic-link", "POST", { email, business_name, industry, website_url });
+export async function requestMagicLink(
+  email: string,
+  business_name?: string,
+  industry?: string,
+  website_url?: string,
+  country?: string,
+) {
+  const body: Record<string, unknown> = { email, business_name, industry, website_url };
+  if (country !== undefined) body.country = country === "US" ? "US" : "AU";
+  return callFn("mh-v2-auth", "magic-link", "POST", body);
 }
 
 export async function verifyMagicLink(token: string) {
