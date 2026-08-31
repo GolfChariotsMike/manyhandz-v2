@@ -4,12 +4,14 @@ import {
   ALLOWED_ORIGINS,
   DEMO_AGENT_ID,
   DEMO_FROM_NUMBER,
+  FALLBACK_TWIML,
   GENERIC_CALL_ERROR,
-  NAME_MAX,
   OUTBOUND_TWIML,
+  NAME_MAX,
   RATE_LIMIT_ERROR,
   RESEND_FROM,
   clientIp,
+  coerceE164,
   corsHeaders,
   decideRateLimit,
   demoNotifySubject,
@@ -56,16 +58,21 @@ function memoryLeads(store: Store): LeadsStore {
   };
 }
 
+const SIGNED_TWIML =
+  `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="wss://api.elevenlabs.io/v1/convai/twilio?agent_id=${DEMO_AGENT_ID}&amp;token=signed"/></Connect></Response>`;
+
 function envFor(opts: {
   store?: Store;
   fetchImpl?: typeof fetch;
   twilioSid?: string;
   resendApiKey?: string | null;
+  elApiKey?: string;
   insertError?: boolean;
-}): { env: DemoEnv; store: Store; twilioCalls: Request[]; emails: Request[] } {
+}): { env: DemoEnv; store: Store; twilioCalls: Request[]; emails: Request[]; registerCalls: Request[] } {
   const store = opts.store ?? { rows: [] };
   const twilioCalls: Request[] = [];
   const emails: Request[] = [];
+  const registerCalls: Request[] = [];
   const fetchImpl = opts.fetchImpl ?? (async (input: RequestInfo | URL, init?: RequestInit) => {
     const req = new Request(input, init);
     if (req.url.includes("api.twilio.com")) {
@@ -75,6 +82,10 @@ function envFor(opts: {
     if (req.url.includes("api.resend.com")) {
       emails.push(req);
       return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+    }
+    if (req.url.includes("/convai/twilio/register-call")) {
+      registerCalls.push(req);
+      return new Response(SIGNED_TWIML, { status: 200 });
     }
     return new Response("not mocked", { status: 500 });
   });
@@ -88,6 +99,7 @@ function envFor(opts: {
     store,
     twilioCalls,
     emails,
+    registerCalls,
     env: {
       now: () => NOW,
       fetch: fetchImpl as typeof fetch,
@@ -98,6 +110,8 @@ function envFor(opts: {
       resendApiKey: opts.resendApiKey === undefined ? null : opts.resendApiKey,
       fromEmail: RESEND_FROM,
       notifyEmail: "info@manyhandz.ai",
+      elApiKey: opts.elApiKey === undefined ? "el-test-key" : opts.elApiKey,
+      demoAgentId: DEMO_AGENT_ID,
       leads,
     },
   };
@@ -231,16 +245,101 @@ describe("handleRequest", () => {
     assert.deepEqual(await json(res), { status: 200, body: { ok: true }, origin: null });
   });
 
-  it("GET /outbound-twiml is the live demo Stream TwiML (exact agent id)", async () => {
-    const { env } = envFor({});
+  it("GET /outbound-twiml with From/To registers the call and returns ElevenLabs TwiML", async () => {
+    const { env, registerCalls } = envFor({});
+    const res = await handleRequest(
+      new Request(
+        `https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml?CallSid=CAtest&CallStatus=in-progress&From=%2B61485021312&To=%2B61433121933`,
+        { method: "GET" },
+      ),
+      env,
+    );
+    assert.equal(res.headers.get("Content-Type"), "text/xml");
+    assert.equal(await res.text(), SIGNED_TWIML);
+    assert.equal(registerCalls.length, 1);
+    assert.equal(registerCalls[0].url, "https://api.elevenlabs.io/v1/convai/twilio/register-call");
+    assert.equal(registerCalls[0].headers.get("xi-api-key"), "el-test-key");
+    assert.deepEqual(await registerCalls[0].json(), {
+      agent_id: DEMO_AGENT_ID,
+      from_number: DEMO_FROM_NUMBER,
+      to_number: "+61433121933",
+      direction: "outbound",
+    });
+  });
+
+  it("POST /outbound-twiml also registers and does not fall back to the static Stream URL", async () => {
+    const { env, registerCalls } = envFor({});
+    const res = await handleRequest(
+      new Request(
+        `https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml?From=%2B61485021312&To=%2B61412345678`,
+        { method: "POST" },
+      ),
+      env,
+    );
+    const body = await res.text();
+    assert.equal(body, SIGNED_TWIML);
+    assert.notEqual(body, OUTBOUND_TWIML);
+    assert.equal(registerCalls.length, 1);
+  });
+
+  it("GET /outbound-twiml without To returns Say/Hangup and does not call register-call", async () => {
+    const { env, registerCalls } = envFor({});
     const res = await handleRequest(
       new Request("https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml", { method: "GET" }),
       env,
     );
     assert.equal(res.headers.get("Content-Type"), "text/xml");
-    assert.equal(await res.text(), OUTBOUND_TWIML);
-    assert.match(OUTBOUND_TWIML, new RegExp(`agent_id=${DEMO_AGENT_ID}`));
-    assert.match(OUTBOUND_TWIML, /wss:\/\/api\.elevenlabs\.io\/v1\/convai\/twilio\?agent_id=/);
+    assert.equal(await res.text(), FALLBACK_TWIML);
+    assert.match(FALLBACK_TWIML, /<Say>Sorry, we are experiencing technical difficulties/);
+    assert.match(FALLBACK_TWIML, /<Hangup\/>/);
+    assert.equal(registerCalls.length, 0);
+  });
+
+  it("GET /outbound-twiml returns Say/Hangup when register-call fails", async () => {
+    const { env } = envFor({
+      fetchImpl: async () => new Response("nope", { status: 500 }),
+    });
+    const res = await handleRequest(
+      new Request(
+        `https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml?From=%2B61485021312&To=%2B61433121933`,
+        { method: "GET" },
+      ),
+      env,
+    );
+    assert.equal(await res.text(), FALLBACK_TWIML);
+  });
+
+  it("GET /outbound-twiml returns Say/Hangup when the EL key is missing", async () => {
+    const { env, registerCalls } = envFor({ elApiKey: "" });
+    const res = await handleRequest(
+      new Request(
+        `https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml?From=%2B61485021312&To=%2B61433121933`,
+        { method: "GET" },
+      ),
+      env,
+    );
+    assert.equal(await res.text(), FALLBACK_TWIML);
+    assert.equal(registerCalls.length, 0);
+  });
+
+  it("coerces a Twilio + that arrived as a space and accepts Called as To fallback", async () => {
+    assert.equal(coerceE164(" 61485021312"), DEMO_FROM_NUMBER);
+    assert.equal(coerceE164("+61433121933"), "+61433121933");
+    const { env, registerCalls } = envFor({});
+    const res = await handleRequest(
+      new Request(
+        "https://x.supabase.co/functions/v1/mh-demo-call/outbound-twiml?From=+61485021312&Called=+61433121933",
+        { method: "GET" },
+      ),
+      env,
+    );
+    assert.equal(await res.text(), SIGNED_TWIML);
+    assert.deepEqual(await registerCalls[0].json(), {
+      agent_id: DEMO_AGENT_ID,
+      from_number: DEMO_FROM_NUMBER,
+      to_number: "+61433121933",
+      direction: "outbound",
+    });
   });
 
   it("OPTIONS preflight allows manyhandz.ai and rejects other origins", async () => {

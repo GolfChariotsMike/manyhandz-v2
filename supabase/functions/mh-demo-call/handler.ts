@@ -10,6 +10,8 @@ export const DEMO_STREAM_URL =
   `wss://api.elevenlabs.io/v1/convai/twilio?agent_id=${DEMO_AGENT_ID}`;
 export const OUTBOUND_TWIML =
   `<?xml version="1.0" encoding="UTF-8"?><Response><Connect><Stream url="${DEMO_STREAM_URL}"/></Connect></Response>`;
+export const FALLBACK_TWIML =
+  `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, we are experiencing technical difficulties. Please try again shortly.</Say><Hangup/></Response>`;
 
 export const ALLOWED_ORIGINS = [
   "https://manyhandz.ai",
@@ -32,6 +34,7 @@ export const RESEND_FROM = "ManyHandz <noreply@manyhandz.ai>";
 export const NOTIFY_EMAIL = "info@manyhandz.ai";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const E164_RE = /^\+\d{8,15}$/;
 
 export type LeadInsert = {
   name: string;
@@ -67,6 +70,8 @@ export type DemoEnv = {
   resendApiKey: string | null;
   fromEmail: string;
   notifyEmail: string;
+  elApiKey: string;
+  demoAgentId: string;
   leads: LeadsStore;
 };
 
@@ -125,6 +130,13 @@ export function normalizeAuMobile(raw: string): string | null {
   if (/^\+614\d{8}$/.test(digits)) return digits;
   if (/^614\d{8}$/.test(digits)) return `+${digits}`;
   return null;
+}
+
+export function coerceE164(raw: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/ /g, "+");
+  if (E164_RE.test(trimmed)) return trimmed;
+  return normalizeAuMobile(trimmed);
 }
 
 export function validateName(raw: unknown): string | null {
@@ -236,6 +248,34 @@ function jsonResponse(body: unknown, status: number, origin: string | null): Res
   });
 }
 
+function xmlResponse(body: string): Response {
+  return new Response(body, { headers: { "Content-Type": "text/xml" } });
+}
+
+export async function registerOutboundTwiml(
+  env: DemoEnv,
+  fromNumber: string,
+  toNumber: string,
+): Promise<string | null> {
+  if (!env.elApiKey) return null;
+  const res = await env.fetch("https://api.elevenlabs.io/v1/convai/twilio/register-call", {
+    method: "POST",
+    headers: {
+      "xi-api-key": env.elApiKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agent_id: env.demoAgentId || DEMO_AGENT_ID,
+      from_number: fromNumber,
+      to_number: toNumber,
+      direction: "outbound",
+    }),
+  });
+  const twiml = await res.text();
+  if (!res.ok || !twiml.includes("<Response")) return null;
+  return twiml;
+}
+
 async function placeTwilioCall(env: DemoEnv, to: string): Promise<{ sid: string } | { error: string }> {
   if (!env.twilioSid || !env.twilioToken) return { error: "twilio not configured" };
   const auth = btoa(`${env.twilioSid}:${env.twilioToken}`);
@@ -307,10 +347,19 @@ export async function handleRequest(req: Request, env: DemoEnv): Promise<Respons
     return new Response("ok", { status: 200, headers });
   }
 
-  const path = routePath(new URL(req.url));
+  const url = new URL(req.url);
+  const path = routePath(url);
 
-  if (req.method === "GET" && path === "/outbound-twiml") {
-    return new Response(OUTBOUND_TWIML, { headers: { "Content-Type": "text/xml" } });
+  if ((req.method === "GET" || req.method === "POST") && path === "/outbound-twiml") {
+    const from = coerceE164(url.searchParams.get("From")) || env.twilioFrom || DEMO_FROM_NUMBER;
+    const to = coerceE164(url.searchParams.get("To") || url.searchParams.get("Called"));
+    if (!to) return xmlResponse(FALLBACK_TWIML);
+    try {
+      const twiml = await registerOutboundTwiml(env, from, to);
+      return xmlResponse(twiml || FALLBACK_TWIML);
+    } catch {
+      return xmlResponse(FALLBACK_TWIML);
+    }
   }
 
   if (req.method === "GET" && (path === "/" || path === "/health")) {
