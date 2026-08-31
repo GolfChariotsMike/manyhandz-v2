@@ -5,6 +5,7 @@ import {
   mergeEndCallBuiltIn,
   mergeEndCallTools,
 } from "../_shared/hangup-on-goodbye.ts";
+import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
 import {
   defaultVoiceId,
   noNumbersError,
@@ -179,7 +180,7 @@ serve(async (req) => {
         },
       },
     ];
-    const tools = mergeEndCallTools(agentTools, true);
+    const tools = mergeToolCallTyping(mergeEndCallTools(agentTools, true));
 
     const agentRes = await el(elApiKey, "/v1/convai/agents/create", "POST", {
       name: `${businessName} Receptionist`,

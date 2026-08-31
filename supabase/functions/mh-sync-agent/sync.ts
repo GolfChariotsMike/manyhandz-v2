@@ -5,6 +5,12 @@ import {
   mergeEndCallBuiltIn,
   mergeEndCallTools,
 } from "../_shared/hangup-on-goodbye.ts";
+import {
+  hasWebhookToolCallTyping,
+  mergeToolCallTyping,
+  toolSoundRows,
+  type ToolSoundRow,
+} from "../_shared/tool-call-typing.ts";
 import { buildSystemPrompt, type PriceItem } from "./prompt.ts";
 
 export const corsHeaders = {
@@ -37,7 +43,9 @@ export type SyncBody = {
 export type HangupAttachSummary = {
   has_end_call: boolean;
   has_hangup_rule: boolean;
+  has_tool_call_typing: boolean;
   tool_names: string[];
+  tool_sounds: ToolSoundRow[];
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -98,7 +106,9 @@ export function hangupAttachSummary(agent: Record<string, unknown> | null): Hang
   return {
     has_end_call: tools.some(isEndCallTool) || hasBuiltIn,
     has_hangup_rule: /HANG UP AFTER GOODBYE|\[ManyHandz hang-up-on-goodbye\]|end_call tool/.test(bag.prompt),
+    has_tool_call_typing: hasWebhookToolCallTyping(tools),
     tool_names,
+    tool_sounds: toolSoundRows(tools),
   };
 }
 
@@ -111,7 +121,7 @@ export function hangupAgentPatch(input: {
 }): Record<string, unknown> {
   const prompt: Record<string, unknown> = {
     prompt: input.systemPrompt,
-    tools: mergeEndCallTools(input.existingTools, input.hangupEnabled),
+    tools: mergeToolCallTyping(mergeEndCallTools(input.existingTools, input.hangupEnabled)),
     built_in_tools: mergeEndCallBuiltIn(input.existingBuiltIn, input.hangupEnabled),
   };
   const agent: Record<string, unknown> = {
@@ -166,7 +176,9 @@ export async function inspectElAgent(
       error: "agent not found",
       has_end_call: false,
       has_hangup_rule: false,
+      has_tool_call_typing: false,
       tool_names: [],
+      tool_sounds: [],
     };
   }
   return { ok: true, agent_id: agentId, ...hangupAttachSummary(existing) };
@@ -193,7 +205,9 @@ export async function syncHangupOnly(
       error: patched.error,
       has_end_call: false,
       has_hangup_rule: false,
+      has_tool_call_typing: false,
       tool_names: [],
+      tool_sounds: [],
     };
   }
   const after = await inspectElAgent(env, agentId);
@@ -231,7 +245,9 @@ export async function syncCustomerAgent(
   error?: string;
   has_end_call?: boolean;
   has_hangup_rule?: boolean;
+  has_tool_call_typing?: boolean;
   tool_names?: string[];
+  tool_sounds?: ToolSoundRow[];
 }> {
   const [custRows, kbRows, vcRows, plRows] = await Promise.all([
     rest<CustomerRow[] | CustomerRow>(
@@ -298,7 +314,9 @@ export async function syncCustomerAgent(
     prompt_length: systemPrompt.length,
     has_end_call: after.has_end_call,
     has_hangup_rule: after.has_hangup_rule,
+    has_tool_call_typing: after.has_tool_call_typing,
     tool_names: after.tool_names,
+    tool_sounds: after.tool_sounds,
   };
 }
 
@@ -327,6 +345,7 @@ async function listCustomerIdsWithAgents(env: SyncEnv): Promise<string[]> {
   return [...ids];
 }
 
+/** Patch every customer agent plus Jake extras (hang-up-on-goodbye + tool-call typing). */
 export async function backfillHangup(env: SyncEnv): Promise<{
   ok: boolean;
   customers: Array<{ customer_id: string; agent_id?: string; ok: boolean; error?: string }>;
@@ -391,7 +410,9 @@ export async function handleSyncAgent(req: Request, env: SyncEnv): Promise<Respo
         agent_id: agent.agent_id,
         has_end_call: agent.has_end_call,
         has_hangup_rule: agent.has_hangup_rule,
+        has_tool_call_typing: agent.has_tool_call_typing,
         tool_names: agent.tool_names,
+        tool_sounds: agent.tool_sounds,
         extras,
       });
     }
@@ -408,13 +429,17 @@ export async function handleSyncAgent(req: Request, env: SyncEnv): Promise<Respo
       agent_id: result.agent_id,
       has_end_call: result.has_end_call,
       has_hangup_rule: result.has_hangup_rule,
+      has_tool_call_typing: result.has_tool_call_typing,
       tool_names: result.tool_names,
+      tool_sounds: result.tool_sounds,
       extras: extras.map((item) => ({
         ok: item.ok,
         agent_id: item.agent_id,
         has_end_call: item.has_end_call,
         has_hangup_rule: item.has_hangup_rule,
+        has_tool_call_typing: item.has_tool_call_typing,
         tool_names: item.tool_names,
+        tool_sounds: item.tool_sounds,
         error: item.error,
       })),
     });
