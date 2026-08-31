@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { VOICES } from "../lib/voices";
+import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
 import {
   previewVoiceSettings,
   updateAgentVoicePayload,
@@ -133,6 +134,8 @@ function CapabilitiesSection({ config, customerId, anon, url }: { config: any, c
     { key: "cap_quote_prices",     label: "Quote prices",    desc: "Agent can quote prices from the knowledge base.", default: false },
     { key: "cap_transfer_calls",   label: "Transfer calls",  desc: "Agent can transfer callers through to staff.", default: true },
     { key: "cap_send_sms",         label: "Send SMS",        desc: "Agent can send text messages to callers with links or info.", default: true },
+    // Prompt text lives in src/lib/ai-disclosure.ts — paste aiDisclosurePromptRule() into live mh-sync-agent.
+    { key: "cap_disclose_ai",      label: "Say you're AI",   desc: "On the first reply after the greeting, answer the caller and mention you are an AI assistant. Off = do not volunteer it.", default: false },
   ];
 
   const [caps, setCaps] = useState<Record<string, boolean>>(() => {
@@ -425,6 +428,9 @@ export default function Voice() {
   const [greeting, setGreeting] = useState("");
   const [savingGreeting, setSavingGreeting] = useState(false);
   const [greetingSaved, setGreetingSaved] = useState(false);
+  const [aiName, setAiName] = useState("");
+  const [savingAiName, setSavingAiName] = useState(false);
+  const [aiNameSaved, setAiNameSaved] = useState(false);
   const [controls, setControls] = useState<VoiceControls>(() => voiceControlsFromConfig(null));
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -441,6 +447,7 @@ export default function Voice() {
         setConfig(cfgRow);
         if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
         if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
+        setAiName(resolveAiName(cfgRow?.ai_name, c?.business_name));
         setControls(voiceControlsFromConfig(cfgRow));
       }
     } catch (e: any) {
@@ -505,6 +512,29 @@ export default function Voice() {
     } finally {
       setPreviewingId(null);
     }
+  }
+
+  async function handleSaveAiName() {
+    const payload = aiNameSavePayload(aiName);
+    if (!payload || !config?.id || !customer?.id) return;
+    setSavingAiName(true);
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: customer.id }),
+      }).catch(() => {});
+      setAiName(payload.ai_name);
+      setConfig((prev: any) => prev ? { ...prev, ai_name: payload.ai_name } : prev);
+      setAiNameSaved(true);
+      setTimeout(() => setAiNameSaved(false), 2500);
+    } catch (e) { console.error("Save AI name error:", e); }
+    finally { setSavingAiName(false); }
   }
 
   async function handleSaveGreeting() {
@@ -600,7 +630,26 @@ export default function Voice() {
             <div className={`w-3 h-3 rounded-full ${config?.active ? "bg-green-400" : "bg-red-400"}`} />
             <span className="text-lg">{config?.active ? "Active" : "Paused"}</span>
           </div>
-          <p className="text-sm text-white/40 mt-2">AI persona: {config?.ai_name || (customer?.business_name ? customer.business_name + " AI" : "AI Assistant")}</p>
+          <div className="mt-4">
+            <label className="text-sm text-white/60 block mb-1">AI name</label>
+            <p className="text-xs text-white/30 mb-2">Your receptionist's name on the phone. Greeting stays separate.</p>
+            <div className="flex gap-2">
+              <input
+                value={aiName}
+                onChange={e => setAiName(e.target.value)}
+                placeholder={aiNamePlaceholder(customer?.business_name)}
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
+              />
+              <button
+                onClick={handleSaveAiName}
+                disabled={savingAiName || !aiName.trim() || !config?.id}
+                className="btn-primary text-sm flex items-center gap-2 shrink-0"
+              >
+                {savingAiName ? <Loader size={14} className="animate-spin" /> : aiNameSaved ? <Check size={14} /> : null}
+                {aiNameSaved ? "Saved!" : savingAiName ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
