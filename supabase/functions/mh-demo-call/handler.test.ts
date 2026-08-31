@@ -6,6 +6,7 @@ import {
   DEMO_FROM_NUMBER,
   FALLBACK_TWIML,
   GENERIC_CALL_ERROR,
+  OUTBOUND_TWIML,
   NAME_MAX,
   RATE_LIMIT_ERROR,
   RESEND_FROM,
@@ -277,7 +278,7 @@ describe("handleRequest", () => {
     );
     const body = await res.text();
     assert.equal(body, SIGNED_TWIML);
-    assert.equal(body.includes("wss://api.elevenlabs.io/v1/convai/twilio?agent_id="), false);
+    assert.notEqual(body, OUTBOUND_TWIML);
     assert.equal(registerCalls.length, 1);
   });
 
