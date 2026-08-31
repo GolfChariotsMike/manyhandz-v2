@@ -25,7 +25,7 @@ export function escapeHtml(value: string): string {
 
 function ctaButton(): string {
   return (
-    `<a href="${SIGNUP_URL}" style="display:inline-block;background:#c9a84c;color:#0f1f3d;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:8px;">Get started free →</a>`
+    `<a href="${SIGNUP_URL}" style="display:inline-block;background:#c9a84c;color:#0f1f3d;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;text-decoration:none;padding:14px 28px;border-radius:8px;">Start your 14-day free trial →</a>`
   );
 }
 
@@ -36,9 +36,9 @@ export function visitorEmailText(name: string): string {
     "",
     "You just asked ManyHandz to call you. That's the receptionist your customers get — an Australian number, a voice that knows the business, and an answer when you can't pick up.",
     "",
-    "Don't just hear it. Put it on your phones and your website.",
+    "Don't just hear it. Put it on your phones and your website — 14 days free.",
     "",
-    `Get started free (about 5 minutes): ${SIGNUP_URL}`,
+    `Start your 14-day free trial (about 5 minutes): ${SIGNUP_URL}`,
     "",
     "Never miss a call",
     "AI answers 24/7 on a dedicated AU number. It screens callers, handles FAQs, takes a message, and transfers VIPs to you. Jobs don't go to the competitor because you were on the tools.",
@@ -49,7 +49,7 @@ export function visitorEmailText(name: string): string {
     "One setup, phone and chat",
     "Enter your services, hours, and FAQs once in the ManyHandz dashboard. Voice and the website chat widget share the same knowledge base. We scan your site and you're live in about five minutes.",
     "",
-    "Small Business is $199/mo AUD with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.",
+    "Start with a 14-day free trial. Then Small Business is $199/mo AUD with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.",
     "",
     "Australian owned, built in Perth. Your data stays isolated and is never used to train models.",
     "",
@@ -86,7 +86,7 @@ export function visitorEmailHtml(name: string): string {
             <td style="padding:16px 32px 0;color:#334155;font-size:16px;line-height:1.7;">
               <p style="margin:0 0 16px;">Hey ${first},</p>
               <p style="margin:0 0 16px;">You just asked ManyHandz to call you. That's the receptionist your customers get — an Australian number, a voice that knows the business, and an answer when you can't pick up.</p>
-              <p style="margin:0 0 24px;font-weight:600;color:#0f1f3d;">Don't just hear it. Put it on your phones and your website.</p>
+              <p style="margin:0 0 24px;font-weight:600;color:#0f1f3d;">Don't just hear it. Put it on your phones and your website — 14 days free.</p>
               <p style="margin:0 0 28px;">${button}</p>
             </td>
           </tr>
@@ -117,7 +117,7 @@ export function visitorEmailHtml(name: string): string {
           <tr>
             <td style="padding:24px 32px 8px;color:#334155;font-size:15px;line-height:1.7;">
               <p style="margin:0 0 8px;color:#0f1f3d;font-weight:700;">Simple pricing</p>
-              <p style="margin:0 0 16px;">Small Business is <strong>$199/mo AUD</strong> with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.</p>
+              <p style="margin:0 0 16px;">Start with a <strong>14-day free trial</strong>. Then Small Business is <strong>$199/mo AUD</strong> with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.</p>
               <p style="margin:0 0 24px;">Australian owned, built in Perth. Your data stays isolated and is never used to train models.</p>
               <p style="margin:0 0 8px;">${button}</p>
             </td>
