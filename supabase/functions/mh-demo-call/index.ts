@@ -4,6 +4,7 @@
  * using the existing ManyHandz demo ConvAI agent — not a customer el_agent_id.
  */
 import {
+  DEMO_AGENT_ID,
   DEMO_FROM_NUMBER,
   NOTIFY_EMAIL,
   RESEND_FROM,
@@ -13,7 +14,7 @@ import {
 } from "./handler.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "https://kouembkldbpdbhzeaoth.supabase.co";
-const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("MH_SERVICE_KEY") || "";
 const fetchFn = globalThis.fetch.bind(globalThis);
 
 const env: DemoEnv = {
@@ -26,6 +27,8 @@ const env: DemoEnv = {
   resendApiKey: Deno.env.get("RESEND_API_KEY") || null,
   fromEmail: RESEND_FROM,
   notifyEmail: NOTIFY_EMAIL,
+  elApiKey: Deno.env.get("EL_API_KEY") || Deno.env.get("ELEVENLABS_API_KEY") || "",
+  demoAgentId: DEMO_AGENT_ID,
   leads: createPostgrestLeads(supabaseUrl, serviceKey, fetchFn),
 };
 
