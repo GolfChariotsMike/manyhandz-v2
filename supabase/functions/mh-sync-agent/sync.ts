@@ -78,8 +78,8 @@ function agentPromptBag(agent: Record<string, unknown> | null): {
   const agentCfg = (config?.agent || {}) as Record<string, unknown>;
   const promptObj = (agentCfg.prompt || {}) as Record<string, unknown>;
   return {
-    tools: promptObj.tools,
-    builtIn: promptObj.built_in_tools,
+    tools: promptObj.tools ?? agentCfg.tools,
+    builtIn: promptObj.built_in_tools ?? agentCfg.built_in_tools,
     prompt: typeof promptObj.prompt === "string" ? promptObj.prompt : "",
   };
 }
