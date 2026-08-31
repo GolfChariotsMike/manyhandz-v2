@@ -46,7 +46,7 @@
       border-radius: 12px; padding: 10px 10px 10px 14px;
       font-size: 14px; line-height: 1.35; font-weight: 500;
       box-shadow: 0 8px 40px rgba(0,0,0,0.4);
-      display: flex; align-items: center; gap: 6px;
+      display: flex; align-items: center; gap: 6px; cursor: pointer;
       opacity: 0; visibility: hidden; pointer-events: none;
       transform: translateX(8px);
       transition: opacity 0.25s ease, visibility 0.25s, transform 0.25s ease;
