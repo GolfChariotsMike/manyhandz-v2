@@ -37,7 +37,7 @@ const NOW = new Date("2026-08-31T03:00:00.000Z");
 const PHONE = "+61412345678";
 
 type Store = {
-  rows: Array<LeadRecord & LeadInsert & { twilio_sid?: string }>;
+  rows: Array<LeadRecord & LeadInsert & { twilio_sid?: string; followup_email_sent_at?: string }>;
 };
 
 function memoryLeads(store: Store): LeadsStore {
@@ -386,6 +386,7 @@ describe("handleRequest", () => {
     assert.equal(store.rows[0].phone_e164, PHONE);
     assert.equal(store.rows[0].ip, "203.0.113.9");
     assert.equal(store.rows[0].twilio_sid, "CAtest123");
+    assert.equal(store.rows[0].followup_email_sent_at, undefined);
     assert.equal(twilioCalls.length, 1);
     const form = await twilioCalls[0].formData();
     assert.equal(form.get("To"), PHONE);
@@ -465,14 +466,17 @@ describe("handleRequest", () => {
     assert.deepEqual((await json(res)).body, { ok: true });
     assert.equal(store.rows[0].status, "calling");
     assert.equal(store.rows[0].twilio_sid, "CAok");
+    assert.equal(store.rows[0].followup_email_sent_at, undefined);
     assert.equal(twilioHits, 1);
   });
 
   it("sends internal notify and visitor follow-up when Resend is set", async () => {
-    const { env, emails } = envFor({ resendApiKey: "re_test" });
+    const { env, store, emails } = envFor({ resendApiKey: "re_test" });
     const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
     assert.deepEqual((await json(res)).body, { ok: true });
     assert.equal(emails.length, 2);
+    assert.equal(store.rows[0].followup_email_sent_at, NOW.toISOString());
+    assert.equal(store.rows[0].status, "calling");
     type Mail = {
       from: string;
       to: string[];
@@ -504,7 +508,7 @@ describe("handleRequest", () => {
 
   it("sends both emails when the Twilio call fails", async () => {
     const captured: Request[] = [];
-    const { env } = envFor({
+    const { env, store } = envFor({
       resendApiKey: "re_test",
       fetchImpl: async (input, init) => {
         const req = new Request(input, init);
@@ -524,11 +528,13 @@ describe("handleRequest", () => {
     const payloads = await Promise.all(captured.map((req) => req.json() as Promise<{ to: string[] }>));
     assert.ok(payloads.some((p) => p.to.includes("info@manyhandz.ai")));
     assert.ok(payloads.some((p) => p.to.includes("alex@example.com")));
+    assert.equal(store.rows[0].status, "failed");
+    assert.equal(store.rows[0].followup_email_sent_at, NOW.toISOString());
   });
 
   it("still returns 200 when the visitor Resend send rejects", async () => {
     let visitorThrew = false;
-    const { env } = envFor({
+    const { env, store } = envFor({
       resendApiKey: "re_test",
       fetchImpl: async (input, init) => {
         const req = new Request(input, init);
@@ -549,6 +555,32 @@ describe("handleRequest", () => {
     const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
     assert.deepEqual(await json(res), { status: 200, body: { ok: true }, origin: "https://manyhandz.ai" });
     assert.equal(visitorThrew, true);
+    assert.equal(store.rows[0].followup_email_sent_at, undefined);
+    assert.equal(store.rows[0].status, "calling");
+  });
+
+  it("does not stamp followup_email_sent_at when visitor Resend returns a non-OK status", async () => {
+    const { env, store } = envFor({
+      resendApiKey: "re_test",
+      fetchImpl: async (input, init) => {
+        const req = new Request(input, init);
+        if (req.url.includes("api.resend.com")) {
+          const body = await req.clone().json() as { to?: string[] };
+          if (body.to?.includes("alex@example.com")) {
+            return new Response(JSON.stringify({ message: "bounce" }), { status: 422 });
+          }
+          return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+        }
+        if (req.url.includes("api.twilio.com")) {
+          return new Response(JSON.stringify({ sid: "CAok" }), { status: 201 });
+        }
+        return new Response("no", { status: 500 });
+      },
+    });
+    const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
+    assert.deepEqual((await json(res)).body, { ok: true });
+    assert.equal(store.rows[0].status, "calling");
+    assert.equal(store.rows[0].followup_email_sent_at, undefined);
   });
 });
 
