@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
+import { provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
 import {
@@ -465,10 +466,10 @@ export default function Voice() {
     setProvisioning(true);
     setProvisionError("");
     try {
-      const res = await fetch("https://provision.manyhandz.ai/provision-number", {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mh-provision-number`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: customer.id, country: "AU" }),
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${SUPABASE_ANON_KEY}` },
+        body: JSON.stringify(provisionNumberBody(customer.id, customer.country)),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to provision number");

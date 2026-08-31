@@ -93,8 +93,36 @@ export function initialWebsite(opts: {
   return (opts.customerWebsite || "").trim();
 }
 
-export function provisionNumberBody(customerId: string) {
-  return { customer_id: customerId, country: "AU" as const };
+export function provisionNumberBody(customerId: string, country?: string | null) {
+  return { customer_id: customerId, country: normalizeMarket(country) };
+}
+
+export type Market = "AU" | "US";
+
+export function normalizeMarket(country?: string | null): Market {
+  return String(country || "AU").trim().toUpperCase() === "US" ? "US" : "AU";
+}
+
+export function parseSignupCountry(param: string | null | undefined): Market {
+  return normalizeMarket(param);
+}
+
+export function onboardingNumberBlurb(country?: string | null): string {
+  return normalizeMarket(country) === "US"
+    ? "We'll give you a US phone number you can call."
+    : "We'll give you an Australian mobile (04…). State doesn't matter.";
+}
+
+export function provisionedNumberPlaceholder(country?: string | null): string {
+  return normalizeMarket(country) === "US" ? "+1 XXX XXX XXXX" : "+61 4XX XXX XXX";
+}
+
+export function notifyMobilePlaceholder(country?: string | null): string {
+  return normalizeMarket(country) === "US" ? "e.g. +1 555 123 4567" : "e.g. 0412 345 678";
+}
+
+export function signupWebsitePlaceholder(country?: string | null): string {
+  return normalizeMarket(country) === "US" ? "yoursite.com" : "yoursite.com.au";
 }
 
 export function profileUpdatesFromForm(input: {

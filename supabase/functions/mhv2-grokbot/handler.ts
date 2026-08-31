@@ -124,7 +124,7 @@ function asResult(builder: QueryBuilder): Promise<QueryResult> {
 async function loadCustomer(env: GrokbotEnv, customerId: string) {
   const { data, error } = await env.admin
     .from("mh_v2_customers")
-    .select("id, business_name, twilio_number, el_agent_id")
+    .select("id, business_name, twilio_number, el_agent_id, country")
     .eq("id", customerId)
     .maybeSingle();
   if (error || !data) return null;
@@ -344,10 +344,13 @@ async function handleGrokbotApi(req: Request, path: string, env: GrokbotEnv): Pr
         phone_number: customer.twilio_number,
       }, 200, corsHeaders);
     }
-    const res = await env.fetch("https://provision.manyhandz.ai/provision-number", {
+    const res = await env.fetch(`${env.supabaseUrl}/functions/v1/mh-provision-number`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_id: customerId, country: "AU" }),
+      body: JSON.stringify({
+        customer_id: customerId,
+        country: customer.country === "US" ? "US" : "AU",
+      }),
     });
     let data: Record<string, unknown> = {};
     try { data = await res.json(); } catch { data = {}; }

@@ -117,7 +117,7 @@ export const MCP_TOOLS: McpToolDef[] = [
   },
   {
     name: "provision_number",
-    description: `${CONFIRM_BEFORE_PROVISION} Provisions an Australian ManyHandz number if this customer does not already have one.`,
+    description: `${CONFIRM_BEFORE_PROVISION} Provisions a ManyHandz number if this customer does not already have one.`,
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     method: "POST",
     path: "/voice/provision",

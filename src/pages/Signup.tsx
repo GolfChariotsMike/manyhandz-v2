@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { requestMagicLink } from "../lib/api";
+import { parseSignupCountry, signupWebsitePlaceholder } from "../lib/onboarding";
 import { Mail } from "lucide-react";
 
 const industries = [
@@ -10,6 +11,8 @@ const industries = [
 ];
 
 export default function Signup() {
+  const [params] = useSearchParams();
+  const country = parseSignupCountry(params.get("country"));
   const [email, setEmail] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [industry, setIndustry] = useState("");
@@ -23,7 +26,7 @@ export default function Signup() {
     setError("");
     setLoading(true);
     try {
-      await requestMagicLink(email, businessName, industry, website);
+      await requestMagicLink(email, businessName, industry, website, country);
       setSent(true);
     } catch (err: any) {
       setError(err.message);
@@ -78,7 +81,7 @@ export default function Signup() {
             </div>
             <div>
               <label className="text-sm text-white/60 mb-1 block">Website <span className="text-white/30">(optional)</span></label>
-              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder="yoursite.com.au" />
+              <input value={website} onChange={e => setWebsite(e.target.value)} placeholder={signupWebsitePlaceholder(country)} />
             </div>
           </div>
 

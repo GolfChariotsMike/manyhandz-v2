@@ -438,6 +438,47 @@ describe("mhv2-grokbot handler", () => {
     assert.equal(store.knowledge[CUST_B].about, "Hacked Beta KB");
   });
 
+  it("provisions with the stored customer country instead of hardcoded AU", async () => {
+    const store = seedStore();
+    store.customers[CUST_A] = { ...store.customers[CUST_A], twilio_number: null, country: "US" };
+    const provisionBodies: unknown[] = [];
+    const e = envFor(store);
+    const innerFetch = e.fetch;
+    e.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("mh-provision-number")) {
+        provisionBodies.push(JSON.parse(String(init?.body || "{}")));
+        return new Response(JSON.stringify({ phone_number: "+12025550123" }), { status: 200 });
+      }
+      return innerFetch(input, init);
+    };
+    const key = (await json(await handleRequest(req("POST", "/keys", DASH_TOKEN), e))).body.key as string;
+    const res = await json(await handleRequest(req("POST", "/voice/provision", key), e));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.phone_number, "+12025550123");
+    assert.deepEqual(provisionBodies[0], { customer_id: CUST_A, country: "US" });
+  });
+
+  it("provisions AU when the customer has no US market", async () => {
+    const store = seedStore();
+    store.customers[CUST_A] = { ...store.customers[CUST_A], twilio_number: null, country: "AU" };
+    const provisionBodies: unknown[] = [];
+    const e = envFor(store);
+    const innerFetch = e.fetch;
+    e.fetch = async (input, init) => {
+      const url = String(input);
+      if (url.includes("mh-provision-number")) {
+        provisionBodies.push(JSON.parse(String(init?.body || "{}")));
+        return new Response(JSON.stringify({ phone_number: "+61411111111" }), { status: 200 });
+      }
+      return innerFetch(input, init);
+    };
+    const key = (await json(await handleRequest(req("POST", "/keys", DASH_TOKEN), e))).body.key as string;
+    const res = await json(await handleRequest(req("POST", "/voice/provision", key), e));
+    assert.equal(res.status, 200);
+    assert.deepEqual(provisionBodies[0], { customer_id: CUST_A, country: "AU" });
+  });
+
   it("requires a Grok Bot key for knowledge-base and returns 404 for a missing id", async () => {
     const store = seedStore();
     const e = envFor(store);
