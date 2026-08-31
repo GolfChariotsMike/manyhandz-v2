@@ -16,3 +16,6 @@ verify_jwt = false
 
 [functions.mhv2-el-proxy]
 verify_jwt = false
+
+[functions.mh-demo-call]
+verify_jwt = false
