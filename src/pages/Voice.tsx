@@ -135,8 +135,8 @@ function CapabilitiesSection({ config, customerId, anon, url }: { config: any, c
     { key: "cap_quote_prices",     label: "Quote prices",    desc: "Agent can quote prices from the knowledge base.", default: false },
     { key: "cap_transfer_calls",   label: "Transfer calls",  desc: "Agent can transfer callers through to staff.", default: true },
     { key: "cap_send_sms",         label: "Send SMS",        desc: "Agent can send text messages to callers with links or info.", default: true },
-    // Prompt text lives in src/lib/ai-disclosure.ts — paste aiDisclosurePromptRule() into live mh-sync-agent.
     { key: "cap_disclose_ai",      label: "Say you're AI",   desc: "On the first reply after the greeting, answer the caller and mention you are an AI assistant. Off = do not volunteer it.", default: false },
+    { key: "cap_hangup_on_goodbye", label: "Hang up after goodbye", desc: "If they say goodbye once or twice, say a short bye and end the call. Don't loop.", default: true },
   ];
 
   const [caps, setCaps] = useState<Record<string, boolean>>(() => {

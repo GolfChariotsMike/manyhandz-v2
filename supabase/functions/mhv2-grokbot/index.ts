@@ -7,6 +7,7 @@
  *   GET|PATCH /knowledge-base/:id, POST /mcp (Streamable HTTP MCP wrapping those routes)
  *
  * After PATCH /voice: persist mh_voice_config, then mh-sync-agent + mhv2-el-proxy.
+ * mh-sync-agent (this repo) rebuilds the prompt and attaches end_call when hang-up is on.
  * After PATCH /knowledge-base: persist mh_knowledge_base, then mh-sync-agent
  *   (same rebuild the dashboard Knowledge Base page already uses).
  * Grok Bot never calls ElevenLabs or Twilio itself.

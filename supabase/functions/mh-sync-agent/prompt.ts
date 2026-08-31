@@ -1,0 +1,150 @@
+/**
+ * Live mh-sync-agent prompt builder, ported into this repo.
+ * Hang-up-on-goodbye is the only new capability section; disclosure wording
+ * matches the currently deployed function so existing agents do not shift.
+ */
+import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
+
+export type PriceItem = {
+  job_name?: string;
+  price_type?: string;
+  price_min?: number | null;
+  price_max?: number | null;
+  duration_hours_min?: number | null;
+  duration_hours_max?: number | null;
+  notes?: string | null;
+};
+
+export type PromptInput = {
+  aiName: string;
+  businessName: string;
+  about: string;
+  services: string[];
+  faqs: { q: string; a: string }[];
+  hours: Record<string, string> | null;
+  tone: string;
+  priceList: PriceItem[];
+  capConfirmBookings: boolean;
+  capQuotePrices: boolean;
+  capTransferCalls: boolean;
+  capSendSms: boolean;
+  capDiscloseAi: boolean;
+  capHangupOnGoodbye: boolean;
+  closingMessage?: string | null;
+};
+
+export function formatHours(hours: Record<string, string> | null): string {
+  if (!hours) return "Hours not specified.";
+  const days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+  return days
+    .filter((d) => hours[d])
+    .map((d) => `  ${d.charAt(0).toUpperCase() + d.slice(1)}: ${hours[d]}`)
+    .join("\n") || "Hours not specified.";
+}
+
+export function formatPriceList(items: PriceItem[]): string {
+  if (!items?.length) return "";
+  const lines = items.map((item) => {
+    let price = "";
+    if (item.price_type === "inspect") price = "quote on inspection";
+    else if (item.price_type === "hourly") price = item.price_min ? `$${item.price_min}/hr` : "hourly rate";
+    else if (item.price_type === "range") {
+      price = (item.price_min && item.price_max) ? `$${item.price_min}–$${item.price_max}` : "price range";
+    } else price = item.price_min ? `$${item.price_min} flat` : "price TBC";
+
+    let duration = "";
+    if (item.duration_hours_min && item.duration_hours_max) {
+      duration = ` (~${item.duration_hours_min}–${item.duration_hours_max} hrs)`;
+    } else if (item.duration_hours_min) duration = ` (~${item.duration_hours_min} hr)`;
+
+    const notes = item.notes ? ` — ${item.notes}` : "";
+    return `  - ${item.job_name}: ${price}${duration}${notes}`;
+  });
+  return lines.join("\n");
+}
+
+/** Live-function wording — do not swap for src/lib/ai-disclosure.ts. */
+export function aiDisclosureRule(enabled: boolean): string {
+  if (enabled) {
+    return `- AI DISCLOSURE: On your first spoken reply AFTER the greeting (the first time the caller talks), answer what they asked and in the same turn briefly mention you are an AI assistant, not a person. Do this once, casually, then drop it. Do not put this in the greeting. Example: "I can help with that — I'm the AI receptionist here."`;
+  }
+  return `- AI DISCLOSURE: Do not volunteer that you are an AI unless the caller asks. Speak as the business receptionist.`;
+}
+
+export function buildSystemPrompt(data: PromptInput): string {
+  const {
+    aiName, businessName, about, services, faqs, hours, tone, priceList,
+    capConfirmBookings, capQuotePrices, capTransferCalls, capSendSms,
+    capDiscloseAi, capHangupOnGoodbye, closingMessage,
+  } = data;
+
+  const toneDesc = tone === "formal" ? "professional and formal"
+    : tone === "casual" ? "friendly and casual"
+    : "warm and friendly";
+
+  const pricingSection = priceList.length > 0
+    ? `\nPRICING & SERVICES:\n${formatPriceList(priceList)}\n\nFor jobs not listed above, say: "That's not something I can quote on right now — I can book one of our team to come take a look and give you an accurate quote. Would that work?"`
+    : "";
+
+  const faqSection = faqs?.length > 0
+    ? `\nFREQUENTLY ASKED QUESTIONS:\n${faqs.map((f) => `  Q: ${f.q}\n  A: ${f.a}`).join("\n\n")}`
+    : "";
+
+  const servicesSection = services?.length > 0
+    ? `\nSERVICES WE OFFER:\n${services.map((s) => `  - ${s}`).join("\n")}`
+    : "";
+
+  const bookingRule = capConfirmBookings
+    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.`
+    : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants to book, collect their name, preferred date/time, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`;
+
+  const pricingRule = capQuotePrices
+    ? `- PRICING: You can quote prices from your knowledge base and pricing sheet.`
+    : `- PRICING: Do not quote specific prices. Say: "I can't give you an exact price over the phone — I can arrange for someone to get back to you with an accurate quote." Then take a message.`;
+
+  const transferRule = capTransferCalls
+    ? `- TRANSFERS: You can transfer callers to staff when they ask to speak to someone.`
+    : `- TRANSFERS: Do not transfer calls. Take a message and tell the caller someone will call them back.`;
+
+  const smsRule = capSendSms
+    ? `- SMS: You can send the caller a text message with links or information if helpful.`
+    : "";
+
+  const hangupRule = hangupOnGoodbyePromptRule(capHangupOnGoodbye, closingMessage);
+  const hangupCap = hangupRule ? `\n- HANG UP AFTER GOODBYE: ${hangupRule}` : "";
+
+  const capabilitySection =
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
+
+  // Live function always asked "anything else?" — that is why two bots goodbye-looped.
+  const callHandlingEnd = capHangupOnGoodbye
+    ? `- After a goodbye, do not ask "anything else?" — say one short bye and use the end_call tool`
+    : `- Always end with: "Is there anything else I can help you with?"`;
+
+  return `You are ${aiName}, the AI receptionist for ${businessName}.
+
+ABOUT US:
+${about || `We are ${businessName}.`}
+${servicesSection}${pricingSection}
+
+BUSINESS HOURS:
+${formatHours(hours)}
+
+${faqSection}
+${capabilitySection}
+
+YOUR ROLE:
+- Answer calls ${toneDesc}
+- Provide accurate information about our services, pricing, and hours
+- Take messages when callers want to speak to a staff member
+- Never make up information not in your knowledge base
+- If unsure about anything, offer to take a message and have someone call back
+
+CALLER PHONE NUMBER:
+You already have the caller's phone number from caller ID. Never ask for their callback number.
+
+CALL HANDLING:
+- Keep responses concise — this is a phone call, not a chat
+- Don't read out long lists — summarise and offer specifics if asked
+${callHandlingEnd}`.trim();
+}

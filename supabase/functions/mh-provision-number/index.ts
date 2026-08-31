@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { padCallOpening } from "../_shared/voice-greeting.ts";
 import {
+  hangupOnGoodbyePromptRule,
+  mergeEndCallBuiltIn,
+  mergeEndCallTools,
+} from "../_shared/hangup-on-goodbye.ts";
+import {
   defaultVoiceId,
   noNumbersError,
   resolveMarket,
@@ -125,9 +130,11 @@ serve(async (req) => {
 
     const businessName = customer.business_name || "AI Agent";
     const greeting = `Hey, thanks for calling ${businessName}. How can I help you today?`;
-    const systemPrompt = (typeof kb?.custom_instructions === "string" && kb.custom_instructions.trim())
+    const basePrompt = (typeof kb?.custom_instructions === "string" && kb.custom_instructions.trim())
       ? kb.custom_instructions
       : buildSystemPrompt(businessName, kb);
+    const hangupRule = hangupOnGoodbyePromptRule(true);
+    const systemPrompt = hangupRule ? `${basePrompt}\n\n${hangupRule}` : basePrompt;
 
     const SAVE_MESSAGE_URL = `${mhBase}/mh-save-message?customer_id=${customer_id}`;
     const TRANSFER_URL = `${mhBase}/mh-customer-transfer/transfer?customer_id=${customer_id}`;
@@ -172,6 +179,7 @@ serve(async (req) => {
         },
       },
     ];
+    const tools = mergeEndCallTools(agentTools, true);
 
     const agentRes = await el(elApiKey, "/v1/convai/agents/create", "POST", {
       name: `${businessName} Receptionist`,
@@ -179,7 +187,13 @@ serve(async (req) => {
         agent: {
           first_message: padCallOpening(greeting),
           disable_first_message_interruptions: true,
-          prompt: { prompt: systemPrompt, llm: "gpt-4o-mini", temperature: 0.7, tools: agentTools },
+          prompt: {
+            prompt: systemPrompt,
+            llm: "gpt-4o-mini",
+            temperature: 0.7,
+            tools,
+            built_in_tools: mergeEndCallBuiltIn({}, true),
+          },
         },
         tts: { voice_id: elVoiceId, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
         asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
@@ -254,6 +268,7 @@ serve(async (req) => {
         el_agent_id: elAgentId,
         voice_id: elVoiceId,
         turn_eagerness: "patient",
+        cap_hangup_on_goodbye: true,
       });
     } else {
       await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", {

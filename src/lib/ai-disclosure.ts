@@ -1,14 +1,9 @@
 /**
  * First-reply AI disclosure rule for the ElevenLabs ConvAI system prompt.
  *
- * mh-sync-agent is live-only (not in this repo). When updating that function,
- * paste the return value of `aiDisclosurePromptRule(config.cap_disclose_ai)`
- * into the prompt builder — for example:
- *
- *   const disclosure = aiDisclosurePromptRule(Boolean(config.cap_disclose_ai));
- *   // append `disclosure` next to the "You are ${aiName}" identity line.
- *
- * Greeting / first_message stays unchanged. This rule is prompt-only.
+ * mh-sync-agent (in this repo) injects the live-function wording of this rule
+ * when it rebuilds the agent prompt. Greeting / first_message stays unchanged.
+ * This rule is prompt-only.
  */
 export function aiDisclosurePromptRule(enabled: boolean): string {
   if (enabled) {
