@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { Loader2, CheckCircle, AlertCircle, Clock, CreditCard, Zap, Check } from "lucide-react";
 import { getMe } from "../lib/api";
+import { trialCountdown, trialCountdownHeadline } from "../lib/trialCountdown";
 
-const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
 const PLANS = {
@@ -21,18 +20,17 @@ const PLANS = {
   },
 };
 
-function authHeaders() {
-  return { "Content-Type": "application/json", Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY };
-}
-
-
-function daysLeft(trialEndsAt: string) {
-  const diff = new Date(trialEndsAt).getTime() - Date.now();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-}
+type BillingCustomer = {
+  id?: string;
+  subscription_status?: string | null;
+  trial_started_at?: string | null;
+  trial_ends_at?: string | null;
+  plan?: string | null;
+  twilio_number?: string | null;
+};
 
 export default function Billing() {
-  const [customer, setCustomer] = useState<any>(null);
+  const [customer, setCustomer] = useState<BillingCustomer | null>(null);
   const [loading, setLoading] = useState(true);
   const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [tier, setTier] = useState<"small_business" | "big_business">("small_business");
@@ -43,13 +41,7 @@ export default function Billing() {
     (async () => {
       try {
         const { customer: me } = await getMe();
-        if (!me?.id) { setLoading(false); return; }
-        const r = await fetch(
-          `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${me.id}&select=subscription_status,trial_ends_at,plan,stripe_subscription_id,twilio_number`,
-          { headers: authHeaders() }
-        );
-        const rows = await r.json();
-        if (Array.isArray(rows) && rows[0]) setCustomer(rows[0]);
+        if (me?.id) setCustomer(me);
       } catch (e: any) {
         setError(e.message || "Failed to load billing info");
       } finally {
@@ -89,11 +81,11 @@ export default function Billing() {
   );
 
   const status = customer?.subscription_status;
-  const trialEnd = customer?.trial_ends_at;
-  const days = trialEnd ? daysLeft(trialEnd) : 0;
+  const countdown = trialCountdown(status, customer?.trial_ends_at);
+  const trialHeadline = trialCountdownHeadline(countdown);
   const isActive = status === "active";
-  const isExpired = status === "expired" || (status === "trial" && days === 0);
-  const isTrial = status === "trial" && days > 0;
+  const isTrial = countdown.state === "days" || countdown.state === "last_day";
+  const isExpired = countdown.state === "ended";
 
   return (
     <div className="max-w-2xl mx-auto space-y-8">
@@ -102,32 +94,33 @@ export default function Billing() {
         <p className="text-white/40 text-sm">Manage your plan and subscription.</p>
       </div>
 
-      {/* Status card */}
-      <div className={`aurora-card p-6 flex items-start gap-4 ${isExpired ? "border-red-500/40" : isTrial ? "border-yellow-500/40" : "border-green-500/40"}`}>
-        {isActive && <CheckCircle className="text-green-400 shrink-0 mt-0.5" size={20} />}
-        {isTrial && <Clock className="text-yellow-400 shrink-0 mt-0.5" size={20} />}
-        {isExpired && <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={20} />}
-        <div>
-          {isActive && (
-            <>
-              <div className="font-semibold text-green-400">Active — {customer.plan === "annual" ? "Annual plan" : "Monthly plan"}</div>
-              <div className="text-sm text-white/40 mt-0.5">Your AI receptionist is live and answering calls.</div>
-            </>
-          )}
-          {isTrial && (
-            <>
-              <div className="font-semibold text-yellow-400">{days} day{days !== 1 ? "s" : ""} left in your free trial</div>
-              <div className="text-sm text-white/40 mt-0.5">Add a payment method before your trial ends to keep your number and agent.</div>
-            </>
-          )}
-          {isExpired && (
-            <>
-              <div className="font-semibold text-red-400">Trial expired — service paused</div>
-              <div className="text-sm text-white/40 mt-0.5">Your AI is no longer answering calls. Subscribe to reactivate.</div>
-            </>
-          )}
+      {(isActive || isTrial || isExpired) && (
+        <div className={`aurora-card p-6 flex items-start gap-4 ${isExpired ? "border-red-500/40" : isTrial ? "border-yellow-500/40" : "border-green-500/40"}`}>
+          {isActive && <CheckCircle className="text-green-400 shrink-0 mt-0.5" size={20} />}
+          {isTrial && <Clock className="text-yellow-400 shrink-0 mt-0.5" size={20} />}
+          {isExpired && <AlertCircle className="text-red-400 shrink-0 mt-0.5" size={20} />}
+          <div>
+            {isActive && (
+              <>
+                <div className="font-semibold text-green-400">Active — {customer?.plan === "annual" ? "Annual plan" : "Monthly plan"}</div>
+                <div className="text-sm text-white/40 mt-0.5">Your AI receptionist is live and answering calls.</div>
+              </>
+            )}
+            {isTrial && (
+              <>
+                <div className="font-semibold text-yellow-400">{trialHeadline}</div>
+                <div className="text-sm text-white/40 mt-0.5">Add a payment method before your trial ends to keep your number and agent.</div>
+              </>
+            )}
+            {isExpired && (
+              <>
+                <div className="font-semibold text-red-400">{trialHeadline}</div>
+                <div className="text-sm text-white/40 mt-0.5">Your AI is no longer answering calls. Subscribe to reactivate.</div>
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Plan selector — show if not active */}
       {!isActive && (
@@ -207,8 +200,8 @@ export default function Billing() {
         <div className="aurora-card p-6">
           <h2 className="text-sm font-semibold text-yellow-400 mb-4">Plan details</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{customer.plan === "annual" ? "Annual ($1,399/yr)" : "Monthly ($199/mo)"}</span></div>
-            <div className="flex justify-between"><span className="text-white/40">Number</span><span>{customer.twilio_number || "—"}</span></div>
+            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{customer?.plan === "annual" ? "Annual ($1,399/yr)" : "Monthly ($199/mo)"}</span></div>
+            <div className="flex justify-between"><span className="text-white/40">Number</span><span>{customer?.twilio_number || "—"}</span></div>
           </div>
         </div>
       )}
