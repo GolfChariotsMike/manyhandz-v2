@@ -4,13 +4,25 @@
   if (!embedKey) { console.warn('ManyHandz: missing data-key'); return; }
 
   var API = 'https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-chat-widget';
+  var FALLBACK_COLOR = '#ca8a04';
+  var DEFAULT_HINT = 'Need help?';
   var sessionKey = localStorage.getItem('mhz_session_' + embedKey) || 'sess_' + Math.random().toString(36).slice(2) + Date.now();
   localStorage.setItem('mhz_session_' + embedKey, sessionKey);
 
-  var config = { widget_name: 'Chat with us', widget_color: '#ca8a04', greeting: 'Hi! How can we help?' };
+  var dataColor = script && (script.getAttribute('data-color') || '').trim();
+  var config = {
+    widget_name: 'Chat with us',
+    widget_color: dataColor || FALLBACK_COLOR,
+    greeting: 'Hi! How can we help?',
+    launcher_hint: DEFAULT_HINT
+  };
   var messages = [];
   var open = false;
   var loading = false;
+  var launcherReady = false;
+  var dismissKey = 'mhz_teaser_dismissed_' + embedKey;
+  var teaserDismissed = false;
+  try { teaserDismissed = sessionStorage.getItem(dismissKey) === '1'; } catch (e) {}
 
   // ── Styles ──────────────────────────────────────────────────────────────
   var style = document.createElement('style');
@@ -20,10 +32,43 @@
       position: fixed; bottom: 24px; right: 24px; z-index: 99999;
       width: 56px; height: 56px; border-radius: 50%; border: none; cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.25); transition: transform 0.2s;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transition: transform 0.2s, opacity 0.25s ease, visibility 0.25s;
     }
+    #mhz-btn.mhz-ready { opacity: 1; visibility: visible; pointer-events: auto; }
     #mhz-btn:hover { transform: scale(1.08); }
     #mhz-btn svg { width: 26px; height: 26px; }
+    #mhz-teaser {
+      position: fixed; bottom: 32px; right: 92px; z-index: 99999;
+      max-width: min(240px, calc(100vw - 108px));
+      background: #18181b; color: rgba(255,255,255,0.9);
+      border-radius: 12px; padding: 10px 10px 10px 14px;
+      font-size: 14px; line-height: 1.35; font-weight: 500;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.4);
+      display: flex; align-items: center; gap: 6px;
+      opacity: 0; visibility: hidden; pointer-events: none;
+      transform: translateX(8px);
+      transition: opacity 0.25s ease, visibility 0.25s, transform 0.25s ease;
+    }
+    #mhz-teaser.mhz-visible {
+      opacity: 1; visibility: visible; pointer-events: auto;
+      transform: translateX(0);
+    }
+    #mhz-teaser-text { flex: 1; min-width: 0; }
+    #mhz-teaser-x {
+      flex-shrink: 0; width: 22px; height: 22px; border: none; border-radius: 6px;
+      background: transparent; color: rgba(255,255,255,0.4); cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; line-height: 1; padding: 0;
+    }
+    #mhz-teaser-x:hover { color: rgba(255,255,255,0.75); background: rgba(255,255,255,0.08); }
+    #mhz-teaser-nub {
+      position: absolute; right: -6px; top: 50%; margin-top: -6px;
+      width: 0; height: 0;
+      border-top: 6px solid transparent; border-bottom: 6px solid transparent;
+      border-left: 6px solid #18181b;
+    }
     #mhz-panel {
       position: fixed; bottom: 92px; right: 24px; z-index: 99998;
       width: 360px; max-width: calc(100vw - 48px);
@@ -81,6 +126,14 @@
   btn.id = 'mhz-btn';
   btn.setAttribute('aria-label', 'Open chat');
 
+  var teaser = document.createElement('div');
+  teaser.id = 'mhz-teaser';
+  teaser.setAttribute('role', 'status');
+  teaser.innerHTML =
+    '<span id="mhz-teaser-text"></span>' +
+    '<button id="mhz-teaser-x" type="button" aria-label="Dismiss hint">&times;</button>' +
+    '<span id="mhz-teaser-nub" aria-hidden="true"></span>';
+
   var panel = document.createElement('div');
   panel.id = 'mhz-panel';
   panel.innerHTML = `
@@ -101,14 +154,39 @@
   `;
 
   wrap.appendChild(btn);
+  wrap.appendChild(teaser);
   wrap.appendChild(panel);
   document.body.appendChild(wrap);
+
+  var teaserText = document.getElementById('mhz-teaser-text');
+  var teaserX = document.getElementById('mhz-teaser-x');
+  teaserText.textContent = DEFAULT_HINT;
 
   // ── Helpers ──────────────────────────────────────────────────────────────
   function applyColor(color) {
     btn.style.background = color;
     document.getElementById('mhz-send').style.background = color;
     document.getElementById('mhz-send').style.color = '#fff';
+  }
+
+  function shouldShowLauncherTeaser() {
+    return launcherReady && !open && !teaserDismissed;
+  }
+
+  function syncTeaser() {
+    teaser.classList.toggle('mhz-visible', shouldShowLauncherTeaser());
+  }
+
+  function revealLauncher() {
+    launcherReady = true;
+    btn.classList.add('mhz-ready');
+    syncTeaser();
+  }
+
+  function setLauncherHint(hint) {
+    var text = (typeof hint === 'string' && hint.trim()) ? hint.trim() : DEFAULT_HINT;
+    config.launcher_hint = text;
+    teaserText.textContent = text;
   }
 
   function setChatIcon(isOpen) {
@@ -170,15 +248,31 @@
       });
   }
 
-  // ── Events ───────────────────────────────────────────────────────────────
-  btn.addEventListener('click', function () {
+  function togglePanel() {
     open = !open;
     panel.classList.toggle('open', open);
     setChatIcon(open);
+    syncTeaser();
     if (open && messages.length === 0 && config.greeting) {
       setTimeout(function () { addMessage('bot', config.greeting); }, 300);
     }
     if (open) setTimeout(function () { document.getElementById('mhz-input').focus(); }, 250);
+  }
+
+  // ── Events ───────────────────────────────────────────────────────────────
+  btn.addEventListener('click', togglePanel);
+
+  teaser.addEventListener('click', function (e) {
+    if (e.target === teaserX || (teaserX && teaserX.contains(e.target))) return;
+    if (!open) togglePanel();
+  });
+
+  teaserX.addEventListener('click', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    teaserDismissed = true;
+    try { sessionStorage.setItem(dismissKey, '1'); } catch (err) {}
+    syncTeaser();
   });
 
   document.getElementById('mhz-form').addEventListener('submit', function (e) {
@@ -189,19 +283,33 @@
     sendMessage(text);
   });
 
+  setChatIcon(false);
+
+  // Optional data-color: theme + fade in immediately (no config wait).
+  if (dataColor) {
+    applyColor(dataColor);
+    revealLauncher();
+  }
+
   // ── Load config from backend ─────────────────────────────────────────────
   fetch(API + '?action=config&embed_key=' + embedKey)
-    .then(function (r) { return r.json(); })
-    .then(function (d) {
-      if (d.widget_name) {
-        config = d;
-        document.getElementById('mhz-header-name').textContent = d.widget_name;
-        applyColor(d.widget_color || '#ca8a04');
-      }
+    .then(function (r) {
+      if (!r.ok) throw new Error('config');
+      return r.json();
     })
-    .catch(function () {});
-
-  // Apply default color immediately
-  applyColor(config.widget_color);
-  setChatIcon(false);
+    .then(function (d) {
+      if (d && (d.widget_name || d.widget_color)) {
+        config = Object.assign(config, d);
+        document.getElementById('mhz-header-name').textContent = config.widget_name || 'Chat with us';
+        applyColor(config.widget_color || FALLBACK_COLOR);
+        setLauncherHint(config.launcher_hint);
+      } else {
+        applyColor(config.widget_color || FALLBACK_COLOR);
+      }
+      revealLauncher();
+    })
+    .catch(function () {
+      applyColor(config.widget_color || FALLBACK_COLOR);
+      revealLauncher();
+    });
 })();
