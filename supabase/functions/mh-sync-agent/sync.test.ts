@@ -122,10 +122,14 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   const body = await res.json() as { ok: boolean; agent_id: string };
   assert.equal(body.ok, true);
   assert.equal(body.agent_id, "agent-cust");
-  assert.equal(gets.length, 1);
-  assert.equal(patches.length, 1);
-  assert.equal(patches[0].url.endsWith("/convai/agents/agent-cust"), true);
-  const agent = (patches[0].body as {
+  assert.equal(gets.length >= 1, true);
+  const patchedIds = patches.map((p) => p.url.split("/convai/agents/")[1]);
+  assert.equal(patchedIds.includes("agent-cust"), true);
+  assert.equal(patchedIds.includes(JAKE_OUTBOUND_AGENT_ID), true);
+  assert.equal(patchedIds.includes(JAKE_DEMO_AGENT_ID), true);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const agent = (customerPatch.body as {
     conversation_config: {
       agent: {
         prompt: { prompt: string; tools: Array<{ name: string }>; built_in_tools: { end_call: unknown } };

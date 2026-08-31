@@ -301,6 +301,8 @@ export async function handleSyncAgent(req: Request, env: SyncEnv): Promise<Respo
 
     const result = await syncCustomerAgent(env, customerId);
     if (!result.ok) return jsonResponse({ error: result.error }, 400);
+    // Same hangup on Jake outbound + demo inbound so two ManyHandz bots cannot goodbye-loop.
+    await Promise.all(EXTRA_HANGUP_AGENT_IDS.map((id) => syncHangupOnly(env, id).catch(() => null)));
     return jsonResponse({ ok: true, prompt_length: result.prompt_length, agent_id: result.agent_id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
