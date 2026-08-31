@@ -10,6 +10,9 @@ import {
   NAME_MAX,
   RATE_LIMIT_ERROR,
   RESEND_FROM,
+  SIGNUP_URL,
+  VISITOR_FROM,
+  VISITOR_SUBJECT,
   clientIp,
   coerceE164,
   corsHeaders,
@@ -21,6 +24,9 @@ import {
   routePath,
   validateEmail,
   validateName,
+  visitorEmailHtml,
+  visitorEmailText,
+  visitorFirstName,
   type DemoEnv,
   type LeadInsert,
   type LeadRecord,
@@ -109,6 +115,7 @@ function envFor(opts: {
       twimlUrl: "https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-demo-call/outbound-twiml",
       resendApiKey: opts.resendApiKey === undefined ? null : opts.resendApiKey,
       fromEmail: RESEND_FROM,
+      visitorFromEmail: VISITOR_FROM,
       notifyEmail: "info@manyhandz.ai",
       elApiKey: opts.elApiKey === undefined ? "el-test-key" : opts.elApiKey,
       demoAgentId: DEMO_AGENT_ID,
@@ -387,12 +394,13 @@ describe("handleRequest", () => {
     assert.equal(form.get("Method"), "GET");
   });
 
-  it("does not call Twilio on invalid input", async () => {
-    const { env, store, twilioCalls } = envFor({});
+  it("does not call Twilio or send emails on invalid input", async () => {
+    const { env, store, twilioCalls, emails } = envFor({ resendApiKey: "re_test" });
     const res = await handleRequest(post({ name: "Alex", email: "nope", phone: "0412345678" }), env);
     assert.equal((await json(res)).status, 400);
     assert.equal(store.rows.length, 0);
     assert.equal(twilioCalls.length, 0);
+    assert.equal(emails.length, 0);
   });
 
   it("returns 429 for a duplicate rapid submit of the same number", async () => {
@@ -460,13 +468,113 @@ describe("handleRequest", () => {
     assert.equal(twilioHits, 1);
   });
 
-  it("sends a notify email from the existing ManyHandz from-address when Resend is set", async () => {
+  it("sends internal notify and visitor follow-up when Resend is set", async () => {
     const { env, emails } = envFor({ resendApiKey: "re_test" });
-    await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
-    assert.equal(emails.length, 1);
-    const payload = await emails[0].json() as { from: string; to: string[]; subject: string };
-    assert.equal(payload.from, RESEND_FROM);
-    assert.deepEqual(payload.to, ["info@manyhandz.ai"]);
-    assert.equal(payload.subject, demoNotifySubject("Alex", PHONE));
+    const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
+    assert.deepEqual((await json(res)).body, { ok: true });
+    assert.equal(emails.length, 2);
+    type Mail = {
+      from: string;
+      to: string[];
+      subject: string;
+      html?: string;
+      text?: string;
+      reply_to?: string;
+    };
+    const payloads = await Promise.all(emails.map((req) => req.json() as Promise<Mail>));
+    const internal = payloads.find((p) => p.to.includes("info@manyhandz.ai"));
+    const visitor = payloads.find((p) => p.to.includes("alex@example.com"));
+    assert.ok(internal);
+    assert.equal(internal.from, RESEND_FROM);
+    assert.deepEqual(internal.to, ["info@manyhandz.ai"]);
+    assert.equal(internal.subject, demoNotifySubject("Alex", PHONE));
+    assert.ok(visitor);
+    assert.equal(visitor.from, VISITOR_FROM);
+    assert.deepEqual(visitor.to, ["alex@example.com"]);
+    assert.equal(visitor.subject, VISITOR_SUBJECT);
+    assert.equal(visitor.reply_to, "info@manyhandz.ai");
+    assert.match(visitor.html || "", /https:\/\/app\.manyhandz\.ai\/signup/);
+    assert.match(visitor.html || "", /Hey Alex,/);
+    assert.match(visitor.html || "", /\$199/);
+    assert.match(visitor.html || "", /600/);
+    assert.match(visitor.text || "", /Get started free/);
+  });
+
+  it("sends both emails when the Twilio call fails", async () => {
+    const captured: Request[] = [];
+    const { env } = envFor({
+      resendApiKey: "re_test",
+      fetchImpl: async (input, init) => {
+        const req = new Request(input, init);
+        if (req.url.includes("api.twilio.com")) {
+          return new Response(JSON.stringify({ message: "Account not allowed to call this number" }), { status: 400 });
+        }
+        if (req.url.includes("api.resend.com")) {
+          captured.push(req);
+          return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+        }
+        return new Response("no", { status: 500 });
+      },
+    });
+    const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
+    assert.equal((await json(res)).status, 500);
+    assert.equal(captured.length, 2);
+    const payloads = await Promise.all(captured.map((req) => req.json() as Promise<{ to: string[] }>));
+    assert.ok(payloads.some((p) => p.to.includes("info@manyhandz.ai")));
+    assert.ok(payloads.some((p) => p.to.includes("alex@example.com")));
+  });
+
+  it("still returns 200 when the visitor Resend send rejects", async () => {
+    let visitorThrew = false;
+    const { env } = envFor({
+      resendApiKey: "re_test",
+      fetchImpl: async (input, init) => {
+        const req = new Request(input, init);
+        if (req.url.includes("api.resend.com")) {
+          const body = await req.clone().json() as { to?: string[] };
+          if (body.to?.includes("alex@example.com")) {
+            visitorThrew = true;
+            throw new Error("visitor resend down");
+          }
+          return new Response(JSON.stringify({ id: "email-1" }), { status: 200 });
+        }
+        if (req.url.includes("api.twilio.com")) {
+          return new Response(JSON.stringify({ sid: "CAok" }), { status: 201 });
+        }
+        return new Response("no", { status: 500 });
+      },
+    });
+    const res = await handleRequest(post({ name: "Alex", email: "alex@example.com", phone: "0412345678" }), env);
+    assert.deepEqual(await json(res), { status: 200, body: { ok: true }, origin: "https://manyhandz.ai" });
+    assert.equal(visitorThrew, true);
+  });
+});
+
+describe("visitor email helpers", () => {
+  it("uses the first name token or there", () => {
+    assert.equal(visitorFirstName("Alex Smith"), "Alex");
+    assert.equal(visitorFirstName("  Mike  "), "Mike");
+    assert.equal(visitorFirstName(""), "there");
+    assert.equal(visitorFirstName("   "), "there");
+  });
+
+  it("builds HTML with signup URL, pricing, and escaped first name", () => {
+    assert.equal(VISITOR_SUBJECT, "You're one step away from never missing a job");
+    const html = visitorEmailHtml("Alex");
+    assert.match(html, /https:\/\/app\.manyhandz\.ai\/signup/);
+    assert.match(html, /app\.manyhandz\.ai\/signup/);
+    assert.match(html, /\$199/);
+    assert.match(html, /600 mins|600 minutes/);
+    assert.match(html, /Hey Alex,/);
+    assert.equal(html.includes("DraftPilot"), false);
+    assert.equal(html.includes("Tradify"), false);
+    assert.equal(html.includes("SimPRO"), false);
+    assert.equal(html.includes("$499"), false);
+    const escaped = visitorEmailHtml("A&B");
+    assert.match(escaped, /Hey A&amp;B,/);
+    const text = visitorEmailText("Alex");
+    assert.match(text, new RegExp(SIGNUP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    assert.match(text, /Hey Alex,/);
+    assert.match(text, /\$199/);
   });
 });
