@@ -103,11 +103,13 @@ function installFakeDom() {
 }
 
 test("embed snippet matches the customer copy box", () => {
+  const snippet = chatWidgetEmbedSnippet("abc123");
   assert.equal(
-    chatWidgetEmbedSnippet("abc123"),
+    snippet,
     `<script src="https://app.manyhandz.ai/widget.js" data-key="abc123"></script>`
   );
   assert.equal(CHAT_WIDGET_SRC, "https://app.manyhandz.ai/widget.js");
+  assert.equal(snippet.includes("data-color"), false);
 });
 
 test("mount injects a real script with the live src and data-key", () => {

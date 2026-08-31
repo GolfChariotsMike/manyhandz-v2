@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test:grokbot": "node --experimental-strip-types --test supabase/functions/mhv2-grokbot/handler.test.ts",
     "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts src/lib/api-save.test.ts",
-    "test:widget-preview": "node --experimental-strip-types --test src/lib/chat-widget-preview.test.ts",
+    "test:widget-preview": "node --experimental-strip-types --test src/lib/chat-widget-preview.test.ts src/lib/chat-widget-launcher.test.ts",
     "test:dashboard": "node --experimental-strip-types --test src/lib/meCache.test.ts src/lib/chat-page.test.ts src/lib/trialCountdown.test.ts",
     "test:onboarding": "node --experimental-strip-types --test src/lib/onboarding.test.ts supabase/functions/mh-v2-scrape/scrape.test.ts supabase/functions/mh-provision-number/search.test.ts supabase/functions/mh-v2-save/handler.test.ts",
     "test:voice": "node --experimental-strip-types --test src/lib/voice-controls.test.ts src/lib/voice-greeting.test.ts supabase/functions/mhv2-el-proxy/proxy.test.ts"
