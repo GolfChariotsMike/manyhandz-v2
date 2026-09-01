@@ -10,6 +10,8 @@ import {
   notifyMobilePlaceholder,
   notifySmsPayloadFromForm,
   normalizeNotifyMobile,
+  ownerPhoneFromCustomer,
+  resolveNotifySms,
   onboardingNumberBlurb,
   parseOnboardingDraft,
   parseSignupCountry,
@@ -180,6 +182,30 @@ test("finish notify payload writes notify_sms only when a mobile was entered", (
   assert.deepEqual(notifySmsPayloadFromForm("0412 345 678", "AU"), { notify_sms: "+61412345678" });
   assert.deepEqual(notifySmsPayloadFromForm("  +1 555 123 4567  ", "US"), { notify_sms: "+15551234567" });
   assert.deepEqual(notifySmsPayloadFromForm("  ", "AU"), { notify_sms: null });
+});
+
+test("resolveNotifySms prefers typed mobile, then customer owner phone, never twilio_number", () => {
+  assert.deepEqual(resolveNotifySms({
+    notifyMobile: "0412 345 678",
+    country: "AU",
+    customer: { phone: "0400111222", twilio_number: "+61485000000" },
+  }), { notify_sms: "+61412345678" });
+  assert.deepEqual(resolveNotifySms({
+    notifyMobile: "  ",
+    country: "AU",
+    customer: { mobile: "0400111222", twilio_number: "+61485000000" },
+  }), { notify_sms: "+61400111222" });
+  assert.equal(ownerPhoneFromCustomer({ twilio_number: "+61485000000" }), "");
+  assert.deepEqual(resolveNotifySms({
+    notifyMobile: "",
+    country: "AU",
+    customer: { twilio_number: "+61485000000" },
+    existingNotifySms: "+61422962169",
+  }), { notify_sms: "+61422962169" });
+  assert.deepEqual(resolveNotifySms({
+    notifyMobile: "",
+    customer: { twilio_number: "+61485000000" },
+  }), { notify_sms: null });
 });
 
 test("knowledge payload maps hours by weekday", () => {

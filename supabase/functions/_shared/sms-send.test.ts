@@ -5,6 +5,7 @@ import {
   normalizeNotifyMobile,
   normalizePhone,
   parseRequestBody,
+  ownerPhoneFromCustomer,
   phoneLookupVariants,
   pickSmsFrom,
   sendTwilioSms,
@@ -36,6 +37,12 @@ test("phoneLookupVariants covers E.164 and national AU/US forms", () => {
   const us = phoneLookupVariants("+15551234567");
   assert.equal(us.includes("+15551234567"), true);
   assert.equal(us.includes("5551234567"), true);
+});
+
+test("ownerPhoneFromCustomer reads account mobiles and ignores the ManyHandz Twilio number", () => {
+  assert.equal(ownerPhoneFromCustomer({ mobile: "0412 111 222", twilio_number: "+61485000000" }), "0412 111 222");
+  assert.equal(ownerPhoneFromCustomer({ twilio_number: "+61485000000" }), "");
+  assert.equal(ownerPhoneFromCustomer(null), "");
 });
 
 test("pickSmsFrom prefers the customer number then the shared From env", () => {

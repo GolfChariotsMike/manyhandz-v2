@@ -98,6 +98,27 @@ export function phoneLookupVariants(raw: string): string[] {
   return [...variants].filter(Boolean);
 }
 
+/** Owner phones that may already live on mh_v2_customers. Never use twilio_number. */
+export const OWNER_PHONE_KEYS = [
+  "phone",
+  "mobile",
+  "owner_phone",
+  "owner_mobile",
+  "notify_mobile",
+  "notify_sms",
+  "contact_phone",
+  "contact_mobile",
+] as const;
+
+export function ownerPhoneFromCustomer(customer?: Record<string, unknown> | null): string {
+  if (!customer || typeof customer !== "object") return "";
+  for (const key of OWNER_PHONE_KEYS) {
+    const val = customer[key];
+    if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  return "";
+}
+
 export function pickSmsFrom(customerNumber?: string | null, fallbackFrom?: string | null): string | null {
   const customer = String(customerNumber || "").trim();
   if (customer) return customer;

@@ -114,5 +114,8 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /smsUrl:\s*SMS_INBOUND_URL/);
   assert.match(src, /sendSmsWebhookTool/);
   assert.match(src, /cap_send_sms:\s*true/);
+  assert.match(src, /cap_transfer_calls:\s*true/);
+  assert.match(src, /cap_hangup_on_goodbye:\s*true/);
+  assert.match(src, /Never overwrite an existing notify_sms/);
   assert.doesNotMatch(src, /sms-webhook/);
 });

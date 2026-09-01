@@ -8,6 +8,7 @@ import {
 import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
 import { sendSmsUrl, sendSmsWebhookTool } from "../_shared/send-sms-tool.ts";
+import { normalizePhone, ownerPhoneFromCustomer } from "../_shared/sms-send.ts";
 import {
   defaultVoiceId,
   noNumbersError,
@@ -268,6 +269,13 @@ serve(async (req) => {
 
     const vcRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`);
     const vcExists = Array.isArray(vcRows) && vcRows.length > 0;
+    const existingVc = vcExists ? vcRows[0] as { notify_sms?: string | null } : null;
+    const ownerNotify = normalizePhone(ownerPhoneFromCustomer(customer as Record<string, unknown>), market);
+    const smsDefaults = {
+      cap_send_sms: true,
+      cap_transfer_calls: true,
+      cap_hangup_on_goodbye: true,
+    };
     if (!vcExists) {
       await supabaseRest(supabaseUrl, serviceKey, "/rest/v1/mh_voice_config", "POST", {
         customer_id,
@@ -278,14 +286,20 @@ serve(async (req) => {
         el_agent_id: elAgentId,
         voice_id: elVoiceId,
         turn_eagerness: "patient",
-        cap_hangup_on_goodbye: true,
-        cap_send_sms: true,
+        ...smsDefaults,
+        ...(ownerNotify ? { notify_sms: ownerNotify } : {}),
       });
     } else {
-      await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", {
+      const patch: Record<string, unknown> = {
         el_agent_id: elAgentId,
         active: true,
-      });
+        ...smsDefaults,
+      };
+      // Never overwrite an existing notify_sms (Glacier is already set).
+      if (!String(existingVc?.notify_sms || "").trim() && ownerNotify) {
+        patch.notify_sms = ownerNotify;
+      }
+      await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", patch);
     }
 
     console.log(`[provision] Done — ${phoneNumber} for ${businessName}`);

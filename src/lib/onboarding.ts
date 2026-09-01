@@ -152,6 +152,46 @@ export function notifySmsPayloadFromForm(notifyMobile: string, country?: string 
   return { notify_sms: normalized };
 }
 
+/** Owner phones that may already live on mh_v2_customers. Never use twilio_number. */
+export const OWNER_PHONE_KEYS = [
+  "phone",
+  "mobile",
+  "owner_phone",
+  "owner_mobile",
+  "notify_mobile",
+  "notify_sms",
+  "contact_phone",
+  "contact_mobile",
+] as const;
+
+export function ownerPhoneFromCustomer(customer?: Record<string, unknown> | null): string {
+  if (!customer || typeof customer !== "object") return "";
+  for (const key of OWNER_PHONE_KEYS) {
+    const val = customer[key];
+    if (typeof val === "string" && val.trim()) return val.trim();
+  }
+  return "";
+}
+
+/**
+ * Onboarding finish: typed notify mobile, else any owner phone already on the
+ * customer row, else an existing voice_config.notify_sms. Never invent a number
+ * and never fall back to the ManyHandz Twilio number.
+ */
+export function resolveNotifySms(input: {
+  notifyMobile: string;
+  country?: string | null;
+  customer?: Record<string, unknown> | null;
+  existingNotifySms?: string | null;
+}): { notify_sms: string | null } {
+  const country = input.country ?? (typeof input.customer?.country === "string" ? input.customer.country : null);
+  const fromForm = normalizeNotifyMobile(input.notifyMobile, country);
+  if (fromForm) return { notify_sms: fromForm };
+  const fromCustomer = normalizeNotifyMobile(ownerPhoneFromCustomer(input.customer), country);
+  if (fromCustomer) return { notify_sms: fromCustomer };
+  return { notify_sms: normalizeNotifyMobile(input.existingNotifySms || "", country) };
+}
+
 export function signupWebsitePlaceholder(country?: string | null): string {
   return normalizeMarket(country) === "US" ? "yoursite.com" : "yoursite.com.au";
 }

@@ -10,7 +10,7 @@ import {
   loadDraftForCustomer,
   onboardingNumberBlurb,
   notifyMobilePlaceholder,
-  notifySmsPayloadFromForm,
+  resolveNotifySms,
   profileUpdatesFromForm,
   provisionNumberBody,
   provisionedNumberPlaceholder,
@@ -419,7 +419,11 @@ export default function Onboarding() {
         industry,
         onboardingComplete: true,
       }));
-      const notify = notifySmsPayloadFromForm(notifyMobile, customer?.country);
+      const notify = resolveNotifySms({
+        notifyMobile,
+        country: customer?.country,
+        customer,
+      });
       if (notify.notify_sms) {
         await saveVoiceNotifySms(notify);
       }
