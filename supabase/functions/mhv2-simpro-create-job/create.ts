@@ -227,7 +227,19 @@ function resourceId(data: unknown, headersId?: string): string {
   return "";
 }
 
-async function getAccessToken(conn: SimproConnection, env: CreateJobEnv): Promise<string> {
+export function hasSimproOauth(conn: SimproConnection): boolean {
+  return Boolean(String(conn.simpro_client_id || "").trim() && conn.simpro_client_secret_encrypted);
+}
+
+export function hasSimproApiKey(conn: SimproConnection): boolean {
+  return Boolean(conn.simpro_access_token_encrypted);
+}
+
+export async function getAccessToken(conn: SimproConnection, env: CreateJobEnv): Promise<string> {
+  // API Key grant: static never-expiring Bearer. Do not hit /oauth2/token.
+  if (!conn.simpro_client_secret_encrypted && conn.simpro_access_token_encrypted) {
+    return decryptSecret(conn.simpro_access_token_encrypted, env.encryptionKey);
+  }
   const now = env.now();
   const expires = conn.simpro_token_expires_at ? new Date(conn.simpro_token_expires_at) : new Date(0);
   if (expires.getTime() - now.getTime() > 5 * 60 * 1000 && conn.simpro_access_token_encrypted) {
@@ -442,7 +454,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
   }
 
   const conn = await env.loadConnection(input.customer_id);
-  if (!conn || !conn.simpro_build_url || !conn.simpro_client_id || !conn.simpro_client_secret_encrypted) {
+  if (!conn || (!hasSimproOauth(conn) && !hasSimproApiKey(conn))) {
     return {
       ok: false,
       code: "not_connected",

@@ -29,6 +29,9 @@ verify_jwt = false
 [functions.mh-sync-agent]
 verify_jwt = true
 
+[functions.mhv2-simpro-connect]
+verify_jwt = false
+
 [functions.mhv2-simpro-create-job]
 verify_jwt = false
 

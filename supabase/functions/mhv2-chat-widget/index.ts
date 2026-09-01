@@ -33,6 +33,9 @@ async function decrypt(enc: string): Promise<string> {
 }
 
 async function getSimproToken(conn: Record<string, unknown>): Promise<string> {
+  if (!conn.simpro_client_secret_encrypted && conn.simpro_access_token_encrypted) {
+    return await decrypt(String(conn.simpro_access_token_encrypted));
+  }
   const now = new Date();
   const expires = conn.simpro_token_expires_at ? new Date(String(conn.simpro_token_expires_at)) : new Date(0);
   if (expires.getTime() - now.getTime() > 5 * 60 * 1000 && conn.simpro_access_token_encrypted) {

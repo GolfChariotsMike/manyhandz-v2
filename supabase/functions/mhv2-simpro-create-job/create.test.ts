@@ -5,6 +5,7 @@ import {
   createSimproJob,
   decryptSecret,
   encryptSecret,
+  getAccessToken,
   parseCreateJobInput,
   parseSiteAddress,
   sanitizeSimproError,
@@ -87,6 +88,27 @@ test("sanitizeSimproError redacts bearer tokens and secrets", () => {
   assert.equal(cleaned.includes("abcdef"), false);
   assert.equal(cleaned.includes("hunter2"), false);
   assert.equal(cleaned.includes("Bearer [redacted]"), true);
+});
+
+test("getAccessToken uses stored API key Bearer and skips oauth2/token", async () => {
+  const conn = await connected({
+    simpro_client_id: "",
+    simpro_client_secret_encrypted: "",
+    simpro_access_token_encrypted: await encryptSecret("static-api-key", KEY),
+    simpro_token_expires_at: "2000-01-01T00:00:00.000Z",
+  });
+  const calls: string[] = [];
+  const token = await getAccessToken(conn, {
+    encryptionKey: KEY,
+    now: () => new Date("2026-09-01T01:00:00+08:00"),
+    loadConnection: async () => conn,
+    fetch: async (inputUrl) => {
+      calls.push(String(inputUrl));
+      return new Response("must not call oauth", { status: 500 });
+    },
+  });
+  assert.equal(token, "static-api-key");
+  assert.equal(calls.length, 0);
 });
 
 test("createSimproJob fails clearly when SimPRO is not connected", async () => {
