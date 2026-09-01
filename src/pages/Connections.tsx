@@ -88,29 +88,23 @@ async function callFn(fn: string, body: unknown) {
 }
 
 async function getConnections(customerId: string) {
+  try {
+    const data = await callFn("mhv2-crm-connections", { customer_id: customerId, action: "list" });
+    if (Array.isArray(data.connections)) return data.connections;
+  } catch { /* function not deployed yet — fall back to REST */ }
   const res = await fetch(
-    `${SUPABASE_URL}/rest/v1/mh_crm_connections?customer_id=eq.${customerId}&is_active=eq.true&select=*`,
+    `${SUPABASE_URL}/rest/v1/mh_crm_connections?customer_id=eq.${customerId}&is_active=eq.true&select=id,platform,last_synced_at,jobs_synced_count`,
     {
       headers: {
         "apikey": SUPABASE_ANON_KEY,
         "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
       },
-    }
-  );
-  return res.json();
-}
-
-async function disconnectPlatform(connectionId: string) {
-  await fetch(`${SUPABASE_URL}/rest/v1/mh_crm_connections?id=eq.${connectionId}`, {
-    method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=minimal",
     },
-    body: JSON.stringify({ is_active: false }),
-  });
+  );
+  const rows = await res.json();
+  return Array.isArray(rows)
+    ? rows
+    : [];
 }
 
 interface Connection {
@@ -118,6 +112,7 @@ interface Connection {
   platform: string;
   last_synced_at: string | null;
   jobs_synced_count: number;
+  account_name?: string | null;
 }
 
 type GrokbotStatus = {
@@ -346,11 +341,21 @@ export default function Connections() {
   const [simpropLoading, setSimpropLoading] = useState(false);
   const [simpropError, setSimpropError] = useState("");
 
+  const [servicem8ApiKey, setServicem8ApiKey] = useState("");
+  const [servicem8Loading, setServicem8Loading] = useState(false);
+  const [servicem8Error, setServicem8Error] = useState("");
+  const [oauthLoading, setOauthLoading] = useState<string | null>(null);
+  const [oauthError, setOauthError] = useState("");
+
   // Sync state
   const [syncingPlatform, setSyncingPlatform] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState("");
 
   const simpropConn = connections.find(c => c.platform === "simpro");
+  const servicem8Conn = connections.find(c => c.platform === "servicem8");
+  const googleCalConn = connections.find(c => c.platform === "google_calendar");
+  const msCalConn = connections.find(c => c.platform === "microsoft_calendar");
+  const xeroConn = connections.find(c => c.platform === "xero");
 
   async function loadConnections(cid?: string) {
     setLoading(true);
@@ -364,6 +369,26 @@ export default function Connections() {
   }
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const connected = params.get("connected");
+    const err = params.get("error");
+    if (connected) {
+      setSyncMsg(
+        connected === "google_calendar" ? "Google Calendar connected"
+          : connected === "microsoft_calendar" ? "Outlook Calendar connected"
+          : connected === "xero" ? "Xero connected"
+          : "Connected",
+      );
+      window.history.replaceState({}, "", "/connections");
+      setTimeout(() => setSyncMsg(""), 4000);
+    } else if (err) {
+      setOauthError(
+        err === "not_configured"
+          ? "That ManyHandz app is not configured yet. Ask ManyHandz support to add the OAuth app."
+          : `Could not finish connecting (${err}). Try again or take a message for the team.`,
+      );
+      window.history.replaceState({}, "", "/connections");
+    }
     getMe().then(({ customer }) => {
       if (customer?.id) {
         setCustomerId(customer.id);
@@ -404,9 +429,42 @@ export default function Connections() {
     setTimeout(() => setSyncMsg(""), 4000);
   }
 
+  async function connectServicem8() {
+    setServicem8Loading(true);
+    setServicem8Error("");
+    try {
+      await callFn("mhv2-servicem8-connect", {
+        customer_id: customerId,
+        api_key: servicem8ApiKey,
+      });
+      setServicem8ApiKey("");
+      await loadConnections();
+    } catch (e: any) {
+      setServicem8Error(e.message);
+    }
+    setServicem8Loading(false);
+  }
+
+  async function startOAuth(fn: string, label: string) {
+    setOauthLoading(fn);
+    setOauthError("");
+    try {
+      const data = await callFn(fn, { customer_id: customerId });
+      if (!data.url) throw new Error(`Could not start ${label} connect`);
+      window.location.href = data.url;
+    } catch (e: any) {
+      setOauthError(e.message);
+      setOauthLoading(null);
+    }
+  }
+
   async function disconnect(conn: Connection) {
     if (!confirm(`Disconnect ${conn.platform}? Your synced data will be preserved.`)) return;
-    await disconnectPlatform(conn.id);
+    await callFn("mhv2-crm-connections", {
+      customer_id: customerId,
+      action: "disconnect",
+      connection_id: conn.id,
+    });
     await loadConnections();
   }
 
@@ -537,17 +595,238 @@ export default function Connections() {
         )}
       </div>
 
+      {/* ServiceM8 Card */}
+      <div className="glass-card rounded-2xl p-6 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center">
+              <span className="text-emerald-300 font-bold text-sm">S8</span>
+            </div>
+            <div>
+              <h2 className="text-white font-semibold">ServiceM8</h2>
+              <p className="text-white/40 text-xs">Create jobs from a call with your ServiceM8 API key</p>
+            </div>
+          </div>
+          {servicem8Conn ? (
+            <div className="flex items-center gap-2 text-green-400 text-sm">
+              <CheckCircle size={16} />
+              Connected
+            </div>
+          ) : (
+            <span className="text-white/30 text-sm">Not connected</span>
+          )}
+        </div>
+
+        {servicem8Conn ? (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <p className="text-white/40 text-xs mb-1">Last synced</p>
+                <p className="text-white">{formatDate(servicem8Conn.last_synced_at)}</p>
+              </div>
+              <div>
+                <p className="text-white/40 text-xs mb-1">Jobs synced</p>
+                <p className="text-white">{servicem8Conn.jobs_synced_count ?? 0}</p>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={() => disconnect(servicem8Conn)}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
+              >
+                <Trash2 size={14} />
+                Disconnect
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-white/50 text-xs mb-4">
+              In ServiceM8 go to <strong>Settings → API</strong>, create an API key, then paste it below. ManyHandz tests the key before saving it.
+            </p>
+            <input
+              type="password"
+              name="servicem8-api-key"
+              autoComplete="new-password"
+              placeholder="ServiceM8 API key"
+              value={servicem8ApiKey}
+              onChange={e => setServicem8ApiKey(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-emerald-500/50"
+            />
+            {servicem8Error && (
+              <div className="flex items-center gap-2 text-red-400 text-sm">
+                <AlertCircle size={14} />
+                {servicem8Error}
+              </div>
+            )}
+            <button
+              onClick={connectServicem8}
+              disabled={servicem8Loading || !servicem8ApiKey}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {servicem8Loading ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+              Connect ServiceM8
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Google Calendar Card */}
+      <OauthCard
+        title="Google Calendar"
+        blurb="Check free/busy and book a real event when a caller wants a time"
+        initials="G"
+        accent="bg-red-500/20"
+        initialsClass="text-red-300"
+        connected={googleCalConn}
+        accountName={googleCalConn?.account_name}
+        lastSynced={googleCalConn?.last_synced_at}
+        formatDate={formatDate}
+        loading={oauthLoading === "mhv2-google-cal-connect"}
+        onConnect={() => startOAuth("mhv2-google-cal-connect", "Google Calendar")}
+        onDisconnect={() => googleCalConn && disconnect(googleCalConn)}
+      />
+
+      {/* Outlook Calendar Card */}
+      <OauthCard
+        title="Outlook Calendar"
+        blurb="Microsoft 365 calendar — same booking tools as Google Calendar"
+        initials="O"
+        accent="bg-sky-500/20"
+        initialsClass="text-sky-300"
+        connected={msCalConn}
+        accountName={msCalConn?.account_name}
+        lastSynced={msCalConn?.last_synced_at}
+        formatDate={formatDate}
+        loading={oauthLoading === "mhv2-ms-cal-connect"}
+        onConnect={() => startOAuth("mhv2-ms-cal-connect", "Outlook Calendar")}
+        onDisconnect={() => msCalConn && disconnect(msCalConn)}
+      />
+
+      {/* Xero Card */}
+      <OauthCard
+        title="Xero"
+        blurb="Create a draft sales invoice from a call — never auto-approved"
+        initials="X"
+        accent="bg-cyan-500/20"
+        initialsClass="text-cyan-300"
+        connected={xeroConn}
+        accountName={xeroConn?.account_name}
+        lastSynced={xeroConn?.last_synced_at}
+        formatDate={formatDate}
+        loading={oauthLoading === "mhv2-xero-connect"}
+        onConnect={() => startOAuth("mhv2-xero-connect", "Xero")}
+        onDisconnect={() => xeroConn && disconnect(xeroConn)}
+      />
+
+      {oauthError && (
+        <div className="flex items-center gap-2 text-red-400 text-sm mb-6">
+          <AlertCircle size={14} />
+          {oauthError}
+        </div>
+      )}
+
       {/* Info box */}
       <div className="rounded-2xl border border-white/5 bg-white/3 p-5 text-white/40 text-sm space-y-2">
         <p className="font-medium text-white/60">What your AI can do with connected data:</p>
         <ul className="space-y-1 list-disc list-inside">
-          <li>Create a new SimPRO job from a phone call (name, phone, site, description) and confirm the job number</li>
+          <li>Create a new SimPRO or ServiceM8 job from a phone call and confirm the job number</li>
+          <li>Book a real calendar slot when Google or Outlook Calendar is connected</li>
+          <li>Raise a Xero draft invoice — the office still approves it</li>
           <li>Look up job status when a customer calls ("What's the status of my job?")</li>
-          <li>Pull customer and site details for smarter email replies</li>
-          <li>Reference open quotes and pending work in conversations</li>
-          <li>Data syncs every 30 minutes automatically</li>
+          <li>If a system is not connected, the agent takes a message — it never pretends a job, booking, or invoice was created</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+function OauthCard({
+  title,
+  blurb,
+  initials,
+  accent,
+  initialsClass,
+  connected,
+  accountName,
+  lastSynced,
+  formatDate,
+  loading,
+  onConnect,
+  onDisconnect,
+}: {
+  title: string;
+  blurb: string;
+  initials: string;
+  accent: string;
+  initialsClass: string;
+  connected?: Connection;
+  accountName?: string | null;
+  lastSynced?: string | null;
+  formatDate: (d: string | null) => string;
+  loading: boolean;
+  onConnect: () => void;
+  onDisconnect: () => void;
+}) {
+  return (
+    <div className="glass-card rounded-2xl p-6 mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl ${accent} flex items-center justify-center`}>
+            <span className={`${initialsClass} font-bold text-sm`}>{initials}</span>
+          </div>
+          <div>
+            <h2 className="text-white font-semibold">{title}</h2>
+            <p className="text-white/40 text-xs">{blurb}</p>
+          </div>
+        </div>
+        {connected ? (
+          <div className="flex items-center gap-2 text-green-400 text-sm">
+            <CheckCircle size={16} />
+            Connected
+          </div>
+        ) : (
+          <span className="text-white/30 text-sm">Not connected</span>
+        )}
+      </div>
+
+      {connected ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <p className="text-white/40 text-xs mb-1">Account</p>
+              <p className="text-white">{accountName || "Connected"}</p>
+            </div>
+            <div>
+              <p className="text-white/40 text-xs mb-1">Last synced</p>
+              <p className="text-white">{formatDate(lastSynced ?? null)}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 pt-2">
+            <button
+              onClick={onDisconnect}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
+            >
+              <Trash2 size={14} />
+              Disconnect
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <p className="text-white/50 text-xs">
+            Sign in with {title} to connect this shop. If the ManyHandz app is not set up yet, you will get a clear error — the page will not crash.
+          </p>
+          <button
+            onClick={onConnect}
+            disabled={loading}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
+            Connect {title}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

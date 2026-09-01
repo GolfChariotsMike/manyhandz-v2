@@ -28,6 +28,7 @@ function makeEnv(opts?: {
   voice?: Record<string, unknown>[];
   kb?: Record<string, unknown>[];
   prices?: Record<string, unknown>[];
+  connections?: Record<string, unknown>[];
   agents?: Record<string, ElAgent>;
   patchOk?: boolean;
 }): { env: SyncEnv; patches: { url: string; body: Record<string, unknown> }[]; gets: string[] } {
@@ -63,6 +64,9 @@ function makeEnv(opts?: {
       }
       if (url.includes("/rest/v1/mh_price_list")) {
         return Response.json(opts?.prices ?? []);
+      }
+      if (url.includes("/rest/v1/mh_crm_connections")) {
+        return Response.json(opts?.connections ?? []);
       }
       if (url.includes("/convai/agents/") && (init?.method || "GET") === "GET") {
         gets.push(url);
@@ -401,6 +405,61 @@ test("inspect reports end_call without PATCHing", async () => {
   assert.equal(body.tool_names.includes("end_call"), true);
   assert.equal(body.tool_sounds.find((t) => t.name === "save_message")?.tool_call_sound, null);
   assert.equal(patches.length, 0);
+});
+
+test("servicem8 and calendar tools attach only when connected and cap is on", async () => {
+  const { env, patches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_confirm_bookings: true,
+      cap_create_servicem8_job: true,
+      cap_create_xero_invoice: true,
+    }],
+    connections: [
+      { platform: "servicem8" },
+      { platform: "google_calendar" },
+      { platform: "xero" },
+    ],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string; tool_call_sound?: string }> } } };
+  }).conversation_config.agent.prompt.tools;
+  const names = tools.map((t) => t.name);
+  assert.equal(names.includes("create_servicem8_job"), true);
+  assert.equal(names.includes("check_calendar_availability"), true);
+  assert.equal(names.includes("book_calendar_event"), true);
+  assert.equal(names.includes("create_xero_invoice"), true);
+  assert.equal(tools.find((t) => t.name === "create_servicem8_job")?.tool_call_sound, "typing");
+});
+
+test("connector tools stay off when caps are on but nothing is connected", async () => {
+  const { env, patches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_confirm_bookings: true,
+      cap_create_servicem8_job: true,
+      cap_create_xero_invoice: true,
+    }],
+    connections: [],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string }> } } };
+  }).conversation_config.agent.prompt.tools;
+  const names = tools.map((t) => t.name);
+  assert.equal(names.includes("create_simpro_job"), true);
+  assert.equal(names.includes("create_servicem8_job"), false);
+  assert.equal(names.includes("book_calendar_event"), false);
+  assert.equal(names.includes("create_xero_invoice"), false);
 });
 
 test("index never hardcodes an API key", async () => {
