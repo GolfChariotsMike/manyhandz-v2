@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getMe, scrapeWebsite, updateProfile, saveOnboardingKnowledge } from "../lib/api";
+import { getMe, scrapeWebsite, updateProfile, saveOnboardingKnowledge, saveVoiceNotifySms } from "../lib/api";
 import { meCache } from "../lib/meCache";
 import {
   canApplyScrapedKb,
@@ -10,6 +10,7 @@ import {
   loadDraftForCustomer,
   onboardingNumberBlurb,
   notifyMobilePlaceholder,
+  resolveNotifySms,
   profileUpdatesFromForm,
   provisionNumberBody,
   provisionedNumberPlaceholder,
@@ -418,6 +419,14 @@ export default function Onboarding() {
         industry,
         onboardingComplete: true,
       }));
+      const notify = resolveNotifySms({
+        notifyMobile,
+        country: customer?.country,
+        customer,
+      });
+      if (notify.notify_sms) {
+        await saveVoiceNotifySms(notify);
+      }
       meCache.clear();
       clearOnboardingDraft();
       goStep(5);

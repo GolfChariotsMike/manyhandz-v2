@@ -6,6 +6,7 @@ import {
   jwtSecretFromEnv,
   parseKnowledgeBody,
   parseProfileBody,
+  parseVoiceNotifyBody,
   routeAction,
   signHs256Jwt,
   verifyHs256Jwt,
@@ -22,12 +23,13 @@ const SECRET = DEFAULT_JWT_SECRET;
 type Store = {
   customers: Record<string, Record<string, unknown>>;
   knowledge: Record<string, Record<string, unknown>>;
+  voice: Record<string, Record<string, unknown>>;
 };
 
 function memoryAdmin(store: Store): AdminClient {
   return {
     from(table: string): QueryBuilder {
-      let mode: "select" | "update" | "upsert" = "select";
+      let mode: "select" | "update" | "upsert" | "insert" = "select";
       let payload: Record<string, unknown> = {};
       const filters: { col: string; val: unknown }[] = [];
 
@@ -52,12 +54,33 @@ function memoryAdmin(store: Store): AdminClient {
           }
           return { data: store.knowledge[cid] || null, error: null };
         }
+        if (table === "mh_voice_config") {
+          const cid = String(
+            payload.customer_id || filters.find((f) => f.col === "customer_id")?.val || "",
+          );
+          if (mode === "select") {
+            return { data: store.voice[cid] || null, error: null };
+          }
+          if (mode === "update") {
+            const existing = store.voice[cid];
+            if (!existing) return { data: null, error: null };
+            Object.assign(existing, payload);
+            return { data: existing, error: null };
+          }
+          if (mode === "insert") {
+            const row = { id: "vc-" + cid, customer_id: cid, ...payload };
+            store.voice[cid] = row;
+            return { data: row, error: null };
+          }
+          return { data: store.voice[cid] || null, error: null };
+        }
         return { data: null, error: { message: `unknown table ${table}` } };
       };
 
       const builder: QueryBuilder = {
         select() { return builder; },
         update(row) { mode = "update"; payload = row; return builder; },
+        insert(row) { mode = "insert"; payload = row; return builder; },
         upsert(row) { mode = "upsert"; payload = row; return builder; },
         eq(col, val) { filters.push({ col, val }); return builder; },
         maybeSingle() { return Promise.resolve(run()); },
@@ -81,6 +104,7 @@ function seed(): Store {
       [CUST]: { id: CUST, business_name: null, website_url: null, industry: null, onboarding_complete: false },
     },
     knowledge: {},
+    voice: {},
   };
 }
 
@@ -263,6 +287,33 @@ describe("POST /knowledge", () => {
     );
     assert.equal(store.knowledge[OTHER].about, "Keep me");
     assert.equal(store.knowledge[CUST].about, "New");
+  });
+});
+
+describe("POST /voice", () => {
+  it("parses notify_sms and treats blank as null", () => {
+    assert.deepEqual(parseVoiceNotifyBody({ notify_sms: "+61412345678" }).patch, { notify_sms: "+61412345678" });
+    assert.deepEqual(parseVoiceNotifyBody({ notify_sms: "  " }).patch, { notify_sms: null });
+    assert.deepEqual(parseVoiceNotifyBody({ notify_sms: null }).patch, { notify_sms: null });
+    assert.equal(parseVoiceNotifyBody({}).error, "notify_sms required");
+  });
+
+  it("creates mh_voice_config when missing and patches notify_sms when present", async () => {
+    const store = seed();
+    const created = await json(await handleRequest(
+      await authed("voice", { notify_sms: "+61412345678" }),
+      envFor(store),
+    ));
+    assert.equal(created.status, 200);
+    assert.equal(created.body.voice.notify_sms, "+61412345678");
+    assert.equal(store.voice[CUST].notify_sms, "+61412345678");
+
+    const patched = await json(await handleRequest(
+      await authed("voice", { notify_sms: "+15551234567" }),
+      envFor(store),
+    ));
+    assert.equal(patched.status, 200);
+    assert.equal(store.voice[CUST].notify_sms, "+15551234567");
   });
 });
 

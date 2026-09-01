@@ -202,9 +202,11 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.doesNotMatch(agent.prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
   const save = agent.prompt.tools.find((t) => t.name === "save_message");
   const createJob = agent.prompt.tools.find((t) => t.name === "create_simpro_job");
+  const sendSms = agent.prompt.tools.find((t) => t.name === "send_sms");
   const endCall = agent.prompt.tools.find((t) => t.name === "end_call");
   assert.ok(save);
   assert.ok(createJob);
+  assert.ok(sendSms);
   assert.ok(endCall);
   assert.equal(save.tool_call_sound, "typing");
   assert.equal(save.tool_call_sound_behavior, "always");
@@ -213,6 +215,9 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(endCall.tool_call_sound, undefined);
   assert.match(agent.prompt.prompt, /create_simpro_job/);
   assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
+  assert.match(JSON.stringify(sendSms), /mh-send-sms\?customer_id=cust-1/);
+  assert.equal(sendSms.tool_call_sound, "typing");
+  assert.equal(agent.prompt.tools.some((t) => t.name === "send_signup_sms"), false);
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
   assert.equal(JSON.stringify(patches).includes(EL_KEY), false);
@@ -230,7 +235,43 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     assert.equal(extraSave?.tool_call_sound, "typing");
     assert.equal(extraEnd?.tool_call_sound, undefined);
     assert.equal(extraTools.some((t) => t.name === "create_simpro_job"), false);
+    assert.equal(extraTools.some((t) => t.name === "send_sms"), false);
   }
+});
+
+test("customer sync omits send_sms when cap_send_sms is off", async () => {
+  const { env, patches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_send_sms: false,
+    }],
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "You are Trinity.",
+              tools: [
+                { type: "webhook", name: "save_message" },
+                { type: "webhook", name: "send_sms" },
+              ],
+              built_in_tools: {},
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string }> } } };
+  }).conversation_config.agent.prompt.tools;
+  assert.equal(tools.some((t) => t.name === "send_sms"), false);
+  assert.equal(tools.some((t) => t.name === "save_message"), true);
 });
 
 test("customer sync omits end_call and hangup rule when cap is off", async () => {

@@ -12,6 +12,7 @@ import {
   type ToolSoundRow,
 } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
+import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
 import { buildSystemPrompt, type PriceItem } from "./prompt.ts";
 
 export const corsHeaders = {
@@ -305,11 +306,16 @@ export async function syncCustomerAgent(
     bag.tools,
     createSimproJobUrl(env.supabaseUrl, customerId),
   );
+  const toolsWithSms = mergeSendSmsTool(
+    toolsWithCreate,
+    sendSmsUrl(env.supabaseUrl, customerId),
+    vc?.cap_send_sms ?? true,
+  );
 
   const patched = await patchElAgent(env, agentId, hangupAgentPatch({
     systemPrompt,
     firstMessage,
-    existingTools: toolsWithCreate,
+    existingTools: toolsWithSms,
     existingBuiltIn: bag.builtIn,
     hangupEnabled,
   }));

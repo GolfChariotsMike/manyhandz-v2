@@ -111,6 +111,15 @@ export async function saveOnboardingKnowledge(kb: OnboardingKnowledge) {
   return callFn("mh-v2-save", "knowledge", "POST", kb);
 }
 
+export type VoiceNotifySms = {
+  notify_sms: string | null;
+};
+
+/** Persist mh_voice_config.notify_sms via mh-v2-save (creates the row if missing). */
+export async function saveVoiceNotifySms(updates: VoiceNotifySms) {
+  return callFn("mh-v2-save", "voice", "POST", updates);
+}
+
 export async function scrapeWebsite(url: string) {
   return callFn("mh-v2-scrape", "", "POST", { url });
 }
