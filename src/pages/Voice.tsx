@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
+import { conversationIdForCall } from "../lib/call-log";
 import { notifyMobilePlaceholder, notifySmsPayloadFromForm, provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
@@ -28,15 +29,16 @@ function CallLog({ calls }: { calls: any[] }) {
 
   async function toggleExpand(call: any) {
     const id = call.id;
+    const conversationId = conversationIdForCall(call, calls);
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
-    if (transcript[id] || !call.conversation_id) return;
+    if (transcript[id] || !conversationId) return;
     setLoadingId(id);
     try {
       const res = await fetch(EL_PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "transcript", conversation_id: call.conversation_id }),
+        body: JSON.stringify({ action: "transcript", conversation_id: conversationId }),
       });
       const data = await res.json();
       setTranscript(t => ({ ...t, [id]: data.transcript || [] }));
@@ -45,18 +47,19 @@ function CallLog({ calls }: { calls: any[] }) {
   }
 
   async function playAudio(call: any) {
+    const conversationId = conversationIdForCall(call, calls);
     if (playingId === call.id) {
       audioRef.current?.pause();
       setPlayingId(null); return;
     }
-    if (!call.conversation_id) return;
+    if (!conversationId) return;
     audioRef.current?.pause();
     setPlayingId(call.id);
     try {
       const res = await fetch(EL_PROXY, {
         method: "POST",
         headers: { "Content-Type": "application/json", "apikey": SUPABASE_ANON_KEY },
-        body: JSON.stringify({ action: "audio", conversation_id: call.conversation_id }),
+        body: JSON.stringify({ action: "audio", conversation_id: conversationId }),
       });
       if (!res.ok) throw new Error("No audio");
       const blob = await res.blob();
@@ -91,7 +94,7 @@ function CallLog({ calls }: { calls: any[] }) {
                     {call.duration_seconds ? ` · ${fmt(call.duration_seconds)}` : ""}
                   </p>
                 </div>
-                {call.conversation_id && (
+                {conversationIdForCall(call, calls) && (
                   <button onClick={e => { e.stopPropagation(); playAudio(call); }}
                     className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition shrink-0">
                     {playingId === call.id ? <Pause size={14} /> : <Play size={14} />}
@@ -103,7 +106,7 @@ function CallLog({ calls }: { calls: any[] }) {
                 <div className="px-3 pb-3 border-t border-white/5 pt-3">
                   {loadingId === call.id ? (
                     <p className="text-xs text-white/30">Loading transcript...</p>
-                  ) : !call.conversation_id ? (
+                  ) : !conversationIdForCall(call, calls) ? (
                     <p className="text-xs text-white/30">No transcript available.</p>
                   ) : (transcript[call.id] || []).length === 0 ? (
                     <p className="text-xs text-white/30">No transcript yet.</p>

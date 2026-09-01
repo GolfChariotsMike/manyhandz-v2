@@ -1,7 +1,7 @@
 /**
  * mh-sync-agent — rebuild the live ElevenLabs ConvAI prompt from KB + pricing +
- * caps, attach create_simpro_job + send_sms (when cap_send_sms) + end_call
- * when hang-up is on, and add typing sounds on webhook tools (not end_call).
+ * caps, attach save_message + create_simpro_job + send_sms (when cap_send_sms)
+ * + end_call when hang-up is on, and add typing sounds on webhook tools (not end_call).
  *
  * verify_jwt matches the live function (true): dashboard callers send the anon JWT.
  * POST { customer_id } — same path Voice / Knowledge / Quoting / Grok Bot already hit.
