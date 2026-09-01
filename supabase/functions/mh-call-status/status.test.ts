@@ -7,6 +7,7 @@ import {
   completedCallPatch,
   handleCallStatus,
   noContent,
+  parseTwilioStatus,
   pickExistingCallRow,
   shouldCompleteCall,
   type CallLogRow,
@@ -81,6 +82,30 @@ test("noContent is 204 with a null body", () => {
   const res = noContent();
   assert.equal(res.status, 204);
   assert.equal(res.body, null);
+});
+
+test("parseTwilioStatus uses the PSTN caller, not the business Twilio line", () => {
+  const req = new Request("https://example.com/functions/v1/mh-call-status?customer_id=c", {
+    method: "POST",
+  });
+  const swapped = parseTwilioStatus(req, formBody({
+    From: "0468164301",
+    ForwardedFrom: "+61433121933",
+    To: "+61468164301",
+    CallSid: "CA1",
+    CallStatus: "completed",
+    CallDuration: "10",
+  }));
+  assert.equal(swapped.from_number, "+61433121933");
+  const live = parseTwilioStatus(req, formBody({
+    From: "+61433121933",
+    ForwardedFrom: "0468164301",
+    To: "+61468164301",
+    CallSid: "CA1",
+    CallStatus: "completed",
+    CallDuration: "10",
+  }));
+  assert.equal(live.from_number, "+61433121933");
 });
 
 test("shouldCompleteCall requires completed + duration + ids", () => {
