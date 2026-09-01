@@ -63,6 +63,8 @@ test("config.toml leaves Twilio status + owner-notify webhooks verify_jwt false"
   const toml = await readFile(new URL("../../config.toml", import.meta.url), "utf8");
   assert.match(toml, /\[functions\.mh-save-message\]\s*\nverify_jwt = false/);
   assert.match(toml, /\[functions\.mh-call-status\]\s*\nverify_jwt = false/);
+  assert.match(toml, /\[functions\.mh-customer-transfer\]\s*\nverify_jwt = false/);
+  assert.match(toml, /\[functions\.mh-ossie-tools\]\s*\nverify_jwt = false/);
 });
 
 test("typing attaches to save_message and never to end_call", () => {

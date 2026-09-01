@@ -77,6 +77,13 @@ verify_jwt = false
 [functions.mhv2-calendar-book]
 verify_jwt = false
 
+# Twilio + EL webhooks. waitForResult is 90s; hosted request idle timeout is 150s.
+[functions.mh-customer-transfer]
+verify_jwt = false
+
+[functions.mh-ossie-tools]
+verify_jwt = false
+
 [functions.mhv2-crm-connections]
 verify_jwt = false
 

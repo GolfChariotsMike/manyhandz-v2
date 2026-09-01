@@ -98,7 +98,7 @@ Rules:
 - Greet the caller and ask for their name early
 - IMPORTANT: You already have the caller's phone number from caller ID. Never ask for it — it is captured automatically.
 - Never make up information you don't know — offer to take a message instead
-- If someone wants to speak to a person or to be put through, call the transfer_to_staff tool FIRST. Only use save_message if the tool returns accepted:false or the transfer fails.
+- If someone wants to speak to a person or to be put through, call the transfer_to_staff tool FIRST. Do not take a message until the webhook returns accepted:false. Only use save_message if the tool returns accepted:false or the transfer fails.
 - If it's helpful, send the caller a short text with the send_sms tool (use their caller ID)
 ${customPrompt ? `\nAdditional instructions: ${customPrompt}` : ""}`.trim();
 }
