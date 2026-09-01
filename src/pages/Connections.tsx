@@ -336,6 +336,7 @@ export default function Connections() {
 
   // SimPRO form state
   const [simproBuildUrl, setSimproBuildUrl] = useState("");
+  const [simproAccessToken, setSimproAccessToken] = useState("");
   const [simpropClientId, setSimpropClientId] = useState("");
   const [simpropClientSecret, setSimpropClientSecret] = useState("");
   const [simpropLoading, setSimpropLoading] = useState(false);
@@ -404,10 +405,12 @@ export default function Connections() {
       await callFn("mhv2-simpro-connect", {
         customer_id: customerId,
         build_url: simproBuildUrl,
+        access_token: simproAccessToken,
+        api_key: simproAccessToken,
         client_id: simpropClientId,
         client_secret: simpropClientSecret,
       });
-      setSimproBuildUrl(""); setSimpropClientId(""); setSimpropClientSecret("");
+      setSimproBuildUrl(""); setSimproAccessToken(""); setSimpropClientId(""); setSimpropClientSecret("");
       await loadConnections();
     } catch (e: any) {
       setSimpropError(e.message);
@@ -548,22 +551,31 @@ export default function Connections() {
         ) : (
           <div className="space-y-3">
             <p className="text-white/50 text-xs mb-4">
-              To connect SimPRO, you'll need to create an API user in your SimPRO account. Go to <strong>System → Setup → API</strong>, create a new API user, then enter your Build URL, Client ID and Client Secret below.
+              In SimPRO go to <strong>System → Setup → API</strong>. Paste your Build URL and Access Token (API key). Client ID and Client Secret are optional when you use an Access Token. The token is stored encrypted and is never shown again.
             </p>
             <input
               type="text"
               name="simpro-build-url"
               autoComplete="off"
-              placeholder="Build URL (e.g. https://acme.simprocloud.com)"
+              placeholder="Build URL (e.g. https://acme.simprosuite.com)"
               value={simproBuildUrl}
               onChange={e => setSimproBuildUrl(e.target.value)}
+              className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50"
+            />
+            <input
+              type="password"
+              name="simpro-access-token"
+              autoComplete="new-password"
+              placeholder="Access Token / API key"
+              value={simproAccessToken}
+              onChange={e => setSimproAccessToken(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50"
             />
             <input
               type="text"
               name="simpro-client-id"
               autoComplete="off"
-              placeholder="Client ID"
+              placeholder="Client ID (optional with Access Token)"
               value={simpropClientId}
               onChange={e => setSimpropClientId(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50"
@@ -572,7 +584,7 @@ export default function Connections() {
               type="password"
               name="simpro-client-secret"
               autoComplete="new-password"
-              placeholder="Client Secret"
+              placeholder="Client Secret (optional with Access Token)"
               value={simpropClientSecret}
               onChange={e => setSimpropClientSecret(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50"
@@ -585,7 +597,7 @@ export default function Connections() {
             )}
             <button
               onClick={connectSimpro}
-              disabled={simpropLoading || !simproBuildUrl || !simpropClientId || !simpropClientSecret}
+              disabled={simpropLoading || !simproBuildUrl || !(simproAccessToken || (simpropClientId && simpropClientSecret))}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-medium hover:bg-blue-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {simpropLoading ? <Loader2 size={14} className="animate-spin" /> : <Plug size={14} />}
