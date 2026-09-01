@@ -122,7 +122,7 @@ export function buildSystemPrompt(data: PromptInput): string {
 
   const createJobOn = capCreateSimproJob ?? true;
   const simproJobRule = createJobOn
-    ? `- SIMPRO JOBS: When a caller wants work done, collect their name, the job site/address, and a short description (phone comes from caller ID). Then use the create_simpro_job tool. If the tool returns a job number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a job was created — take a message and say the team will set the job up.`
+    ? `- SIMPRO JOBS: When a caller wants work done, collect their name, the job site/address, and a short description (phone comes from caller ID). Then use the create_simpro_job tool. If the tool returns a job number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a job was created — take a message and say the team will set the job up. Never look up, list, or read out other customers' jobs.`
     : `- SIMPRO JOBS: Do not create jobs in SimPRO. Take a message instead.`;
 
   const servicem8JobRule = capCreateServicem8Job && servicem8Connected

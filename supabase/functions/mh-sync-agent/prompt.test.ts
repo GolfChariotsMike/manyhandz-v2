@@ -48,6 +48,8 @@ test("simpro create-job rule is default-on and honest on failure", () => {
   const on = buildSystemPrompt(base);
   assert.match(on, /create_simpro_job/);
   assert.match(on, /do not pretend a job was created/i);
+  assert.match(on, /Never look up, list, or read out other customers' jobs/);
+  assert.doesNotMatch(on, /lookup_jobs/);
   const off = buildSystemPrompt({ ...base, capCreateSimproJob: false });
   assert.match(off, /Do not create jobs in SimPRO/);
   assert.doesNotMatch(off, /use the create_simpro_job tool/);
