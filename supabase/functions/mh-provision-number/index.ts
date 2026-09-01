@@ -7,6 +7,7 @@ import {
 } from "../_shared/hangup-on-goodbye.ts";
 import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
+import { sendSmsUrl, sendSmsWebhookTool } from "../_shared/send-sms-tool.ts";
 import {
   defaultVoiceId,
   noNumbersError,
@@ -95,6 +96,7 @@ Rules:
 - IMPORTANT: You already have the caller's phone number from caller ID. Never ask for it — it is captured automatically.
 - Never make up information you don't know — offer to take a message instead
 - If someone wants to speak to a person, use the transfer_to_staff tool
+- If it's helpful, send the caller a short text with the send_sms tool (use their caller ID)
 ${customPrompt ? `\nAdditional instructions: ${customPrompt}` : ""}`.trim();
 }
 
@@ -141,6 +143,8 @@ serve(async (req) => {
     const SAVE_MESSAGE_URL = `${mhBase}/mh-save-message?customer_id=${customer_id}`;
     const TRANSFER_URL = `${mhBase}/mh-customer-transfer/transfer?customer_id=${customer_id}`;
     const CREATE_JOB_URL = createSimproJobUrl(supabaseUrl, customer_id);
+    const SEND_SMS_URL = sendSmsUrl(supabaseUrl, customer_id);
+    const SMS_INBOUND_URL = `${mhBase}/mh-sms-inbound`;
     const CALL_STATUS_URL = Deno.env.get("TWILIO_STATUS_CALLBACK") ||
       `${mhBase}/mh-call-status?customer_id=${customer_id}`;
 
@@ -182,6 +186,7 @@ serve(async (req) => {
         },
       },
       createSimproJobWebhookTool(CREATE_JOB_URL),
+      sendSmsWebhookTool(SEND_SMS_URL),
     ];
     const tools = mergeToolCallTyping(mergeEndCallTools(agentTools, true));
 
@@ -225,6 +230,7 @@ serve(async (req) => {
       phoneNumber,
       voiceUrl: voiceRouterUrl,
       statusCallback: CALL_STATUS_URL,
+      smsUrl: SMS_INBOUND_URL,
       friendlyName: `ManyHandz - ${businessName.slice(0, 20)}`,
       ...(market === "AU"
         ? {
@@ -273,6 +279,7 @@ serve(async (req) => {
         voice_id: elVoiceId,
         turn_eagerness: "patient",
         cap_hangup_on_goodbye: true,
+        cap_send_sms: true,
       });
     } else {
       await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", {

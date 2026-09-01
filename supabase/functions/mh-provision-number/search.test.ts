@@ -60,12 +60,15 @@ test("US purchase does not attach AU AddressSid or BundleSid", () => {
     voiceUrl: "https://example.com/mh-voice-router",
     statusCallback: "https://example.com/mh-call-status",
     friendlyName: "ManyHandz - Test",
+    smsUrl: "https://example.com/mh-sms-inbound",
     addressSid: "ADau-only",
     bundleSid: "BUau-only",
   });
   assert.equal(us.PhoneNumber, "+12025550123");
   assert.equal(us.VoiceUrl, "https://example.com/mh-voice-router");
   assert.equal(us.StatusCallback, "https://example.com/mh-call-status");
+  assert.equal(us.SmsUrl, "https://example.com/mh-sms-inbound");
+  assert.equal(us.SmsMethod, "POST");
   assert.equal("AddressSid" in us, false);
   assert.equal("BundleSid" in us, false);
 });
@@ -77,11 +80,14 @@ test("AU purchase still sends AddressSid and BundleSid", () => {
     voiceUrl: "https://example.com/mh-voice-router",
     statusCallback: "https://example.com/mh-call-status",
     friendlyName: "ManyHandz - Test",
+    smsUrl: "https://example.com/mh-sms-inbound",
     addressSid: "ADau",
     bundleSid: "BUau",
   });
   assert.equal(au.AddressSid, "ADau");
   assert.equal(au.BundleSid, "BUau");
+  assert.equal(au.SmsUrl, "https://example.com/mh-sms-inbound");
+  assert.equal(au.SmsMethod, "POST");
   assert.doesNotMatch(au.PhoneNumber, /AreaCode/);
 });
 
@@ -105,4 +111,8 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /resolveMarket\(requestCountry, customer\.country\)/);
   assert.match(src, /searchPathsForMarket\(market/);
   assert.match(src, /twilioPurchaseFields/);
+  assert.match(src, /smsUrl:\s*SMS_INBOUND_URL/);
+  assert.match(src, /sendSmsWebhookTool/);
+  assert.match(src, /cap_send_sms:\s*true/);
+  assert.doesNotMatch(src, /sms-webhook/);
 });

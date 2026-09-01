@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
-import { provisionNumberBody } from "../lib/onboarding";
+import { notifyMobilePlaceholder, notifySmsPayloadFromForm, provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
 import {
@@ -193,6 +193,69 @@ function CapabilitiesSection({ config, customerId, anon, url }: { config: any, c
             </div>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function NotifySmsSection({
+  config,
+  customer,
+  anon,
+  url,
+}: {
+  config: any;
+  customer: any;
+  anon: string;
+  url: string;
+}) {
+  const [notifySms, setNotifySms] = useState(config?.notify_sms || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function handleSave() {
+    if (!config?.id) return;
+    setSaving(true);
+    try {
+      const payload = notifySmsPayloadFromForm(notifySms, customer?.country);
+      await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+        method: "PATCH",
+        headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      setNotifySms(payload.notify_sms || "");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="aurora-card p-6 mb-8">
+      <h3 className="font-semibold mb-1">Message alerts</h3>
+      <p className="text-sm text-white/50 mb-4">
+        When someone leaves a message, we text this number. Same field as onboarding notify mobile.
+      </p>
+      <label className="text-sm text-white/60 block mb-1">Notify SMS</label>
+      <div className="flex gap-2">
+        <input
+          type="tel"
+          value={notifySms}
+          onChange={e => setNotifySms(e.target.value)}
+          placeholder={notifyMobilePlaceholder(customer?.country)}
+          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
+        />
+        <button
+          onClick={handleSave}
+          disabled={saving || !config?.id}
+          className="btn-primary text-sm flex items-center gap-2 shrink-0"
+        >
+          {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+          {saved ? "Saved!" : saving ? "Saving..." : "Save"}
+        </button>
       </div>
     </div>
   );
@@ -807,6 +870,8 @@ export default function Voice() {
       <div className="mb-8">
         <CapabilitiesSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
       </div>
+
+      <NotifySmsSection config={config} customer={customer} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Whitelist + Bridge */}
       <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />

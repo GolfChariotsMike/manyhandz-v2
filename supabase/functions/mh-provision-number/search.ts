@@ -52,6 +52,7 @@ export function twilioPurchaseFields(opts: {
   voiceUrl: string;
   statusCallback: string;
   friendlyName: string;
+  smsUrl?: string;
   addressSid?: string;
   bundleSid?: string;
 }): Record<string, string> {
@@ -63,6 +64,10 @@ export function twilioPurchaseFields(opts: {
     StatusCallbackMethod: "POST",
     FriendlyName: opts.friendlyName,
   };
+  if (opts.smsUrl) {
+    fields.SmsUrl = opts.smsUrl;
+    fields.SmsMethod = "POST";
+  }
   if (opts.market === "AU") {
     if (!opts.addressSid || !opts.bundleSid) {
       throw new Error("AU mobile purchase requires AddressSid and BundleSid");

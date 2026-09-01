@@ -17,6 +17,7 @@ export type QueryResult = { data: unknown; error: { message: string } | null };
 export type QueryBuilder = {
   select(cols?: string): QueryBuilder;
   update(row: Record<string, unknown>): QueryBuilder;
+  insert(row: Record<string, unknown>): QueryBuilder;
   upsert(row: Record<string, unknown>, opts?: { onConflict?: string }): QueryBuilder;
   eq(col: string, val: unknown): QueryBuilder;
   maybeSingle(): Promise<QueryResult>;
@@ -47,6 +48,10 @@ export type KnowledgeRow = {
   hours: Record<string, unknown>;
   tone: string;
   updated_at: string;
+};
+
+export type VoiceNotifyPatch = {
+  notify_sms: string | null;
 };
 
 export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): string {
@@ -171,6 +176,24 @@ export function parseProfileBody(body: unknown): { patch: ProfilePatch; error?: 
   return { patch };
 }
 
+export function parseVoiceNotifyBody(body: unknown): { patch: VoiceNotifyPatch; error?: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return { patch: { notify_sms: null }, error: "JSON object required" };
+  }
+  const src = body as Record<string, unknown>;
+  if (!("notify_sms" in src)) {
+    return { patch: { notify_sms: null }, error: "notify_sms required" };
+  }
+  if (src.notify_sms === null) {
+    return { patch: { notify_sms: null } };
+  }
+  if (typeof src.notify_sms !== "string") {
+    return { patch: { notify_sms: null }, error: "notify_sms must be a string or null" };
+  }
+  const trimmed = src.notify_sms.trim();
+  return { patch: { notify_sms: trimmed || null } };
+}
+
 export function parseKnowledgeBody(
   body: unknown,
   customerId: string,
@@ -249,7 +272,7 @@ export async function handleRequest(req: Request, env: SaveEnv): Promise<Respons
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const action = routeAction(new URL(req.url));
-  if (action !== "profile" && action !== "knowledge") {
+  if (action !== "profile" && action !== "knowledge" && action !== "voice") {
     return jsonResponse({ error: "Not found" }, 404);
   }
   if (req.method !== "POST") {
@@ -280,6 +303,41 @@ export async function handleRequest(req: Request, env: SaveEnv): Promise<Respons
     if (dbError) return jsonResponse({ error: dbError.message || "Could not save profile" }, 500);
     if (!data) return jsonResponse({ error: "Customer not found" }, 404);
     return jsonResponse({ customer: data }, 200);
+  }
+
+  if (action === "voice") {
+    const { patch, error } = parseVoiceNotifyBody(body);
+    if (error) return jsonResponse({ error }, 400);
+
+    const existing = await env.admin
+      .from("mh_voice_config")
+      .select("id")
+      .eq("customer_id", customerId)
+      .maybeSingle();
+    if (existing.error) return jsonResponse({ error: existing.error.message || "Could not save notify SMS" }, 500);
+
+    if (existing.data && typeof existing.data === "object" && (existing.data as { id?: unknown }).id) {
+      const { data, error: dbError } = await env.admin
+        .from("mh_voice_config")
+        .update({ notify_sms: patch.notify_sms })
+        .eq("customer_id", customerId)
+        .select()
+        .maybeSingle();
+      if (dbError) return jsonResponse({ error: dbError.message || "Could not save notify SMS" }, 500);
+      return jsonResponse({ voice: data }, 200);
+    }
+
+    const { data, error: dbError } = await env.admin
+      .from("mh_voice_config")
+      .insert({
+        customer_id: customerId,
+        notify_sms: patch.notify_sms,
+        active: true,
+      })
+      .select()
+      .maybeSingle();
+    if (dbError) return jsonResponse({ error: dbError.message || "Could not save notify SMS" }, 500);
+    return jsonResponse({ voice: data }, 200);
   }
 
   const { row, error } = parseKnowledgeBody(body, customerId, env.now());

@@ -31,3 +31,12 @@ verify_jwt = true
 
 [functions.mhv2-simpro-create-job]
 verify_jwt = false
+
+[functions.mh-send-sms]
+verify_jwt = false
+
+[functions.mh-sms-inbound]
+verify_jwt = false
+
+[functions.mh-save-message]
+verify_jwt = false

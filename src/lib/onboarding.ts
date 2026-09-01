@@ -121,6 +121,37 @@ export function notifyMobilePlaceholder(country?: string | null): string {
   return normalizeMarket(country) === "US" ? "e.g. +1 555 123 4567" : "e.g. 0412 345 678";
 }
 
+function stripPhone(raw: string): string {
+  return String(raw || "").replace(/[\s().-]/g, "");
+}
+
+const E164_RE = /^\+[1-9]\d{7,14}$/;
+
+/** AU 0412… → +61412…; US 10-digit / +1. Empty → null. */
+export function normalizeNotifyMobile(raw: string, country?: string | null): string | null {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  const compact = stripPhone(trimmed);
+  const digits = compact.replace(/\D/g, "");
+  const plusForm = compact.startsWith("+") || trimmed.trim().startsWith("+") ? `+${digits}` : "";
+  if (plusForm && E164_RE.test(plusForm)) return plusForm;
+
+  const market = normalizeMarket(country);
+  if (/^04\d{8}$/.test(digits)) return `+61${digits.slice(1)}`;
+  if (/^614\d{8}$/.test(digits)) return `+${digits}`;
+  if (/^4\d{8}$/.test(digits) && market === "AU") return `+61${digits}`;
+  if (/^1\d{10}$/.test(digits)) return `+${digits}`;
+  if (/^\d{10}$/.test(digits) && market === "US") return `+1${digits}`;
+  if (digits && E164_RE.test(`+${digits}`)) return `+${digits}`;
+  return stripPhone(trimmed) || null;
+}
+
+/** Finish / Voice payload. Empty notify mobile → null (clear). */
+export function notifySmsPayloadFromForm(notifyMobile: string, country?: string | null): { notify_sms: string | null } {
+  const normalized = normalizeNotifyMobile(notifyMobile, country);
+  return { notify_sms: normalized };
+}
+
 export function signupWebsitePlaceholder(country?: string | null): string {
   return normalizeMarket(country) === "US" ? "yoursite.com" : "yoursite.com.au";
 }
