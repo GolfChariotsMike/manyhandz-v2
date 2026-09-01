@@ -5,6 +5,7 @@ import { conversationIdForCall } from "../lib/call-log";
 import { notifyMobilePlaceholder, notifySmsPayloadFromForm, provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
+import { closingMessagePlaceholder, greetingSettingsDbPatch } from "../lib/closing-message";
 import {
   previewVoiceSettings,
   updateAgentVoicePayload,
@@ -503,6 +504,7 @@ export default function Voice() {
   const [savingVoice, setSavingVoice] = useState(false);
   const [voiceSaved, setVoiceSaved] = useState(false);
   const [greeting, setGreeting] = useState("");
+  const [closing, setClosing] = useState("");
   const [savingGreeting, setSavingGreeting] = useState(false);
   const [greetingSaved, setGreetingSaved] = useState(false);
   const [aiName, setAiName] = useState("");
@@ -524,6 +526,7 @@ export default function Voice() {
         setConfig(cfgRow);
         if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
         if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
+        setClosing(typeof cfgRow?.closing_message === "string" ? cfgRow.closing_message : "");
         setAiName(resolveAiName(cfgRow?.ai_name, c?.business_name));
         setControls(voiceControlsFromConfig(cfgRow));
       }
@@ -616,7 +619,8 @@ export default function Voice() {
 
   async function handleSaveGreeting() {
     const agentId = config?.el_agent_id || customer?.el_agent_id;
-    if (!agentId || !greeting.trim()) return;
+    const dbPatch = greetingSettingsDbPatch(greeting, closing);
+    if (!agentId || !dbPatch) return;
     setSavingGreeting(true);
     try {
       await fetch(EL_PROXY, {
@@ -626,16 +630,26 @@ export default function Voice() {
           agentId,
           voiceId: activeVoiceId,
           controls,
-          greeting: greeting.trim(),
+          greeting: dbPatch.greeting_script,
         })),
       });
       if (config?.id) {
         await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
           method: "PATCH",
           headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ greeting_script: greeting.trim() }),
+          body: JSON.stringify(dbPatch),
         });
       }
+      if (customer?.id) {
+        await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
+          method: "POST",
+          headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ customer_id: customer.id }),
+        }).catch(() => {});
+      }
+      setGreeting(dbPatch.greeting_script);
+      setClosing(dbPatch.closing_message || "");
+      setConfig((prev: any) => prev ? { ...prev, ...dbPatch } : prev);
       setGreetingSaved(true);
       setTimeout(() => setGreetingSaved(false), 2500);
     } catch (e) { console.error("Save greeting error:", e); }
@@ -802,6 +816,16 @@ export default function Voice() {
           onChange={e => setGreeting(e.target.value)}
         />
         <p className="text-xs text-white/30 mt-2">Keep it natural and under 2 sentences. The AI will take it from there.</p>
+
+        <label className="text-sm font-medium block mt-5 mb-1">Sign-off</label>
+        <p className="text-xs text-white/30 mb-2">Last spoken line before the call ends. Hang up after goodbye stays a toggle below.</p>
+        <input
+          type="text"
+          value={closing}
+          onChange={e => setClosing(e.target.value)}
+          placeholder={closingMessagePlaceholder()}
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
+        />
       </div>
 
       {/* Voice Picker */}
