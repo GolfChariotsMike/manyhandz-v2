@@ -28,8 +28,8 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: TRANSFER_TO_STAFF_TOOL_NAME,
     description:
-      "Transfer the caller to a staff member when they ask for a person or to be put through. Call this FIRST — do not just take a message. Only use save_message if this returns accepted:false or the transfer fails.",
-    response_timeout_secs: 30,
+      "Transfer the caller to a staff member when they ask for a person or to be put through. Call this FIRST — do not just take a message. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
+    response_timeout_secs: 120,
     api_schema: {
       kind: "webhook",
       url: functionUrl,

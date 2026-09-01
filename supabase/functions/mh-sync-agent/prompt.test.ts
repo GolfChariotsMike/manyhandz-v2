@@ -78,6 +78,7 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.match(on, /transfer_to_staff/);
   assert.match(on, /call the transfer_to_staff tool FIRST/);
   assert.match(on, /accepted:false/);
+  assert.match(on, /Do not take a message until the webhook returns accepted:false/);
   assert.doesNotMatch(on, /Take messages when callers want to speak to a staff member/);
   const off = buildSystemPrompt({ ...base, capTransferCalls: false });
   assert.match(off, /Do not transfer calls/);

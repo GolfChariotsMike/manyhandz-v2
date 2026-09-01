@@ -113,7 +113,7 @@ export function buildSystemPrompt(data: PromptInput): string {
     : `- PRICING: Do not quote specific prices. Say: "I can't give you an exact price over the phone — I can arrange for someone to get back to you with an accurate quote." Then take a message.`;
 
   const transferRule = capTransferCalls
-    ? `- TRANSFERS: If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Do not just talk about transferring. Only use save_message if transfer_to_staff returns accepted:false or the transfer fails.`
+    ? `- TRANSFERS: If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Do not just talk about transferring. Do not take a message until the webhook returns accepted:false. Only use save_message if transfer_to_staff returns accepted:false or the transfer fails.`
     : `- TRANSFERS: Do not transfer calls. Take a message and tell the caller someone will call them back.`;
 
   const smsRule = capSendSms
@@ -162,7 +162,7 @@ YOUR ROLE:
 - Answer calls ${toneDesc}
 - Provide accurate information about our services, pricing, and hours
 ${capTransferCalls
-    ? `- If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Only use save_message if the tool returns accepted:false or the transfer fails.`
+    ? `- If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Do not take a message until the webhook returns accepted:false. Only use save_message if the tool returns accepted:false or the transfer fails.`
     : `- Take messages when callers want to speak to a staff member`}
 - Never make up information not in your knowledge base
 - If unsure about anything, offer to take a message and have someone call back

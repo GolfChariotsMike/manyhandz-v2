@@ -48,6 +48,11 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
   };
   assert.equal(tool.api_schema.url, url);
   assert.equal(tool.stale, undefined);
+  assert.equal((merged.find((t) => (t as { name?: string }).name === TRANSFER_TO_STAFF_TOOL_NAME) as { response_timeout_secs?: number; description?: string }).response_timeout_secs, 120);
+  assert.match(
+    String((merged.find((t) => (t as { name?: string }).name === TRANSFER_TO_STAFF_TOOL_NAME) as { description?: string }).description),
+    /Do not take a message until this webhook returns accepted:false/,
+  );
   assert.deepEqual(tool.api_schema.request_body_schema.required, ["caller_name", "caller_need"]);
   const caller = tool.api_schema.request_body_schema.properties.caller_number;
   assert.equal(caller.dynamic_variable, "system__caller_id");

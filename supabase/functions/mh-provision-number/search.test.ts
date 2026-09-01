@@ -116,6 +116,7 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /transferToStaffWebhookTool/);
   assert.match(src, /sendSmsWebhookTool/);
   assert.match(src, /call the transfer_to_staff tool FIRST/);
+  assert.match(src, /Do not take a message until the webhook returns accepted:false/);
   assert.match(src, /cap_send_sms:\s*true/);
   assert.match(src, /cap_transfer_calls:\s*true/);
   assert.match(src, /cap_hangup_on_goodbye:\s*true/);
