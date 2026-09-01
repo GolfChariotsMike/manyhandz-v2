@@ -15,6 +15,11 @@ import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-
 import { mergeSaveMessageTool, saveMessageUrl } from "../_shared/save-message-tool.ts";
 import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
 import {
+  mergeTransferToStaffTool,
+  staffTransferEnabled,
+  transferToStaffUrl,
+} from "../_shared/transfer-to-staff-tool.ts";
+import {
   calendarAvailabilityUrl,
   calendarBookUrl,
   createServicem8JobUrl,
@@ -242,6 +247,7 @@ type VoiceRow = {
   cap_create_simpro_job?: boolean | null;
   cap_create_servicem8_job?: boolean | null;
   cap_create_xero_invoice?: boolean | null;
+  bridge_to_number?: string | null;
 };
 type KbRow = {
   about?: string | null;
@@ -276,7 +282,7 @@ export async function syncCustomerAgent(
     ),
     rest<VoiceRow[] | VoiceRow>(
       env,
-      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job,cap_create_servicem8_job,cap_create_xero_invoice`,
+      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job,cap_create_servicem8_job,cap_create_xero_invoice,bridge_to_number`,
     ),
     rest<PriceItem[] | PriceItem>(
       env,
@@ -302,6 +308,7 @@ export async function syncCustomerAgent(
   const capCreateServicem8 = vc?.cap_create_servicem8_job ?? false;
   const capCreateXero = vc?.cap_create_xero_invoice ?? false;
   const capConfirmBookings = vc?.cap_confirm_bookings ?? false;
+  const capTransferCalls = staffTransferEnabled(vc?.cap_transfer_calls, vc?.bridge_to_number);
 
   const agentId = (vc?.el_agent_id || customer?.el_agent_id || "").trim();
   if (!agentId) return { ok: false, error: "No EL agent found for this customer" };
@@ -318,7 +325,7 @@ export async function syncCustomerAgent(
     priceList,
     capConfirmBookings: vc?.cap_confirm_bookings ?? false,
     capQuotePrices: vc?.cap_quote_prices ?? false,
-    capTransferCalls: vc?.cap_transfer_calls ?? true,
+    capTransferCalls,
     capSendSms: vc?.cap_send_sms ?? true,
     capDiscloseAi: vc?.cap_disclose_ai ?? false,
     capHangupOnGoodbye: hangupEnabled,
@@ -361,8 +368,13 @@ export async function syncCustomerAgent(
     toolsWithCreate,
     saveMessageUrl(env.supabaseUrl, customerId),
   );
-  const toolsWithSms = mergeSendSmsTool(
+  const toolsWithTransfer = mergeTransferToStaffTool(
     toolsWithSave,
+    transferToStaffUrl(env.supabaseUrl, customerId),
+    capTransferCalls,
+  );
+  const toolsWithSms = mergeSendSmsTool(
+    toolsWithTransfer,
     sendSmsUrl(env.supabaseUrl, customerId),
     vc?.cap_send_sms ?? true,
   );

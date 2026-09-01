@@ -9,6 +9,7 @@ import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
 import { saveMessageUrl, saveMessageWebhookTool } from "../_shared/save-message-tool.ts";
 import { sendSmsUrl, sendSmsWebhookTool } from "../_shared/send-sms-tool.ts";
+import { transferToStaffUrl, transferToStaffWebhookTool } from "../_shared/transfer-to-staff-tool.ts";
 import { normalizePhone, ownerPhoneFromCustomer } from "../_shared/sms-send.ts";
 import {
   defaultVoiceId,
@@ -97,7 +98,7 @@ Rules:
 - Greet the caller and ask for their name early
 - IMPORTANT: You already have the caller's phone number from caller ID. Never ask for it — it is captured automatically.
 - Never make up information you don't know — offer to take a message instead
-- If someone wants to speak to a person, use the transfer_to_staff tool
+- If someone wants to speak to a person or to be put through, call the transfer_to_staff tool FIRST. Only use save_message if the tool returns accepted:false or the transfer fails.
 - If it's helpful, send the caller a short text with the send_sms tool (use their caller ID)
 ${customPrompt ? `\nAdditional instructions: ${customPrompt}` : ""}`.trim();
 }
@@ -143,7 +144,7 @@ serve(async (req) => {
     const systemPrompt = hangupRule ? `${basePrompt}\n\n${hangupRule}` : basePrompt;
 
     const SAVE_MESSAGE_URL = saveMessageUrl(supabaseUrl, customer_id);
-    const TRANSFER_URL = `${mhBase}/mh-customer-transfer/transfer?customer_id=${customer_id}`;
+    const TRANSFER_URL = transferToStaffUrl(supabaseUrl, customer_id);
     const CREATE_JOB_URL = createSimproJobUrl(supabaseUrl, customer_id);
     const SEND_SMS_URL = sendSmsUrl(supabaseUrl, customer_id);
     const SMS_INBOUND_URL = `${mhBase}/mh-sms-inbound`;
@@ -152,24 +153,7 @@ serve(async (req) => {
 
     const agentTools = [
       saveMessageWebhookTool(SAVE_MESSAGE_URL),
-      {
-        type: "webhook",
-        name: "transfer_to_staff",
-        description: "Transfer the caller to a staff member when they urgently need to speak to a person.",
-        response_timeout_secs: 30,
-        api_schema: {
-          kind: "webhook", url: TRANSFER_URL, method: "POST",
-          request_body_schema: {
-            type: "object",
-            required: ["caller_name", "caller_need"],
-            properties: {
-              caller_name: { type: "string", description: "Name the caller gave you", is_system_provided: false },
-              caller_need: { type: "string", description: "Brief summary of what the caller needs", is_system_provided: false },
-              caller_number: { type: "string", dynamic_variable: "system__caller_id", is_system_provided: false },
-            },
-          },
-        },
-      },
+      transferToStaffWebhookTool(TRANSFER_URL),
       createSimproJobWebhookTool(CREATE_JOB_URL),
       sendSmsWebhookTool(SEND_SMS_URL),
     ];

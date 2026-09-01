@@ -266,7 +266,7 @@ function NotifySmsSection({
   );
 }
 
-function WhitelistSection({ config, anon, url }: { config: any, anon: string, url: string }) {
+function WhitelistSection({ config, customerId, anon, url }: { config: any, customerId?: string, anon: string, url: string }) {
   const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
   const [bridge, setBridge] = useState(config?.bridge_to_number || "");
   const [newNum, setNewNum] = useState("");
@@ -293,6 +293,13 @@ function WhitelistSection({ config, anon, url }: { config: any, anon: string, ur
         headers: { "apikey": anon, "Authorization": `Bearer ${anon}`, "Content-Type": "application/json" },
         body: JSON.stringify({ whitelist, bridge_to_number: bridge || null }),
       });
+      if (customerId) {
+        await fetch(`${url}/functions/v1/mh-sync-agent`, {
+          method: "POST",
+          headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ customer_id: customerId }),
+        }).catch(() => {});
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) { console.error(e); }
@@ -879,7 +886,7 @@ export default function Voice() {
       <NotifySmsSection config={config} customer={customer} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Whitelist + Bridge */}
-      <WhitelistSection config={config} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <WhitelistSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
       <CallLog calls={calls} />

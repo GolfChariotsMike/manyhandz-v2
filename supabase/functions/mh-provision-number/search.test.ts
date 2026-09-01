@@ -113,7 +113,9 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /twilioPurchaseFields/);
   assert.match(src, /smsUrl:\s*SMS_INBOUND_URL/);
   assert.match(src, /saveMessageWebhookTool/);
+  assert.match(src, /transferToStaffWebhookTool/);
   assert.match(src, /sendSmsWebhookTool/);
+  assert.match(src, /call the transfer_to_staff tool FIRST/);
   assert.match(src, /cap_send_sms:\s*true/);
   assert.match(src, /cap_transfer_calls:\s*true/);
   assert.match(src, /cap_hangup_on_goodbye:\s*true/);

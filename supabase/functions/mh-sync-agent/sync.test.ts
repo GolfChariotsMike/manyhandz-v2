@@ -205,10 +205,12 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.match(agent.prompt.prompt, /end_call/);
   assert.doesNotMatch(agent.prompt.prompt, /Always end with: "Is there anything else I can help you with\?"/);
   const save = agent.prompt.tools.find((t) => t.name === "save_message");
+  const transfer = agent.prompt.tools.find((t) => t.name === "transfer_to_staff");
   const createJob = agent.prompt.tools.find((t) => t.name === "create_simpro_job");
   const sendSms = agent.prompt.tools.find((t) => t.name === "send_sms");
   const endCall = agent.prompt.tools.find((t) => t.name === "end_call");
   assert.ok(save);
+  assert.ok(transfer);
   assert.ok(createJob);
   assert.ok(sendSms);
   assert.ok(endCall);
@@ -218,7 +220,11 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(createJob.tool_call_sound_behavior, "always");
   assert.equal(endCall.tool_call_sound, undefined);
   assert.match(agent.prompt.prompt, /create_simpro_job/);
+  assert.match(agent.prompt.prompt, /transfer_to_staff/);
+  assert.match(agent.prompt.prompt, /call the transfer_to_staff tool FIRST/);
+  assert.doesNotMatch(agent.prompt.prompt, /Take messages when callers want to speak to a staff member/);
   assert.match(JSON.stringify(save), /mh-save-message\?customer_id=cust-1/);
+  assert.match(JSON.stringify(transfer), /mh-customer-transfer\/transfer\?customer_id=cust-1/);
   assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
   assert.match(JSON.stringify(sendSms), /mh-send-sms\?customer_id=cust-1/);
   assert.equal(sendSms.tool_call_sound, "typing");
@@ -241,7 +247,90 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     assert.equal(extraEnd?.tool_call_sound, undefined);
     assert.equal(extraTools.some((t) => t.name === "create_simpro_job"), false);
     assert.equal(extraTools.some((t) => t.name === "send_sms"), false);
+    assert.equal(extraTools.some((t) => t.name === "transfer_to_staff"), false);
   }
+});
+
+test("customer sync attaches transfer_to_staff even when the existing agent has none", async () => {
+  const { env, patches } = makeEnv({
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "You are Trinity.",
+              tools: [{ type: "webhook", name: "save_message" }],
+              built_in_tools: {},
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string; api_schema?: { url?: string } }> } } };
+  }).conversation_config.agent.prompt.tools;
+  const transfer = tools.find((t) => t.name === "transfer_to_staff");
+  assert.ok(transfer);
+  assert.match(JSON.stringify(transfer), /mh-customer-transfer\/transfer\?customer_id=cust-1/);
+  assert.equal(tools.some((t) => t.name === "save_message"), true);
+});
+
+test("customer sync keeps transfer_to_staff when cap is off but bridge_to_number is set", async () => {
+  const { env, patches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_transfer_calls: false,
+      bridge_to_number: "+61400000000",
+    }],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string }> } } };
+  }).conversation_config.agent.prompt.tools;
+  assert.equal(tools.some((t) => t.name === "transfer_to_staff"), true);
+});
+
+test("customer sync omits transfer_to_staff when cap is off and there is no bridge", async () => {
+  const { env, patches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_transfer_calls: false,
+      bridge_to_number: null,
+    }],
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "You are Trinity.",
+              tools: [
+                { type: "webhook", name: "save_message" },
+                { type: "webhook", name: "transfer_to_staff" },
+              ],
+              built_in_tools: {},
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string }> } } };
+  }).conversation_config.agent.prompt.tools;
+  assert.equal(tools.some((t) => t.name === "transfer_to_staff"), false);
+  assert.equal(tools.some((t) => t.name === "save_message"), true);
 });
 
 test("customer sync attaches save_message even when the existing agent has none", async () => {
