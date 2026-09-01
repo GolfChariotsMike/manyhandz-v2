@@ -90,6 +90,27 @@ test("sanitizeSimproError redacts bearer tokens and secrets", () => {
   assert.equal(cleaned.includes("Bearer [redacted]"), true);
 });
 
+test("getAccessToken uses OAuth client_credentials when a client_secret is stored", async () => {
+  const conn = await connected({
+    simpro_access_token_encrypted: await encryptSecret("stale-token", KEY),
+    simpro_token_expires_at: "2000-01-01T00:00:00.000Z",
+  });
+  const calls: string[] = [];
+  const token = await getAccessToken(conn, {
+    encryptionKey: KEY,
+    now: () => new Date("2026-09-01T01:00:00+08:00"),
+    loadConnection: async () => conn,
+    fetch: async (inputUrl, init) => {
+      calls.push(String(inputUrl));
+      assert.equal(String(inputUrl).endsWith("/oauth2/token"), true);
+      assert.equal(String(init?.body || "").includes("super-secret"), true);
+      return Response.json({ access_token: "fresh-oauth", expires_in: 3600 });
+    },
+  });
+  assert.equal(token, "fresh-oauth");
+  assert.equal(calls.length, 1);
+});
+
 test("getAccessToken uses stored API key Bearer and skips oauth2/token", async () => {
   const conn = await connected({
     simpro_client_id: "",

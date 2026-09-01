@@ -348,8 +348,6 @@ export default function Connections() {
   const [oauthLoading, setOauthLoading] = useState<string | null>(null);
   const [oauthError, setOauthError] = useState("");
 
-  // Sync state
-  const [syncingPlatform, setSyncingPlatform] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState("");
 
   const simpropConn = connections.find(c => c.platform === "simpro");
@@ -416,20 +414,6 @@ export default function Connections() {
       setSimpropError(e.message);
     }
     setSimpropLoading(false);
-  }
-
-  async function syncNow(platform: string) {
-    setSyncingPlatform(platform);
-    setSyncMsg("");
-    try {
-      const result = await callFn("mhv2-simpro-sync", { customer_id: customerId });
-      setSyncMsg(`Synced ${result.synced || 0} jobs`);
-      await loadConnections();
-    } catch (e: any) {
-      setSyncMsg(`Sync error: ${e.message}`);
-    }
-    setSyncingPlatform(null);
-    setTimeout(() => setSyncMsg(""), 4000);
   }
 
   async function connectServicem8() {
@@ -505,7 +489,7 @@ export default function Connections() {
             </div>
             <div>
               <h2 className="text-white font-semibold">SimPRO</h2>
-              <p className="text-white/40 text-xs">Look up jobs and create new ones from a call</p>
+              <p className="text-white/40 text-xs">Create a real job from a call — the agent never reads other customers' jobs</p>
             </div>
           </div>
           {simpropConn ? (
@@ -522,23 +506,11 @@ export default function Connections() {
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-white/40 text-xs mb-1">Last synced</p>
+                <p className="text-white/40 text-xs mb-1">Last checked</p>
                 <p className="text-white">{formatDate(simpropConn.last_synced_at)}</p>
-              </div>
-              <div>
-                <p className="text-white/40 text-xs mb-1">Jobs synced</p>
-                <p className="text-white">{simpropConn.jobs_synced_count ?? 0}</p>
               </div>
             </div>
             <div className="flex gap-2 pt-2">
-              <button
-                onClick={() => syncNow("simpro")}
-                disabled={syncingPlatform === "simpro"}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-blue-500/20 text-blue-300 text-sm hover:bg-blue-500/30 transition-all disabled:opacity-50"
-              >
-                {syncingPlatform === "simpro" ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                Sync Now
-              </button>
               <button
                 onClick={() => disconnect(simpropConn)}
                 className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
@@ -745,7 +717,6 @@ export default function Connections() {
           <li>Create a new SimPRO or ServiceM8 job from a phone call and confirm the job number</li>
           <li>Book a real calendar slot when Google or Outlook Calendar is connected</li>
           <li>Raise a Xero draft invoice — the office still approves it</li>
-          <li>Look up job status when a customer calls ("What's the status of my job?")</li>
           <li>If a system is not connected, the agent takes a message — it never pretends a job, booking, or invoice was created</li>
         </ul>
       </div>
