@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { getMe, getVoiceCalls, getGrokbotKey } from "../lib/api";
-import { conversationIdForCall } from "../lib/call-log";
+import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { Phone, BookOpen, Zap, Check, ArrowRight, Bot, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -8,8 +8,9 @@ const EL_PROXY = `${"https://kouembkldbpdbhzeaoth.supabase.co"}/functions/v1/mhv
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
 function CallStats({ calls }: { calls: any[] }) {
-  const totalCalls = calls.length;
-  const totalSecs = calls.reduce((acc: number, c: any) => acc + (c.duration_seconds || 0), 0);
+  const rows = mergeCallLogRows(calls);
+  const totalCalls = rows.length;
+  const totalSecs = rows.reduce((acc: number, c: any) => acc + (c.duration_seconds || 0), 0);
   const totalMins = Math.round(totalSecs / 60);
   const avgSecs = totalCalls > 0 ? Math.round(totalSecs / totalCalls) : 0;
   const avgFmt = avgSecs >= 60 ? `${Math.floor(avgSecs / 60)}m ${avgSecs % 60}s` : `${avgSecs}s`;
@@ -28,12 +29,13 @@ function CallStats({ calls }: { calls: any[] }) {
           </div>
         ))}
       </div>
-      <CallLog calls={calls} />
+      <CallLog calls={rows} />
     </div>
   );
 }
 
 function CallLog({ calls }: { calls: any[] }) {
+  const rows = mergeCallLogRows(calls);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<Record<string, any[]>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -42,7 +44,7 @@ function CallLog({ calls }: { calls: any[] }) {
 
   async function toggleExpand(call: any) {
     const id = call.id;
-    const conversationId = conversationIdForCall(call, calls);
+    const conversationId = conversationIdForCall(call, rows);
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
     if (transcript[id] || !conversationId) return;
@@ -60,7 +62,7 @@ function CallLog({ calls }: { calls: any[] }) {
   }
 
   async function playAudio(call: any) {
-    const conversationId = conversationIdForCall(call, calls);
+    const conversationId = conversationIdForCall(call, rows);
     if (playingId === call.id) {
       audioRef.current?.pause();
       setPlayingId(null); return;
@@ -89,32 +91,25 @@ function CallLog({ calls }: { calls: any[] }) {
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
   }
 
-  function fmtTime(ts: string | null | undefined) {
-    if (!ts) return "—";
-    const d = new Date(ts);
-    if (isNaN(d.getTime())) return "—";
-    return d.toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-  }
-
   return (
     <div className="aurora-card p-6">
       <div className="flex items-center justify-between mb-4">
         <h3 className="font-semibold">Recent calls</h3>
         <Link to="/voice" className="text-xs text-white/40 hover:text-white/70 transition-colors">View all →</Link>
       </div>
-      {calls.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-white/30 text-sm">No calls yet.</p>
       ) : (
         <div className="space-y-2">
-          {calls.map((call: any) => (
-            <div key={call.id} className="bg-white/5 rounded-xl overflow-hidden">
+          {rows.map((call: any) => (
+            <div key={call.id || call.call_sid} className="bg-white/5 rounded-xl overflow-hidden">
               <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => toggleExpand(call)}>
                 <PhoneIncoming size={16} className="text-green-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium truncate">{call.from_number || "Unknown"}</p>
-                  <p className="text-xs text-white/40">{fmtTime(call.started_at || call.created_at)} · {call.duration_seconds ? fmt(call.duration_seconds) : "—"}</p>
+                  <p className="text-xs text-white/40">{formatCallTime(call.started_at || call.ended_at)} · {call.duration_seconds ? fmt(call.duration_seconds) : "—"}</p>
                 </div>
-                {conversationIdForCall(call, calls) && (
+                {conversationIdForCall(call, rows) && (
                   <button
                     onClick={e => { e.stopPropagation(); playAudio(call); }}
                     className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"

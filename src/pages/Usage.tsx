@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Loader2, Phone, Clock, TrendingUp, RotateCcw } from "lucide-react";
-import { getMe } from "../lib/api";
+import { getMe, getVoiceCalls } from "../lib/api";
+import { formatCallTime } from "../lib/call-log";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -17,7 +18,7 @@ function fmtMins(mins: number) {
 }
 
 function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  return formatCallTime(iso);
 }
 
 export default function Usage() {
@@ -31,14 +32,13 @@ export default function Usage() {
       try {
         const { customer: me } = await getMe();
         if (!me?.id) { setLoading(false); return; }
-        const [ubRes, clRes] = await Promise.all([
+        const [ubRes, callLog] = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/mh_usage_balance?customer_id=eq.${me.id}`, { headers: authHeaders() }),
-          fetch(`${SUPABASE_URL}/rest/v1/mh_call_log?customer_id=eq.${me.id}&order=started_at.desc&limit=50`, { headers: authHeaders() }),
+          getVoiceCalls(me.id),
         ]);
         const ub = await ubRes.json();
-        const cl = await clRes.json();
         if (Array.isArray(ub) && ub[0]) setBalance(ub[0]);
-        if (Array.isArray(cl)) setCalls(cl);
+        if (Array.isArray(callLog)) setCalls(callLog);
       } catch (e) {
         console.error("Usage load error:", e);
       } finally {

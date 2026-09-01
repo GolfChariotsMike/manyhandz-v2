@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
-import { conversationIdForCall } from "../lib/call-log";
+import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { notifyMobilePlaceholder, notifySmsPayloadFromForm, provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
@@ -22,6 +22,7 @@ const EL_PROXY = `${SUPABASE_URL}/functions/v1/mhv2-el-proxy`;
 const PREVIEW_TEXT = "Hi there! Thanks for calling. I'm your AI receptionist — how can I help you today?";
 
 function CallLog({ calls }: { calls: any[] }) {
+  const rows = mergeCallLogRows(calls);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<Record<string, any[]>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -30,7 +31,7 @@ function CallLog({ calls }: { calls: any[] }) {
 
   async function toggleExpand(call: any) {
     const id = call.id;
-    const conversationId = conversationIdForCall(call, calls);
+    const conversationId = conversationIdForCall(call, rows);
     if (expandedId === id) { setExpandedId(null); return; }
     setExpandedId(id);
     if (transcript[id] || !conversationId) return;
@@ -48,7 +49,7 @@ function CallLog({ calls }: { calls: any[] }) {
   }
 
   async function playAudio(call: any) {
-    const conversationId = conversationIdForCall(call, calls);
+    const conversationId = conversationIdForCall(call, rows);
     if (playingId === call.id) {
       audioRef.current?.pause();
       setPlayingId(null); return;
@@ -80,22 +81,22 @@ function CallLog({ calls }: { calls: any[] }) {
   return (
     <div className="aurora-card p-6">
       <h3 className="font-semibold mb-4">Recent calls</h3>
-      {calls.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-white/30 text-sm">No calls yet.</p>
       ) : (
         <div className="space-y-2">
-          {calls.map((call: any) => (
-            <div key={call.id} className="bg-white/5 rounded-xl overflow-hidden">
+          {rows.map((call: any) => (
+            <div key={call.id || call.call_sid} className="bg-white/5 rounded-xl overflow-hidden">
               <div className="flex items-center gap-3 p-3 cursor-pointer" onClick={() => toggleExpand(call)}>
                 <PhoneIncoming size={16} className="text-green-400 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium">{call.from_number || "Unknown"}</p>
                   <p className="text-xs text-white/40">
-                    {call.started_at ? new Date(call.started_at).toLocaleString() : "—"}
-                    {call.duration_seconds ? ` · ${fmt(call.duration_seconds)}` : ""}
+                    {formatCallTime(call.started_at || call.ended_at)}
+                    {` · ${call.duration_seconds ? fmt(call.duration_seconds) : "—"}`}
                   </p>
                 </div>
-                {conversationIdForCall(call, calls) && (
+                {conversationIdForCall(call, rows) && (
                   <button onClick={e => { e.stopPropagation(); playAudio(call); }}
                     className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 transition shrink-0">
                     {playingId === call.id ? <Pause size={14} /> : <Play size={14} />}
@@ -107,7 +108,7 @@ function CallLog({ calls }: { calls: any[] }) {
                 <div className="px-3 pb-3 border-t border-white/5 pt-3">
                   {loadingId === call.id ? (
                     <p className="text-xs text-white/30">Loading transcript...</p>
-                  ) : !conversationIdForCall(call, calls) ? (
+                  ) : !conversationIdForCall(call, rows) ? (
                     <p className="text-xs text-white/30">No transcript available.</p>
                   ) : (transcript[call.id] || []).length === 0 ? (
                     <p className="text-xs text-white/30">No transcript yet.</p>
