@@ -25,12 +25,27 @@ test("mergeSendSmsTool attaches the webhook when the cap is on and strips it whe
   );
   assert.equal(on.filter((t) => (t as { name?: string }).name === SEND_SMS_TOOL_NAME).length, 1);
   const tool = on.find((t) => (t as { name?: string }).name === SEND_SMS_TOOL_NAME) as {
-    api_schema: { url: string; request_body_schema: { properties: { to: { dynamic_variable?: string } } } };
+    api_schema: {
+      url: string;
+      request_body_schema: {
+        properties: {
+          to: { dynamic_variable?: string; description?: string; is_system_provided?: boolean };
+          body: { description?: string };
+        };
+      };
+    };
     stale?: boolean;
   };
   assert.equal(tool.api_schema.url, url);
   assert.equal(tool.stale, undefined);
-  assert.equal(tool.api_schema.request_body_schema.properties.to.dynamic_variable, "system__caller_id");
+  const to = tool.api_schema.request_body_schema.properties.to;
+  assert.equal(to.dynamic_variable, "system__caller_id");
+  assert.equal(to.is_system_provided, false);
+  assert.equal(to.description, undefined);
+  assert.equal(
+    tool.api_schema.request_body_schema.properties.body.description,
+    "Short SMS body — a link or a few sentences of info.",
+  );
 
   const off = mergeSendSmsTool(on, url, false);
   assert.equal(off.some((t) => (t as { name?: string }).name === SEND_SMS_TOOL_NAME), false);

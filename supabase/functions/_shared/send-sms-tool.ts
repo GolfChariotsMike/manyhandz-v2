@@ -30,8 +30,8 @@ export function sendSmsWebhookTool(functionUrl: string): Record<string, unknown>
         properties: {
           to: {
             type: "string",
+            // EL rejects description + dynamic_variable on the same property.
             dynamic_variable: "system__caller_id",
-            description: "Destination number. Prefer the current caller's ID.",
             is_system_provided: false,
           },
           body: {
