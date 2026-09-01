@@ -31,6 +31,11 @@ export type PromptInput = {
   capDiscloseAi: boolean;
   capHangupOnGoodbye: boolean;
   capCreateSimproJob?: boolean;
+  capCreateServicem8Job?: boolean;
+  servicem8Connected?: boolean;
+  calendarConnected?: boolean;
+  capCreateXeroInvoice?: boolean;
+  xeroConnected?: boolean;
   closingMessage?: string | null;
 };
 
@@ -77,6 +82,8 @@ export function buildSystemPrompt(data: PromptInput): string {
     aiName, businessName, about, services, faqs, hours, tone, priceList,
     capConfirmBookings, capQuotePrices, capTransferCalls, capSendSms,
     capDiscloseAi, capHangupOnGoodbye, capCreateSimproJob, closingMessage,
+    capCreateServicem8Job, servicem8Connected, calendarConnected,
+    capCreateXeroInvoice, xeroConnected,
   } = data;
 
   const toneDesc = tone === "formal" ? "professional and formal"
@@ -96,7 +103,9 @@ export function buildSystemPrompt(data: PromptInput): string {
     : "";
 
   const bookingRule = capConfirmBookings
-    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.`
+    ? (calendarConnected
+      ? `- BOOKINGS: You can confirm bookings. Use check_calendar_availability then book_calendar_event. Speak success only if the tool returns ok:true. If it fails or says not_connected, take a message — never pretend a booking was made.`
+      : `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.`)
     : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants to book, collect their name, preferred date/time, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`;
 
   const pricingRule = capQuotePrices
@@ -116,11 +125,21 @@ export function buildSystemPrompt(data: PromptInput): string {
     ? `- SIMPRO JOBS: When a caller wants work done, collect their name, the job site/address, and a short description (phone comes from caller ID). Then use the create_simpro_job tool. If the tool returns a job number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a job was created — take a message and say the team will set the job up.`
     : `- SIMPRO JOBS: Do not create jobs in SimPRO. Take a message instead.`;
 
+  const servicem8JobRule = capCreateServicem8Job && servicem8Connected
+    ? `- SERVICEM8 JOBS: When a caller wants work done, collect their name, the job site/address, and a short description (phone comes from caller ID). Then use the create_servicem8_job tool. If the tool returns a job UUID, speak it clearly. If it fails or says not_connected, do not pretend a job was created — take a message.`
+    : "";
+
+  const xeroInvoiceRule = capCreateXeroInvoice && xeroConnected
+    ? `- XERO INVOICES: You can create a Xero DRAFT sales invoice only — never approve it. Use create_xero_invoice after you have a name and description. If the tool fails or says not_connected, take a message — never pretend an invoice was created.`
+    : "";
+
   const hangupRule = hangupOnGoodbyePromptRule(capHangupOnGoodbye, closingMessage);
   const hangupCap = hangupRule ? `\n- HANG UP AFTER GOODBYE: ${hangupRule}` : "";
 
+  const extraJobRules = [servicem8JobRule, xeroInvoiceRule].filter(Boolean).map((r) => `\n${r}`).join("");
+
   const capabilitySection =
-    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
 
   // Live function always asked "anything else?" — that is why two bots goodbye-looped.
   const callHandlingEnd = capHangupOnGoodbye

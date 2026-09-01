@@ -40,3 +40,42 @@ verify_jwt = false
 
 [functions.mh-save-message]
 verify_jwt = false
+
+[functions.mhv2-servicem8-connect]
+verify_jwt = false
+
+[functions.mhv2-servicem8-create-job]
+verify_jwt = false
+
+[functions.mhv2-google-cal-connect]
+verify_jwt = false
+
+[functions.mhv2-google-cal-callback]
+verify_jwt = false
+
+[functions.mhv2-ms-cal-connect]
+verify_jwt = false
+
+[functions.mhv2-ms-cal-callback]
+verify_jwt = false
+
+[functions.mhv2-xero-connect]
+verify_jwt = false
+
+[functions.mhv2-xero-callback]
+verify_jwt = false
+
+[functions.mhv2-xero-create-invoice]
+verify_jwt = false
+
+[functions.mhv2-calendar-availability]
+verify_jwt = false
+
+[functions.mhv2-calendar-book]
+verify_jwt = false
+
+[functions.mhv2-crm-connections]
+verify_jwt = false
+
+[functions.mhv2-chat-widget]
+verify_jwt = false

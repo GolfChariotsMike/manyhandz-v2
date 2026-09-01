@@ -13,6 +13,16 @@ import {
 } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
 import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
+import {
+  calendarAvailabilityUrl,
+  calendarBookUrl,
+  createServicem8JobUrl,
+  createXeroInvoiceUrl,
+  mergeCalendarTools,
+  mergeCreateServicem8JobTool,
+  mergeCreateXeroInvoiceTool,
+  stripConnectorTools,
+} from "../_shared/connector-tools.ts";
 import { buildSystemPrompt, type PriceItem } from "./prompt.ts";
 
 export const corsHeaders = {
@@ -229,6 +239,8 @@ type VoiceRow = {
   cap_disclose_ai?: boolean | null;
   cap_hangup_on_goodbye?: boolean | null;
   cap_create_simpro_job?: boolean | null;
+  cap_create_servicem8_job?: boolean | null;
+  cap_create_xero_invoice?: boolean | null;
 };
 type KbRow = {
   about?: string | null;
@@ -252,7 +264,7 @@ export async function syncCustomerAgent(
   tool_names?: string[];
   tool_sounds?: ToolSoundRow[];
 }> {
-  const [custRows, kbRows, vcRows, plRows] = await Promise.all([
+  const [custRows, kbRows, vcRows, plRows, connRows] = await Promise.all([
     rest<CustomerRow[] | CustomerRow>(
       env,
       `/rest/v1/mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=business_name,el_agent_id`,
@@ -263,11 +275,15 @@ export async function syncCustomerAgent(
     ),
     rest<VoiceRow[] | VoiceRow>(
       env,
-      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job`,
+      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job,cap_create_servicem8_job,cap_create_xero_invoice`,
     ),
     rest<PriceItem[] | PriceItem>(
       env,
       `/rest/v1/mh_price_list?customer_id=eq.${encodeURIComponent(customerId)}&select=*&order=sort_order.asc`,
+    ),
+    rest<Array<{ platform?: string }> | { platform?: string }>(
+      env,
+      `/rest/v1/mh_crm_connections?customer_id=eq.${encodeURIComponent(customerId)}&is_active=eq.true&select=platform`,
     ),
   ]);
 
@@ -275,6 +291,16 @@ export async function syncCustomerAgent(
   const kb = firstRow(kbRows);
   const vc = firstRow(vcRows);
   const priceList = Array.isArray(plRows) ? plRows : [];
+  const platforms = new Set(
+    (Array.isArray(connRows) ? connRows : connRows ? [connRows] : [])
+      .map((row) => String(row?.platform || "")),
+  );
+  const servicem8Connected = platforms.has("servicem8");
+  const calendarConnected = platforms.has("google_calendar") || platforms.has("microsoft_calendar");
+  const xeroConnected = platforms.has("xero");
+  const capCreateServicem8 = vc?.cap_create_servicem8_job ?? false;
+  const capCreateXero = vc?.cap_create_xero_invoice ?? false;
+  const capConfirmBookings = vc?.cap_confirm_bookings ?? false;
 
   const agentId = (vc?.el_agent_id || customer?.el_agent_id || "").trim();
   if (!agentId) return { ok: false, error: "No EL agent found for this customer" };
@@ -296,16 +322,40 @@ export async function syncCustomerAgent(
     capDiscloseAi: vc?.cap_disclose_ai ?? false,
     capHangupOnGoodbye: hangupEnabled,
     capCreateSimproJob: vc?.cap_create_simpro_job ?? true,
+    capCreateServicem8Job: capCreateServicem8,
+    servicem8Connected,
+    calendarConnected,
+    capCreateXeroInvoice: capCreateXero,
+    xeroConnected,
     closingMessage: vc?.closing_message || null,
   });
 
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);
   const firstMessage = padCallOpening(vc?.greeting_script || "") || undefined;
-  const toolsWithCreate = mergeCreateSimproJobTool(
-    bag.tools,
+  let toolsWithCreate = mergeCreateSimproJobTool(
+    stripConnectorTools(bag.tools),
     createSimproJobUrl(env.supabaseUrl, customerId),
   );
+  if (capCreateServicem8 && servicem8Connected) {
+    toolsWithCreate = mergeCreateServicem8JobTool(
+      toolsWithCreate,
+      createServicem8JobUrl(env.supabaseUrl, customerId),
+    );
+  }
+  if (capConfirmBookings && calendarConnected) {
+    toolsWithCreate = mergeCalendarTools(
+      toolsWithCreate,
+      calendarAvailabilityUrl(env.supabaseUrl, customerId),
+      calendarBookUrl(env.supabaseUrl, customerId),
+    );
+  }
+  if (capCreateXero && xeroConnected) {
+    toolsWithCreate = mergeCreateXeroInvoiceTool(
+      toolsWithCreate,
+      createXeroInvoiceUrl(env.supabaseUrl, customerId),
+    );
+  }
   const toolsWithSms = mergeSendSmsTool(
     toolsWithCreate,
     sendSmsUrl(env.supabaseUrl, customerId),

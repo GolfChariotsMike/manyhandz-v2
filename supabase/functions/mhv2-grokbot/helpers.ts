@@ -109,6 +109,8 @@ const CAP_KEYS = [
   "cap_transfer_calls",
   "cap_send_sms",
   "cap_hangup_on_goodbye",
+  "cap_create_servicem8_job",
+  "cap_create_xero_invoice",
 ] as const;
 
 export type VoicePatch = {
@@ -119,6 +121,8 @@ export type VoicePatch = {
   cap_transfer_calls?: boolean;
   cap_send_sms?: boolean;
   cap_hangup_on_goodbye?: boolean;
+  cap_create_servicem8_job?: boolean;
+  cap_create_xero_invoice?: boolean;
   whitelist?: string[];
   bridge_to_number?: string | null;
 };
@@ -188,6 +192,8 @@ export function voicePublic(config: Record<string, unknown> | null) {
     cap_transfer_calls: config?.cap_transfer_calls ?? true,
     cap_send_sms: config?.cap_send_sms ?? true,
     cap_hangup_on_goodbye: config?.cap_hangup_on_goodbye ?? true,
+    cap_create_servicem8_job: config?.cap_create_servicem8_job ?? false,
+    cap_create_xero_invoice: config?.cap_create_xero_invoice ?? false,
     whitelist: Array.isArray(config?.whitelist) ? config.whitelist : [],
     bridge_to_number: config?.bridge_to_number ?? null,
   };

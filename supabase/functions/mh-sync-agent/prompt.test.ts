@@ -53,6 +53,26 @@ test("simpro create-job rule is default-on and honest on failure", () => {
   assert.doesNotMatch(off, /use the create_simpro_job tool/);
 });
 
+test("servicem8 and xero rules stay off the prompt unless connected and capped", () => {
+  const off = buildSystemPrompt(base);
+  assert.doesNotMatch(off, /create_servicem8_job/);
+  assert.doesNotMatch(off, /create_xero_invoice/);
+  assert.doesNotMatch(off, /check_calendar_availability/);
+  const on = buildSystemPrompt({
+    ...base,
+    capCreateServicem8Job: true,
+    servicem8Connected: true,
+    capCreateXeroInvoice: true,
+    xeroConnected: true,
+    calendarConnected: true,
+    capConfirmBookings: true,
+  });
+  assert.match(on, /create_servicem8_job/);
+  assert.match(on, /create_xero_invoice/);
+  assert.match(on, /check_calendar_availability/);
+  assert.match(on, /never pretend a booking was made/i);
+});
+
 test("disclosure and pricing sections still match the live builder", () => {
   const off = buildSystemPrompt({ ...base, capDiscloseAi: false });
   assert.match(off, /Do not volunteer that you are an AI unless the caller asks/);
