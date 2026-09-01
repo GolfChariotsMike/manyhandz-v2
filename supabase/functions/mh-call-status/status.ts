@@ -5,6 +5,8 @@
  * 204 must use a null body — Deno treats Response('', { status: 204 }) as 500.
  */
 
+import { resolveVoiceCaller } from "../_shared/voice-caller.ts";
+
 export const EL_COST_PER_MIN = 0.05;
 
 export type CallLogRow = {
@@ -55,13 +57,16 @@ export function parseTwilioStatus(req: Request, bodyText: string): CallStatusPar
   const url = new URL(req.url);
   const params = new URLSearchParams(bodyText);
   const customer_id = (url.searchParams.get("customer_id") || params.get("customer_id") || "").trim();
+  const from = params.get("From") || params.get("from") || "";
+  const to = params.get("To") || params.get("to") || "";
+  const forwardedFrom = params.get("ForwardedFrom") || params.get("forwarded_from") || "";
   return {
     customer_id,
     call_sid: (params.get("CallSid") || params.get("call_sid") || "").trim(),
     call_status: (params.get("CallStatus") || params.get("call_status") || "").trim(),
     duration: parseInt(params.get("CallDuration") || params.get("duration") || "0", 10) || 0,
-    from_number: params.get("From") || params.get("from") || "",
-    to_number: params.get("To") || params.get("to") || "",
+    from_number: resolveVoiceCaller({ from, forwardedFrom, calledNumber: to }),
+    to_number: to,
     conversation_id: (
       params.get("conversation_id") ||
       url.searchParams.get("conversation_id") ||

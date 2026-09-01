@@ -44,6 +44,9 @@ verify_jwt = false
 [functions.mh-call-status]
 verify_jwt = false
 
+[functions.mh-voice-router]
+verify_jwt = false
+
 [functions.mhv2-servicem8-connect]
 verify_jwt = false
 
