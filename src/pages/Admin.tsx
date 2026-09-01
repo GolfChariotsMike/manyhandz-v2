@@ -22,6 +22,7 @@ type Customer = {
   el_agent_id: string | null;
   trial_started_at: string | null;
   trial_ends_at: string | null;
+  last_login_at: string | null;
   created_at: string;
 };
 
@@ -670,11 +671,12 @@ export default function Admin() {
                 <th className="text-left p-4">Voice Agent</th>
                 <th className="text-left p-4">Trial Ends</th>
                 <th className="text-left p-4">Joined</th>
+                <th className="text-left p-4">Last logged in</th>
                 <th className="p-4"></th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={8} className="text-center py-12 text-white/30">Loading...</td></tr>}
+              {loading && <tr><td colSpan={9} className="text-center py-12 text-white/30">Loading...</td></tr>}
               {!loading && filtered.map(c => (
                 <>
                   <tr key={c.id} className="border-b border-white/5 hover:bg-white/3 cursor-pointer transition-colors" onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
@@ -695,11 +697,12 @@ export default function Admin() {
                     <td className="p-4 text-xs">{c.el_agent_id ? <span className="text-green-400">● Connected</span> : <span className="text-white/20">—</span>}</td>
                     <td className="p-4 text-white/40 text-xs">{fmt(c.trial_ends_at)}</td>
                     <td className="p-4 text-white/40 text-xs">{fmt(c.created_at)}</td>
+                    <td className="p-4 text-white/40 text-xs">{fmt(c.last_login_at)}</td>
                     <td className="p-4 text-white/30">{expanded === c.id ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</td>
                   </tr>
                   {expanded === c.id && (
                     <tr key={`${c.id}-exp`} className="border-b border-white/5 bg-black/20">
-                      <td colSpan={8} className="px-6 py-4">
+                      <td colSpan={9} className="px-6 py-4">
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-xs">
                           <div>
                             <div className="text-white/40 mb-1">Subscription</div>
@@ -752,7 +755,7 @@ export default function Admin() {
                   )}
                 </>
               ))}
-              {!loading && filtered.length === 0 && <tr><td colSpan={8} className="text-center py-12 text-white/30">No accounts found</td></tr>}
+              {!loading && filtered.length === 0 && <tr><td colSpan={9} className="text-center py-12 text-white/30">No accounts found</td></tr>}
             </tbody>
           </table>
         </div>
