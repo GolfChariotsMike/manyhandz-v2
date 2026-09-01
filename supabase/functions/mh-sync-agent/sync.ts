@@ -12,6 +12,7 @@ import {
   type ToolSoundRow,
 } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
+import { mergeSaveMessageTool, saveMessageUrl } from "../_shared/save-message-tool.ts";
 import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
 import {
   calendarAvailabilityUrl,
@@ -356,8 +357,12 @@ export async function syncCustomerAgent(
       createXeroInvoiceUrl(env.supabaseUrl, customerId),
     );
   }
-  const toolsWithSms = mergeSendSmsTool(
+  const toolsWithSave = mergeSaveMessageTool(
     toolsWithCreate,
+    saveMessageUrl(env.supabaseUrl, customerId),
+  );
+  const toolsWithSms = mergeSendSmsTool(
+    toolsWithSave,
     sendSmsUrl(env.supabaseUrl, customerId),
     vc?.cap_send_sms ?? true,
   );

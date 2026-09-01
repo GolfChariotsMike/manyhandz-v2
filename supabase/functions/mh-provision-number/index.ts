@@ -7,6 +7,7 @@ import {
 } from "../_shared/hangup-on-goodbye.ts";
 import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
+import { saveMessageUrl, saveMessageWebhookTool } from "../_shared/save-message-tool.ts";
 import { sendSmsUrl, sendSmsWebhookTool } from "../_shared/send-sms-tool.ts";
 import { normalizePhone, ownerPhoneFromCustomer } from "../_shared/sms-send.ts";
 import {
@@ -141,7 +142,7 @@ serve(async (req) => {
     const hangupRule = hangupOnGoodbyePromptRule(true);
     const systemPrompt = hangupRule ? `${basePrompt}\n\n${hangupRule}` : basePrompt;
 
-    const SAVE_MESSAGE_URL = `${mhBase}/mh-save-message?customer_id=${customer_id}`;
+    const SAVE_MESSAGE_URL = saveMessageUrl(supabaseUrl, customer_id);
     const TRANSFER_URL = `${mhBase}/mh-customer-transfer/transfer?customer_id=${customer_id}`;
     const CREATE_JOB_URL = createSimproJobUrl(supabaseUrl, customer_id);
     const SEND_SMS_URL = sendSmsUrl(supabaseUrl, customer_id);
@@ -150,24 +151,7 @@ serve(async (req) => {
       `${mhBase}/mh-call-status?customer_id=${customer_id}`;
 
     const agentTools = [
-      {
-        type: "webhook",
-        name: "save_message",
-        description: "Save a message from the caller. The callback number is auto-filled from caller ID — NEVER ask the caller for their number.",
-        response_timeout_secs: 20,
-        api_schema: {
-          kind: "webhook", url: SAVE_MESSAGE_URL, method: "POST",
-          request_body_schema: {
-            type: "object",
-            required: ["caller_name", "callback_number", "message"],
-            properties: {
-              caller_name: { type: "string", description: "Full name of the caller", is_system_provided: false },
-              callback_number: { type: "string", dynamic_variable: "system__caller_id", is_system_provided: false },
-              message: { type: "string", description: "Reason for the call / summary of what they need", is_system_provided: false },
-            },
-          },
-        },
-      },
+      saveMessageWebhookTool(SAVE_MESSAGE_URL),
       {
         type: "webhook",
         name: "transfer_to_staff",

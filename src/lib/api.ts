@@ -1,3 +1,4 @@
+import { mergeCallLogRows } from "./call-log.ts";
 import { meCache } from "./meCache.ts";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
@@ -182,7 +183,11 @@ export async function updateKnowledgeBase(id: string, updates: Record<string, un
 }
 
 export async function getVoiceCalls(customerId: string) {
-  return supabaseRest("mh_call_log", `customer_id=eq.${customerId}&select=*&order=started_at.desc&limit=50`);
+  const rows = await supabaseRest(
+    "mh_call_log",
+    `customer_id=eq.${customerId}&select=*&order=started_at.desc&limit=100`,
+  );
+  return mergeCallLogRows(rows).slice(0, 50);
 }
 
 export async function getVoiceConfig(customerId: string) {

@@ -218,6 +218,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(createJob.tool_call_sound_behavior, "always");
   assert.equal(endCall.tool_call_sound, undefined);
   assert.match(agent.prompt.prompt, /create_simpro_job/);
+  assert.match(JSON.stringify(save), /mh-save-message\?customer_id=cust-1/);
   assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
   assert.match(JSON.stringify(sendSms), /mh-send-sms\?customer_id=cust-1/);
   assert.equal(sendSms.tool_call_sound, "typing");
@@ -241,6 +242,33 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     assert.equal(extraTools.some((t) => t.name === "create_simpro_job"), false);
     assert.equal(extraTools.some((t) => t.name === "send_sms"), false);
   }
+});
+
+test("customer sync attaches save_message even when the existing agent has none", async () => {
+  const { env, patches } = makeEnv({
+    agents: {
+      "agent-cust": {
+        conversation_config: {
+          agent: {
+            prompt: {
+              prompt: "You are Trinity.",
+              tools: [{ type: "webhook", name: "send_sms" }],
+              built_in_tools: {},
+            },
+          },
+        },
+      },
+    },
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const tools = (patches[0].body as {
+    conversation_config: { agent: { prompt: { tools: Array<{ name: string; api_schema?: { url?: string } }> } } };
+  }).conversation_config.agent.prompt.tools;
+  const save = tools.find((t) => t.name === "save_message");
+  assert.ok(save);
+  assert.match(JSON.stringify(save), /mh-save-message\?customer_id=cust-1/);
+  assert.equal(tools.some((t) => t.name === "send_sms"), true);
 });
 
 test("customer sync omits send_sms when cap_send_sms is off", async () => {
