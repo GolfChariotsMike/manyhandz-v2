@@ -97,6 +97,7 @@ test("provision and sync attach typing via the merge helper, not a conversation 
   const sync = await readFile(new URL("../mh-sync-agent/sync.ts", import.meta.url), "utf8");
   assert.match(provision, /mergeToolCallTyping/);
   assert.match(sync, /mergeToolCallTyping/);
+  assert.match(sync, /mergeTransferToStaffTool/);
   assert.doesNotMatch(provision, /background_sound/);
   assert.doesNotMatch(sync, /background_sound/);
 });

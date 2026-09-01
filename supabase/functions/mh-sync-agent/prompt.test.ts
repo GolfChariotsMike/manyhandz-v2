@@ -73,6 +73,18 @@ test("servicem8 and xero rules stay off the prompt unless connected and capped",
   assert.match(on, /never pretend a booking was made/i);
 });
 
+test("transfer rule names transfer_to_staff first and does not tell the agent to take a message instead", () => {
+  const on = buildSystemPrompt(base);
+  assert.match(on, /transfer_to_staff/);
+  assert.match(on, /call the transfer_to_staff tool FIRST/);
+  assert.match(on, /accepted:false/);
+  assert.doesNotMatch(on, /Take messages when callers want to speak to a staff member/);
+  const off = buildSystemPrompt({ ...base, capTransferCalls: false });
+  assert.match(off, /Do not transfer calls/);
+  assert.doesNotMatch(off, /call the transfer_to_staff tool FIRST/);
+  assert.match(off, /Take messages when callers want to speak to a staff member/);
+});
+
 test("disclosure and pricing sections still match the live builder", () => {
   const off = buildSystemPrompt({ ...base, capDiscloseAi: false });
   assert.match(off, /Do not volunteer that you are an AI unless the caller asks/);
