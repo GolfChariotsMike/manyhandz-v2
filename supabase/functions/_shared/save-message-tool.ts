@@ -3,6 +3,9 @@
  * Always attached on customer agents (provision + sync), like create_simpro_job.
  * The function explains if notify_sms is missing — do not claim the owner was texted.
  *
+ * Bind callback_number to caller_id (sent by mh-voice-router). Never send
+ * system__* ElevenLabs dynamic variables — EL rejects those names.
+ *
  * Typing is applied by mergeToolCallTyping. Never put this shape on end_call.
  */
 
@@ -35,7 +38,7 @@ export function saveMessageWebhookTool(functionUrl: string): Record<string, unkn
           },
           callback_number: {
             type: "string",
-            dynamic_variable: "system__caller_id",
+            dynamic_variable: "caller_id",
             is_system_provided: false,
           },
           message: {

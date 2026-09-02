@@ -49,8 +49,18 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   assert.match(on, /create_simpro_job/);
   assert.match(on, /SIMPRO LEADS/);
   assert.match(on, /lead number/);
+  assert.match(on, /used the company before/);
+  assert.match(on, /Existing customers: collect only a short description/);
+  assert.match(on, /MUST call create_simpro_job in the same turn/);
+  assert.match(on, /do not use send_sms to notify the office/);
+  assert.match(on, /Collecting details without invoking the tool is a failure/);
+  assert.match(on, /Do not interrogate name or full site address/);
+  assert.match(on, /New customers: collect name, site\/address/);
+  assert.match(on, /no SimPRO match/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
+  assert.match(on, /You CANNOT confirm, reserve, or make any booking/);
+  assert.match(on, /that is a SimPRO lead/);
   assert.doesNotMatch(on, /lookup_jobs/);
   assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildSystemPrompt({ ...base, capCreateSimproJob: false });

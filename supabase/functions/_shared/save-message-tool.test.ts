@@ -45,10 +45,18 @@ test("mergeSaveMessageTool attaches the webhook and replaces a stale copy", () =
     "message",
   ]);
   const callback = tool.api_schema.request_body_schema.properties.callback_number;
-  assert.equal(callback.dynamic_variable, "system__caller_id");
+  assert.equal(callback.dynamic_variable, "caller_id");
   assert.equal(callback.is_system_provided, false);
   assert.equal(callback.description, undefined);
+  assert.equal(JSON.stringify(tool).includes("system__"), false);
   assert.equal(merged.some((t) => (t as { name?: string }).name === "send_sms"), true);
+});
+
+test("save_message tool JSON never includes system__* vars", () => {
+  const tools = mergeSaveMessageTool([], "https://example.test/mh-save-message?customer_id=cust-1");
+  const blob = JSON.stringify(tools);
+  assert.equal(blob.includes("system__"), false);
+  assert.match(blob, /"caller_id"/);
 });
 
 test("mergeSaveMessageTool attaches even when the existing agent has no tools", () => {

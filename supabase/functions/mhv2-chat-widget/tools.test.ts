@@ -53,11 +53,18 @@ test("chat tools are save_message + create_simpro_job + send_sms when caps are o
   ]);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
+  assert.match(create.description, /MUST call this once you have their mobile/i);
   assert.match(create.description, /find-or-create/i);
   assert.match(create.description, /no caller ID/i);
+  assert.match(create.description, /mobile first/i);
+  assert.match(create.description, /skip name and full site address/i);
+  assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /lead number/i);
   assert.match(create.description, /never pretend a lead was created/i);
   assert.ok(create.input_schema.required?.includes("caller_phone"));
+  assert.ok(create.input_schema.required?.includes("description"));
+  assert.equal(create.input_schema.required?.includes("caller_name"), false);
+  assert.equal(create.input_schema.required?.includes("site_address"), false);
 });
 
 test("caps strip send_sms and create_simpro_job; transfer and lookup never appear", () => {
@@ -109,7 +116,36 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
   });
 });
 
-test("executeChatTool refuses create_simpro_job without name phone site description", async () => {
+test("executeChatTool allows create_simpro_job with phone and description only", async () => {
+  let seen: unknown = null;
+  const ctx = stubCtx({
+    createSimproJob: async (input) => {
+      seen = input;
+      return {
+        ok: true,
+        lead_number: "8801",
+        lead_id: "8801",
+        job_number: "8801",
+        customer_created: false,
+        site_created: false,
+        message: "Created SimPRO lead 8801. Tell the caller this lead number.",
+      };
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  const raw = await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, {
+    caller_phone: "+61411122333",
+    description: "Split system not cooling",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, true);
+  assert.equal((seen as { caller_phone: string }).caller_phone, "+61411122333");
+  assert.equal((seen as { caller_name: string }).caller_name, "");
+  assert.equal((seen as { site_address: string }).site_address, "");
+});
+
+test("executeChatTool refuses create_simpro_job without phone or description", async () => {
   let called = false;
   const ctx = stubCtx({
     createSimproJob: async () => {

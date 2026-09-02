@@ -61,14 +61,14 @@ export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "Create a real SimPRO lead (find-or-create customer and site, then create the lead). Use when the visitor wants work done. Collect their name, mobile, the site/address, and a short description first. There is no caller ID on chat — ask for their mobile. Tell them the lead number only if the tool returns ok:true. If it fails or says SimPRO is not connected, take a message — never pretend a lead was created. Never look up or list other customers' leads.",
+      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address). Create a real SimPRO lead (find-or-create customer and site, then create the lead). Always collect their mobile first — there is no caller ID on chat. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description. Do not use send_sms to notify the office. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. Never pretend a lead was created. Never look up other customers' leads.",
     input_schema: {
       type: "object",
-      required: ["caller_name", "caller_phone", "site_address", "description"],
+      required: ["caller_phone", "description"],
       properties: {
-        caller_name: { type: "string", description: "Full name of the visitor" },
-        caller_phone: { type: "string", description: "Visitor mobile — ask for it; there is no caller ID on chat" },
-        site_address: { type: "string", description: "Work site street address, suburb and postcode if they gave them" },
+        caller_name: { type: "string", description: "Full name — required for new customers; skip if their mobile matches an existing customer" },
+        caller_phone: { type: "string", description: "Visitor mobile — always ask first; there is no caller ID on chat" },
+        site_address: { type: "string", description: "Work site address — required for new customers or a new/different site; skip if reusing their existing site" },
         description: { type: "string", description: "What work they need done" },
         job_name: { type: "string", description: "Optional short lead title" },
       },

@@ -31,14 +31,20 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
     api_schema: {
       url: string;
       request_body_schema: {
+        required?: string[];
         properties: { caller_phone: { dynamic_variable?: string } };
       };
     };
   };
+  assert.match(created.description, /MUST call this once you have the work description/i);
   assert.match(created.description, /lead number/i);
   assert.match(created.description, /never pretend a lead was created/i);
+  assert.match(created.description, /used the company before/i);
+  assert.match(created.description, /do not interrogate name or address/i);
+  assert.match(created.description, /do not use send_sms to notify the office/i);
   assert.doesNotMatch(created.description, /job number/i);
   assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
+  assert.deepEqual(created.api_schema.request_body_schema.required, ["caller_phone", "description"]);
   assert.equal(JSON.stringify(created).includes("system__"), false);
   assert.match(created.api_schema.url, /mhv2-simpro-create-job\?customer_id=cust-1/);
 });
