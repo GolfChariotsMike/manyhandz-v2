@@ -573,6 +573,59 @@ test("failed create_simpro_job rewrites I've saved your service request", async 
   assert.doesNotMatch(String(body.reply), /team will be in touch/i);
 });
 
+test("failed create_simpro_job rewrites let me get someone to help you with that", async () => {
+  const { env } = envFor({
+    claude: [
+      {
+        stop_reason: "tool_use",
+        content: [{
+          type: "tool_use",
+          id: "tu-c",
+          name: "create_simpro_job",
+          input: {
+            caller_name: "Micycle Kerr",
+            caller_phone: "+61433121933",
+            site_address: "37 Dericote Way Greenwood",
+            description: "3 split services",
+            simpro_customer_id: 4708,
+          },
+        }],
+      },
+      {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Let me get someone to help you with that." }],
+      },
+    ],
+    executors: {
+      createSimproJob: async () => ({
+        ok: false,
+        code: "simpro_error",
+        error: "Could not create SimPRO site contact: Invalid column. Do not claim a lead was created.",
+      }),
+      handleSaveMessage: async () => ({ success: true, notified: false }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embed_key: EMBED,
+        session_key: SESSION,
+        message: "yes please",
+      }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.match(String(body.reply), /couldn'?t lodge/i);
+  assert.match(String(body.reply), /have not notified the team/);
+  assert.doesNotMatch(String(body.reply), /let me get someone/i);
+  assert.doesNotMatch(String(body.reply), /someone to help you with that/i);
+  assert.doesNotMatch(String(body.reply), /transfer/i);
+});
+
 test("fake notify close is rewritten when the lead tool cannot run", async () => {
   let created = false;
   const { env } = envFor({

@@ -69,6 +69,10 @@ test("yes please is a booking confirm; Done/notified is a fake close", () => {
   assert.equal(claimsLeadSuccess("A split system clean is $330."), false);
   assert.equal(claimsLeadSuccessAfterFailedCreate("I've saved your service request. The team will be in touch…"), true);
   assert.equal(claimsLeadSuccessAfterFailedCreate("The team will contact you shortly."), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("Let me get someone to help you with that."), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("I will transfer you to the office."), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("I can put you through to the team."), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("Let me connect you with a staff member."), true);
   assert.equal(claimsLeadSuccessAfterFailedCreate("A split system clean is $330."), false);
 });
 
