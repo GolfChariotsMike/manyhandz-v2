@@ -61,7 +61,7 @@ export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address). Create a real SimPRO lead (find-or-create customer and site, then create the lead). Always collect their mobile first — there is no caller ID on chat. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description. Do not use send_sms to notify the office; the function notifies. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created. Never look up other customers' leads.",
+      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (find-or-create customer and site, then create the lead). Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description — skip any already given. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
     input_schema: {
       type: "object",
       required: ["caller_phone", "description"],
@@ -80,7 +80,7 @@ export function saveMessageChatTool(): AnthropicTool {
   return {
     name: SAVE_MESSAGE_TOOL_NAME,
     description:
-      "Save a message from the website visitor and notify the owner. Collect their name and a callback mobile first. If the tool fails, do not claim the owner was texted.",
+      "Save a message from the website visitor and notify the owner. Use the name and mobile already in this chat; only ask if they have not given them. If the tool fails, do not claim the owner was texted.",
     input_schema: {
       type: "object",
       required: ["caller_name", "callback_number", "message"],
@@ -97,7 +97,7 @@ export function sendSmsChatTool(): AnthropicTool {
   return {
     name: SEND_SMS_TOOL_NAME,
     description:
-      "Send the visitor a short text with a link or info when helpful. Ask for their mobile first. Keep the body brief. If the tool fails, do not claim a text was sent.",
+      "Send the visitor a short text with a link or info when helpful. Use a mobile they already typed; only ask if they have not given one. Keep the body brief. If the tool fails, do not claim a text was sent.",
     input_schema: {
       type: "object",
       required: ["to", "body"],

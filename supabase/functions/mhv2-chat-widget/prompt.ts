@@ -3,6 +3,8 @@
  * agent (mh-sync-agent/prompt.ts), minus transfer / hang-up / caller ID.
  * Never dump a SimPRO job board into this prompt.
  */
+import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
+import { formatCollectedSlots, type CollectedSlots } from "../_shared/collected-slots.ts";
 import { formatHours, formatPriceList, type PriceItem } from "../mh-sync-agent/prompt.ts";
 
 export type { PriceItem };
@@ -22,6 +24,7 @@ export type ChatPromptInput = {
   capSendSms: boolean;
   capDiscloseAi: boolean;
   capCreateSimproJob: boolean;
+  collectedSlots?: CollectedSlots;
 };
 
 export function chatAiDisclosureRule(enabled: boolean): string {
@@ -53,6 +56,7 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     capSendSms,
     capDiscloseAi,
     capCreateSimproJob,
+    collectedSlots,
   } = data;
 
   const toneDesc = tone === "formal"
@@ -84,14 +88,14 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     : `- PRICING: Do not quote specific prices. Say: "I can't give you an exact price here — I can arrange for someone to get back to you with an accurate quote." Then take a message.`;
 
   const messageRule =
-    `- MESSAGES: If the visitor asks for a person or a callback, use the save_message tool. There is no call transfer or call connect on the website chat. Collect their name and a mobile number first.`;
+    `- MESSAGES: If the visitor asks for a person or a callback, use the save_message tool. There is no call transfer or call connect on the website chat. Collect their name and a mobile only if they have not already given them.`;
 
   const smsRule = capSendSms
-    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile number first. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.`
+    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile only if they have not already typed one. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.`
     : "";
 
   const simproJobRule = capCreateSimproJob
-    ? `- SIMPRO LEADS: When a visitor wants work done, always collect their mobile first (there is no caller ID). Then briefly check if they have used the company before. If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. New customers: collect name, mobile, site/address, and a short description. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a visitor wants work done, collect any missing details then create the lead. Chat has no caller ID — ask for a mobile only if they have not already typed one; never drop a number already in this thread. Then briefly check if they have used the company before. If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. New customers: collect name, mobile, site/address, and a short description (skip any of those already given). Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.\n${simproHonestyAddon("chat")}`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const capabilitySection =
@@ -106,7 +110,7 @@ ${servicesSection}${pricingSection}
 BUSINESS HOURS:
 ${formatHours(hours)}
 ${faqSection}
-${customInstructionsBlock(customInstructions)}${capabilitySection}
+${customInstructionsBlock(customInstructions)}${formatCollectedSlots(collectedSlots || {})}${capabilitySection}
 
 YOUR ROLE:
 - Answer website chat ${toneDesc}
@@ -117,7 +121,7 @@ YOUR ROLE:
 - Never look up, list, or read out other customers' leads or jobs
 
 VISITOR CONTACT:
-You do not have caller ID. Always ask for a mobile first when you need to create a lead, send an SMS, or leave a message. Skip name and full site address when that mobile matches an existing customer.
+You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. Skip name and full site address when that mobile matches an existing customer.
 
 CHAT HANDLING:
 - Keep replies short and friendly

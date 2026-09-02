@@ -332,6 +332,123 @@ test("helpers keep history and KB arrays safe", () => {
   assert.deepEqual(faqsFromKb([{ q: "A", a: "B" }, "nope"]), [{ q: "A", a: "B" }]);
 });
 
+const micycleHistory = [
+  { role: "user", content: "I need a split system clean, 1 indoor + 3 outdoor, Malaga" },
+  { role: "assistant", content: "Indoor clean is $330 and each outdoor is $275, so $330 + 3×$275 = $1,155. Want me to book that?" },
+  { role: "user", content: "0433 121 933" },
+  { role: "assistant", content: "I don't have caller ID — what's your mobile?" },
+  { role: "user", content: "Micycle Kerr" },
+  { role: "assistant", content: "And your full name?" },
+];
+
+test("text-only yes-please close still POSTs create_simpro_job with collected slots", async () => {
+  let created: Record<string, unknown> | null = null;
+  const { env, claudeBodies } = envFor({
+    data: defaultData({
+      session: { id: "sess-1", messages: micycleHistory },
+    }),
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Done! The team has been notified" }],
+    }],
+    executors: {
+      createSimproJob: async (input) => {
+        created = input as unknown as Record<string, unknown>;
+        return {
+          ok: true,
+          lead_number: "4421",
+          lead_id: "4421",
+          job_number: "4421",
+          customer_created: true,
+          site_created: true,
+          message: "Created SimPRO lead 4421.",
+        } satisfies CreateJobResult;
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "yes please" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.ok(created, "create_simpro_job must run on a booking confirm");
+  assert.equal(created.caller_name, "Micycle Kerr");
+  assert.equal(created.caller_phone, "+61433121933");
+  assert.equal(created.site_address, "Malaga");
+  assert.match(String(created.description), /split system clean/i);
+  assert.match(String(created.description), /\$1,155/);
+  assert.match(String(body.reply), /4421/);
+  assert.doesNotMatch(String(body.reply), /Done! The team has been notified/);
+
+  const system = String(claudeBodies[0].system);
+  assert.match(system, /ALREADY COLLECTED IN THIS CHAT/);
+  assert.match(system, /Micycle Kerr/);
+  assert.match(system, /\+61433121933/);
+  assert.equal(
+    (claudeBodies[0].tool_choice as { name?: string } | undefined)?.name,
+    "create_simpro_job",
+  );
+});
+
+test("fake notify close is rewritten when the lead tool cannot run", async () => {
+  let created = false;
+  const { env } = envFor({
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Done! The team has been notified" }],
+    }],
+    executors: {
+      createSimproJob: async () => {
+        created = true;
+        return { ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" };
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "thanks" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.equal(created, false);
+  assert.match(String(body.reply), /have not notified the team/);
+  assert.doesNotMatch(String(body.reply), /Done! The team has been notified/);
+});
+
+test("chat history keeps more than 10 turns so earlier details survive", async () => {
+  const longHistory = Array.from({ length: 12 }, (_, i) => ({
+    role: i % 2 === 0 ? "user" : "assistant",
+    content: i === 0 ? "I need a split system clean in Malaga" : `turn-${i}`,
+  }));
+  const { env, claudeBodies } = envFor({
+    data: defaultData({
+      session: { id: "sess-1", messages: longHistory },
+    }),
+  });
+  await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "still here" }),
+    }),
+    env,
+  );
+  const sent = claudeBodies[0].messages as Array<{ content: string }>;
+  assert.equal(sent[0].content, "I need a split system clean in Malaga");
+  assert.ok(sent.length >= 13);
+});
+
 test("handler and index never dump mh_crm_jobs into the prompt or attach transfer", async () => {
   const handler = await readFile(new URL("./handler.ts", import.meta.url), "utf8");
   const index = await readFile(new URL("./index.ts", import.meta.url), "utf8");
