@@ -19,6 +19,7 @@ import { buildChatSystemPrompt, type PriceItem } from "./prompt.ts";
 import {
   CREATE_SIMPRO_JOB_TOOL_NAME,
   LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
+  SAVE_MESSAGE_TOOL_NAME,
   chatTools,
   defaultChatToolExecutors,
   executeChatTool,
@@ -267,6 +268,7 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
     simproEnv,
     saveMessageEnv,
     sendSmsEnv,
+    bookingLead: { attempted: false, ok: false },
   };
 }
 
@@ -399,7 +401,12 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       if (claudeData.stop_reason === "tool_use") {
         const toolBlocks = (claudeData.content || []).filter((b) => b.type === "tool_use");
         const toolResults = [];
-        for (const tool of toolBlocks) {
+        const orderedTools = [...toolBlocks].sort((a, b) => {
+          if (a.name === CREATE_SIMPRO_JOB_TOOL_NAME && b.name === SAVE_MESSAGE_TOOL_NAME) return -1;
+          if (a.name === SAVE_MESSAGE_TOOL_NAME && b.name === CREATE_SIMPRO_JOB_TOOL_NAME) return 1;
+          return 0;
+        });
+        for (const tool of orderedTools) {
           const result = await executeChatTool(tool.name || "", tool.input || {}, ctx);
           const parsed = parseToolResult(result);
           if (tool.name === LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME) {

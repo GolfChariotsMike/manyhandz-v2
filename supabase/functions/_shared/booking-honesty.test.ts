@@ -25,6 +25,8 @@ test("honesty addon forbids fake notify and save_message-only close", () => {
   assert.match(neverFakeLeadCloseRule(), /ok:true/);
   assert.match(bookingConfirmMustCreateRule(), /yes please/);
   assert.match(bookingConfirmMustCreateRule(), /Do not use save_message as the only close/);
+  assert.match(simproLeadsBookingRule("chat", "Glacier Air"), /do not call save_message to text the office/i);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /Office email\/SMS alerts only fire when create_simpro_job returns ok:true/);
   assert.match(siteContactRule(), /who'?s the site contact at the site/);
   assert.match(siteContactRule(), /Jane from Woolies/);
   assert.match(siteContactRule(), /never ask for a separate site contact/i);

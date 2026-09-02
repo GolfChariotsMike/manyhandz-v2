@@ -42,7 +42,15 @@ function stubCtx(executors: ChatToolExecutors): ChatToolContext {
     loadVoice: async () => ({ cap_send_sms: true }),
     loadCustomer: async () => ({ twilio_number: "+61485000000", country: "AU" }),
   };
-  return { customerId: CUST, country: "AU", executors, simproEnv, saveMessageEnv, sendSmsEnv };
+  return {
+    customerId: CUST,
+    country: "AU",
+    executors,
+    simproEnv,
+    saveMessageEnv,
+    sendSmsEnv,
+    bookingLead: { attempted: false, ok: false },
+  };
 }
 
 test("chat tools are save_message + lookup + create_simpro_job + send_sms when caps are on", () => {
@@ -72,6 +80,7 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.match(lookup.description, /already a customer/i);
   assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /save_message as the only close/i);
+  assert.match(create.description, /do not call save_message to text the office/i);
   assert.match(create.description, /lead number/i);
   assert.match(create.description, /never pretend a lead was created/i);
   assert.match(create.description, /site contact/i);
@@ -269,6 +278,41 @@ test("executeChatTool refuses create_simpro_job without phone or description", a
   assert.equal(result.ok, false);
   assert.equal(result.code, "missing_fields");
   assert.equal(called, false);
+});
+
+test("executeChatTool save_message skips office SMS after a failed create_simpro_job", async () => {
+  const saved: Array<{ skip_office_notify?: boolean }> = [];
+  const ctx = stubCtx({
+    createSimproJob: async () => ({
+      ok: false,
+      code: "simpro_error",
+      error: "Could not create SimPRO site: Invalid route. Do not claim a lead was created.",
+    }),
+    handleSaveMessage: async (parsed) => {
+      saved.push(parsed);
+      return { success: true, notified: parsed.skip_office_notify ? false : true };
+    },
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  const created = JSON.parse(await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, {
+    caller_name: "Micycle Kerr",
+    caller_phone: "+61433121933",
+    site_address: "37 Dericote Way Greenwood",
+    description: "3 split services",
+    simpro_customer_id: 4708,
+  }, ctx));
+  assert.equal(created.ok, false);
+  assert.equal(ctx.bookingLead?.attempted, true);
+  assert.equal(ctx.bookingLead?.ok, false);
+
+  const msg = JSON.parse(await executeChatTool(SAVE_MESSAGE_TOOL_NAME, {
+    caller_name: "Micycle Kerr",
+    callback_number: "+61433121933",
+    message: "3 split services at 37 Dericote",
+  }, ctx));
+  assert.equal(msg.success, true);
+  assert.equal(msg.notified, false);
+  assert.equal(saved[0].skip_office_notify, true);
 });
 
 test("executeChatTool save_message and send_sms use the phone handlers", async () => {

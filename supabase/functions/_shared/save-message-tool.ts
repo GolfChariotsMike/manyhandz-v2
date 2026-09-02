@@ -21,7 +21,7 @@ export function saveMessageWebhookTool(functionUrl: string): Record<string, unkn
     type: "webhook",
     name: SAVE_MESSAGE_TOOL_NAME,
     description:
-      "Save a message from the caller. The callback number is auto-filled from caller ID — NEVER ask the caller for their number.",
+      "Save a callback or staff-message from the caller. The callback number is auto-filled from caller ID — NEVER ask the caller for their number. Do not use this to text the office after a failed create_simpro_job — booking alerts only fire on create_simpro_job ok:true.",
     response_timeout_secs: 20,
     api_schema: {
       kind: "webhook",

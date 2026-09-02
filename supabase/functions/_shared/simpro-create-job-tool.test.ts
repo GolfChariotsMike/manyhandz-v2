@@ -49,6 +49,7 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
   assert.match(created.description, /do not use send_sms to notify the office/i);
   assert.match(created.description, /yes please/i);
   assert.match(created.description, /save_message as the only close/i);
+  assert.match(created.description, /do not call save_message to text the office/i);
   assert.match(created.description, /site contact/i);
   assert.match(created.description, /Jane from Woolies/);
   assert.match(created.description, /do not ask for a separate one/i);

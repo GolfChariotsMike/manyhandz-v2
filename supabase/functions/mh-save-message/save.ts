@@ -1,6 +1,8 @@
 /**
  * Owner-notify SMS when the voice agent takes a message (save_message tool).
  * From = the customer's twilio_number (shared MANYHANDZ_SMS_FROM fallback).
+ * Booking office alerts (email/SMS) fire only from create_simpro_job ok:true.
+ * After a failed lead create, skip office SMS so honesty matches reality.
  */
 import {
   customerIdFrom,
@@ -16,6 +18,8 @@ export type SaveMessageParsed = {
   caller_name: string;
   callback_number: string;
   message: string;
+  /** True after a failed create_simpro_job this turn — do not SMS the office. */
+  skip_office_notify?: boolean;
 };
 
 export type SaveMessageResult =
@@ -50,7 +54,31 @@ export function parseSaveMessageInput(
   if (!caller_name || !message) {
     return { success: false, error: "Need the caller's name and a message." };
   }
-  return { customer_id: cid, caller_name, callback_number, message };
+  return {
+    customer_id: cid,
+    caller_name,
+    callback_number,
+    message,
+    skip_office_notify: skipOfficeNotify(src),
+  };
+}
+
+function skipOfficeNotify(src: Record<string, unknown>): boolean {
+  if (flagTrue(src.skip_office_notify) || flagTrue(src.skipOfficeNotify)) return true;
+  if (flagFalse(src.notify_office) || flagFalse(src.office_notify) || flagFalse(src.notifyOffice)) return true;
+  return false;
+}
+
+function flagTrue(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  const s = String(value ?? "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes";
+}
+
+function flagFalse(value: unknown): boolean {
+  if (value === false || value === 0) return true;
+  const s = String(value ?? "").trim().toLowerCase();
+  return s === "false" || s === "0" || s === "no";
 }
 
 export function ownerNotifyBody(input: SaveMessageParsed, businessName?: string | null): string {
@@ -63,6 +91,9 @@ export async function handleSaveMessage(
   parsed: SaveMessageParsed,
   env: SaveMessageEnv,
 ): Promise<SaveMessageResult> {
+  if (parsed.skip_office_notify) {
+    return { success: true, notified: false };
+  }
   const [voice, customer] = await Promise.all([
     env.loadVoice(parsed.customer_id),
     env.loadCustomer(parsed.customer_id),
