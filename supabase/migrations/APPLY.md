@@ -16,6 +16,11 @@ Adds:
 
 Empty or disabled email/SMS must not send. Notify failures must not fail SimPRO lead create. Do not SMS the caller.
 
+New signups get these columns on by default (`notify_*_enabled` true,
+`cap_create_simpro_job` true). They still type their own SimPRO host + API
+key and office notify mobile/email — see
+`supabase/functions/mh-provision-number/CUSTOMER_SETUP.md`.
+
 ## How to apply
 
 In the Supabase SQL editor for `kouembkldbpdbhzeaoth`, run the migration file, **or**:

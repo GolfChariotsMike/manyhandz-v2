@@ -1,16 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { padCallOpening } from "../_shared/voice-greeting.ts";
-import {
-  hangupOnGoodbyePromptRule,
-  mergeEndCallBuiltIn,
-  mergeEndCallTools,
-} from "../_shared/hangup-on-goodbye.ts";
-import { mergeToolCallTyping } from "../_shared/tool-call-typing.ts";
-import { createSimproJobUrl, createSimproJobWebhookTool } from "../_shared/simpro-create-job-tool.ts";
-import { saveMessageUrl, saveMessageWebhookTool } from "../_shared/save-message-tool.ts";
-import { sendSmsUrl, sendSmsWebhookTool } from "../_shared/send-sms-tool.ts";
-import { transferToStaffUrl, transferToStaffWebhookTool } from "../_shared/transfer-to-staff-tool.ts";
-import { normalizePhone, ownerPhoneFromCustomer } from "../_shared/sms-send.ts";
+import { requestCustomerAgentSync } from "../_shared/sync-agent-request.ts";
 import {
   defaultVoiceId,
   noNumbersError,
@@ -18,6 +7,13 @@ import {
   searchPathsForMarket,
   twilioPurchaseFields,
 } from "./search.ts";
+import {
+  provisionElConversationConfig,
+  provisionNotifySms,
+  provisionSystemPrompt,
+  provisionVoiceConfigInsert,
+  provisionVoiceConfigPatch,
+} from "./provision.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -73,36 +69,6 @@ async function el(apiKey: string, path: string, method = "GET", body?: unknown) 
   return res.json();
 }
 
-function buildSystemPrompt(businessName: string, kb: Record<string, unknown> | null): string {
-  const about = (kb?.about as string) || "";
-  const services = Array.isArray(kb?.services)
-    ? (kb.services as string[]).join(", ")
-    : ((kb?.services as string) || "");
-  const faqs = Array.isArray(kb?.faqs)
-    ? (kb.faqs as Array<{ q: string; a: string }>).map((f) => `Q: ${f.q}\nA: ${f.a}`).join("\n\n")
-    : "";
-  const customPrompt = (kb?.custom_instructions as string) || "";
-
-  return `You are an AI receptionist for ${businessName}.
-${about ? `\nAbout the business: ${about}` : ""}
-${services ? `\nServices offered: ${services}` : ""}
-${faqs ? `\nFrequently asked questions:\n${faqs}` : ""}
-
-Your job:
-- Answer the phone warmly and professionally
-- Help callers with their enquiries and questions
-- Take a message if you cannot fully help (get their name and what it's about)
-- Keep responses short — this is a phone call, not a chat
-
-Rules:
-- Greet the caller and ask for their name early
-- IMPORTANT: You already have the caller's phone number from caller ID. Never ask for it — it is captured automatically.
-- Never make up information you don't know — offer to take a message instead
-- If someone wants to speak to a person or to be put through, call the transfer_to_staff tool FIRST. Do not take a message until the webhook returns accepted:false. Only use save_message if the tool returns accepted:false or the transfer fails.
-- If it's helpful, send the caller a short text with the send_sms tool (use their caller ID)
-${customPrompt ? `\nAdditional instructions: ${customPrompt}` : ""}`.trim();
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
@@ -136,47 +102,36 @@ serve(async (req) => {
     const kb = Array.isArray(kbRows) ? kbRows[0] : null;
 
     const businessName = customer.business_name || "AI Agent";
-    const greeting = `Hey, thanks for calling ${businessName}. How can I help you today?`;
-    const basePrompt = (typeof kb?.custom_instructions === "string" && kb.custom_instructions.trim())
-      ? kb.custom_instructions
-      : buildSystemPrompt(businessName, kb);
-    const hangupRule = hangupOnGoodbyePromptRule(true);
-    const systemPrompt = hangupRule ? `${basePrompt}\n\n${hangupRule}` : basePrompt;
+    const vcRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`);
+    const vcExists = Array.isArray(vcRows) && vcRows.length > 0;
+    const existingVc = vcExists ? vcRows[0] as { notify_sms?: string | null; system_prompt?: string | null } : null;
+    const systemPrompt = provisionSystemPrompt({
+      customerId: customer_id,
+      businessName,
+      supabaseUrl,
+      market,
+      kb,
+      customer: customer as Record<string, unknown>,
+      existingVoice: existingVc,
+    });
 
-    const SAVE_MESSAGE_URL = saveMessageUrl(supabaseUrl, customer_id);
-    const TRANSFER_URL = transferToStaffUrl(supabaseUrl, customer_id);
-    const CREATE_JOB_URL = createSimproJobUrl(supabaseUrl, customer_id);
-    const SEND_SMS_URL = sendSmsUrl(supabaseUrl, customer_id);
     const SMS_INBOUND_URL = `${mhBase}/mh-sms-inbound`;
     const CALL_STATUS_URL = Deno.env.get("TWILIO_STATUS_CALLBACK") ||
       `${mhBase}/mh-call-status?customer_id=${customer_id}`;
 
-    const agentTools = [
-      saveMessageWebhookTool(SAVE_MESSAGE_URL),
-      transferToStaffWebhookTool(TRANSFER_URL),
-      createSimproJobWebhookTool(CREATE_JOB_URL),
-      sendSmsWebhookTool(SEND_SMS_URL),
-    ];
-    const tools = mergeToolCallTyping(mergeEndCallTools(agentTools, true));
-
     const agentRes = await el(elApiKey, "/v1/convai/agents/create", "POST", {
       name: `${businessName} Receptionist`,
-      conversation_config: {
-        agent: {
-          first_message: padCallOpening(greeting),
-          disable_first_message_interruptions: true,
-          prompt: {
-            prompt: systemPrompt,
-            llm: "gpt-4o-mini",
-            temperature: 0.7,
-            tools,
-            built_in_tools: mergeEndCallBuiltIn({}, true),
-          },
-        },
-        tts: { voice_id: elVoiceId, model_id: "eleven_turbo_v2", stability: 0.75, similarity_boost: 0.75, speed: 0.95 },
-        asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
-        turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "patient" },
-      },
+      conversation_config: provisionElConversationConfig({
+        customerId: customer_id,
+        businessName,
+        supabaseUrl,
+        market,
+        kb,
+        customer: customer as Record<string, unknown>,
+        existingVoice: existingVc,
+        elVoiceId,
+        systemPrompt,
+      }),
       platform_settings: { auth: { enable_auth: false } },
     });
 
@@ -235,40 +190,40 @@ serve(async (req) => {
       country: market,
     });
 
-    const vcRows = await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`);
-    const vcExists = Array.isArray(vcRows) && vcRows.length > 0;
-    const existingVc = vcExists ? vcRows[0] as { notify_sms?: string | null } : null;
-    const ownerNotify = normalizePhone(ownerPhoneFromCustomer(customer as Record<string, unknown>), market);
-    const smsDefaults = {
-      cap_send_sms: true,
-      cap_transfer_calls: true,
-      cap_hangup_on_goodbye: true,
-    };
     if (!vcExists) {
-      await supabaseRest(supabaseUrl, serviceKey, "/rest/v1/mh_voice_config", "POST", {
-        customer_id,
-        ai_name: `${businessName} AI`,
-        greeting_script: greeting,
-        system_prompt: systemPrompt,
-        active: true,
-        el_agent_id: elAgentId,
-        voice_id: elVoiceId,
-        turn_eagerness: "patient",
-        ...smsDefaults,
-        ...(ownerNotify ? { notify_sms: ownerNotify } : {}),
-      });
+      await supabaseRest(supabaseUrl, serviceKey, "/rest/v1/mh_voice_config", "POST", provisionVoiceConfigInsert({
+        customerId: customer_id,
+        businessName,
+        supabaseUrl,
+        market,
+        kb,
+        customer: customer as Record<string, unknown>,
+        existingVoice: existingVc,
+        systemPrompt,
+        elAgentId,
+        elVoiceId,
+      }));
     } else {
-      const patch: Record<string, unknown> = {
-        el_agent_id: elAgentId,
-        active: true,
-        ...smsDefaults,
-      };
-      // Never overwrite an existing notify_sms (Glacier is already set).
-      if (!String(existingVc?.notify_sms || "").trim() && ownerNotify) {
-        patch.notify_sms = ownerNotify;
-      }
-      await supabaseRest(supabaseUrl, serviceKey, `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`, "PATCH", patch);
+      await supabaseRest(
+        supabaseUrl,
+        serviceKey,
+        `/rest/v1/mh_voice_config?customer_id=eq.${customer_id}`,
+        "PATCH",
+        provisionVoiceConfigPatch({
+          elAgentId,
+          existingNotifySms: existingVc?.notify_sms,
+          ownerNotify: provisionNotifySms(customer as Record<string, unknown>, market),
+          existingSystemPrompt: existingVc?.system_prompt,
+          composedPrompt: systemPrompt,
+        }),
+      );
     }
+
+    await requestCustomerAgentSync(customer_id, {
+      supabaseUrl,
+      serviceKey,
+      fetch: globalThis.fetch.bind(globalThis),
+    });
 
     console.log(`[provision] Done — ${phoneNumber} for ${businessName}`);
     return new Response(JSON.stringify({ phone_number: phoneNumber, sid: twilioNumberSid, el_agent_id: elAgentId }), {

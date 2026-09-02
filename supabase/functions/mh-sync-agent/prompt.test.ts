@@ -8,6 +8,7 @@ import {
   isGenericPromptLeftover,
   isPersistedCompose,
   isStaleNameFirstCompose,
+  isStaleProvisionStub,
   liveSystemPromptFromSource,
   operatorPromptOverride,
 } from "./prompt.ts";
@@ -243,4 +244,25 @@ YOUR ROLE:
   assert.equal(isPersistedCompose(composed), true);
   assert.equal(operatorPromptOverride(composed), "");
   assert.equal(buildSystemPrompt({ ...base, systemPrompt: composed }), composed);
+});
+
+test("old provision stub is leftover so a new signup recomposes lookup-first", () => {
+  const composed = composeSystemPrompt(base);
+  const stub = `You are an AI receptionist for Acme Plumbing.
+
+About the business: Local plumbers
+
+Your job:
+- Take a message if you cannot fully help (get their name and what it's about)
+
+Rules:
+- Greet the caller and ask for their name early
+- IMPORTANT: You already have the caller's phone number from caller ID.`;
+  assert.equal(isStaleProvisionStub(stub), true);
+  assert.equal(isGenericPromptLeftover(stub), true);
+  assert.equal(operatorPromptOverride(stub), "");
+  assert.equal(buildSystemPrompt({ ...base, systemPrompt: stub }), composed);
+  assert.match(buildSystemPrompt({ ...base, systemPrompt: stub }), /FIRST action this turn is lookup_simpro_customer/);
+  assert.doesNotMatch(buildSystemPrompt({ ...base, systemPrompt: stub }), /ask for their name early/);
+  assert.equal(isStaleProvisionStub("Always mention Malaga. Be extra brief."), false);
 });

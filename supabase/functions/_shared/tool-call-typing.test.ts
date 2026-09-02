@@ -93,11 +93,11 @@ test("inspect rows show typing on webhook tools and not on end_call", () => {
 });
 
 test("provision and sync attach typing via the merge helper, not a conversation bed", async () => {
-  const provision = await readFile(new URL("../mh-provision-number/index.ts", import.meta.url), "utf8");
+  const provision = await readFile(new URL("../mh-provision-number/provision.ts", import.meta.url), "utf8");
   const sync = await readFile(new URL("../mh-sync-agent/sync.ts", import.meta.url), "utf8");
   assert.match(provision, /mergeToolCallTyping/);
   assert.match(sync, /mergeToolCallTyping/);
-  assert.match(sync, /mergeTransferToStaffTool/);
+  assert.match(sync, /mergeCoreReceptionistTools/);
   assert.doesNotMatch(provision, /background_sound/);
   assert.doesNotMatch(sync, /background_sound/);
 });
