@@ -176,7 +176,13 @@ export function hangupAgentPatch(input: {
     disable_first_message_interruptions: true,
   };
   if (input.firstMessage) agent.first_message = input.firstMessage;
-  return { conversation_config: { agent } };
+  return {
+    conversation_config: {
+      agent,
+      // Greeting stays locked (job-site noise). Speech during it is still transcribed.
+      turn: { transcribe_on_disabled_interruptions: true },
+    },
+  };
 }
 
 export async function getElAgent(

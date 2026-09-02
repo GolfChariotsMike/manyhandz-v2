@@ -76,7 +76,9 @@ export function agentVoicePatch(body: Record<string, unknown>) {
   const conversation_config: Record<string, unknown> = { tts };
 
   if (EAGERNESS.has(eagerness) || timeout !== undefined) {
-    const turn: Record<string, unknown> = {};
+    const turn: Record<string, unknown> = {
+      transcribe_on_disabled_interruptions: true,
+    };
     if (EAGERNESS.has(eagerness)) turn.turn_eagerness = eagerness;
     if (timeout !== undefined) turn.turn_timeout = clamp(timeout, 1, 30);
     conversation_config.turn = turn;

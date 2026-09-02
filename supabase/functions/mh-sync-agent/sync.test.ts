@@ -173,6 +173,11 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   assert.equal(prompt.tools[2].tool_call_sound, undefined);
   assert.deepEqual(prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey");
+  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.deepEqual(
+    (patch.conversation_config as { turn: { transcribe_on_disabled_interruptions: boolean } }).turn,
+    { transcribe_on_disabled_interruptions: true },
+  );
 });
 
 test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", async () => {
@@ -209,7 +214,9 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
           built_in_tools: { end_call: unknown };
         };
         first_message: string;
+        disable_first_message_interruptions: boolean;
       };
+      turn: { transcribe_on_disabled_interruptions: boolean };
     };
   }).conversation_config.agent;
   assert.match(agent.prompt.prompt, /HANG UP AFTER GOODBYE/);
@@ -254,16 +261,30 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(agent.prompt.tools.some((t) => t.name === "send_signup_sms"), false);
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
+  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.deepEqual(
+    (customerPatch.body as {
+      conversation_config: { turn: { transcribe_on_disabled_interruptions: boolean } };
+    }).conversation_config.turn,
+    { transcribe_on_disabled_interruptions: true },
+  );
   assert.equal(JSON.stringify(patches).includes(EL_KEY), false);
   assert.doesNotMatch(JSON.stringify(patches), /background_sound/);
   for (const extraId of [JAKE_OUTBOUND_AGENT_ID, JAKE_DEMO_AGENT_ID]) {
     const extraPatch = patches.find((p) => p.url.endsWith(`/convai/agents/${extraId}`));
     assert.ok(extraPatch);
-    const extraTools = (extraPatch.body as {
+    const extraCfg = (extraPatch.body as {
       conversation_config: {
-        agent: { prompt: { tools: Array<{ name: string; type?: string; tool_call_sound?: string }> } };
+        agent: {
+          disable_first_message_interruptions: boolean;
+          prompt: { tools: Array<{ name: string; type?: string; tool_call_sound?: string }> };
+        };
+        turn: { transcribe_on_disabled_interruptions: boolean };
       };
-    }).conversation_config.agent.prompt.tools;
+    }).conversation_config;
+    assert.equal(extraCfg.agent.disable_first_message_interruptions, true);
+    assert.equal(extraCfg.turn.transcribe_on_disabled_interruptions, true);
+    const extraTools = extraCfg.agent.prompt.tools;
     const extraSave = extraTools.find((t) => t.name === "save_message");
     const extraEnd = extraTools.find((t) => t.name === "end_call");
     assert.equal(extraSave?.tool_call_sound, "typing");
@@ -671,6 +692,35 @@ test("saved system_prompt is what ElevenLabs gets and is not concatenated onto c
   });
   assert.equal(prompt.includes(composed), false);
   assert.equal(restPatches.some((p) => p.url.includes("/rest/v1/mh_voice_config")), false);
+});
+
+test("generic customer sync keeps greeting locked and transcribes disabled interruptions", async () => {
+  const { env, patches } = makeEnv({
+    customers: [{ business_name: "Acme Plumbing", el_agent_id: "agent-cust" }],
+    voice: [{
+      ai_name: "Acme Plumbing AI",
+      greeting_script: "Hey, thanks for calling Acme Plumbing. How can I help you today?",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_transfer_calls: true,
+      cap_send_sms: true,
+    }],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-acme-0001" }), env);
+  assert.equal(res.status, 200);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const config = (customerPatch.body as {
+    conversation_config: {
+      agent: { disable_first_message_interruptions: boolean };
+      turn: { transcribe_on_disabled_interruptions: boolean };
+    };
+  }).conversation_config;
+  assert.equal(config.agent.disable_first_message_interruptions, true);
+  assert.equal(config.turn.transcribe_on_disabled_interruptions, true);
+  assert.doesNotMatch(JSON.stringify(customerPatch.body), /a77816d9-3b5f-4635-a77d-095e767a532e/);
+  assert.doesNotMatch(JSON.stringify(customerPatch.body), /github\.com/);
+  assert.doesNotMatch(JSON.stringify(customerPatch.body), /Tradify/);
 });
 
 test("old provision stub leftover syncs lookup-first compose for a generic customer", async () => {

@@ -140,8 +140,15 @@ test("provision tools match Glacier product tools on a generic customer id", () 
 test("provision EL payload and voice_config defaults match the product notify shape", () => {
   const systemPrompt = provisionSystemPrompt(acmeInput);
   const el = provisionElConversationConfig({ ...acmeInput, systemPrompt, elVoiceId: "voice-acme" });
-  const agent = el.agent as { first_message: string; prompt: { prompt: string; tools: unknown[] } };
+  const agent = el.agent as {
+    first_message: string;
+    disable_first_message_interruptions: boolean;
+    prompt: { prompt: string; tools: unknown[] };
+  };
+  const turn = el.turn as { transcribe_on_disabled_interruptions: boolean };
   assert.match(agent.first_message, /^\.\.\. \.\.\. /);
+  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(turn.transcribe_on_disabled_interruptions, true);
   assert.equal(agent.prompt.prompt, systemPrompt);
   assert.equal(toolNames(agent.prompt.tools as unknown[]).includes("lookup_simpro_customer"), true);
 
@@ -171,6 +178,25 @@ test("provision EL payload and voice_config defaults match the product notify sh
   });
   assert.doesNotMatch(JSON.stringify(insert), new RegExp(GLACIER_ID));
   assert.doesNotMatch(JSON.stringify(insert), /nick\.studer|glacier\.simpro|office@glacier/i);
+  assert.doesNotMatch(JSON.stringify(el), new RegExp(GLACIER_ID));
+  assert.doesNotMatch(JSON.stringify(el), /github\.com/);
+  assert.doesNotMatch(JSON.stringify(el), /Tradify/);
+});
+
+test("generic customer provision locks the greeting and transcribes speech during it", () => {
+  const el = provisionElConversationConfig({
+    ...acmeInput,
+    systemPrompt: "You are Acme Plumbing AI.",
+    elVoiceId: "voice-acme",
+  });
+  const agent = el.agent as { disable_first_message_interruptions: boolean };
+  const turn = el.turn as { transcribe_on_disabled_interruptions: boolean };
+  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(turn.transcribe_on_disabled_interruptions, true);
+  assert.equal(el.turn && typeof el.turn === "object" && "mode" in el.turn, true);
+  assert.doesNotMatch(JSON.stringify(el), new RegExp(GLACIER_ID));
+  assert.doesNotMatch(JSON.stringify(el), /github\.com/);
+  assert.doesNotMatch(JSON.stringify(el), /Tradify/);
 });
 
 test("re-provision does not overwrite an existing notify_sms or a real operator prompt", () => {
