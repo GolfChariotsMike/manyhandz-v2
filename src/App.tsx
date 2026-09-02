@@ -7,6 +7,7 @@ import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Voice from "./pages/Voice";
+import Capabilities from "./pages/Capabilities";
 import Usage from "./pages/Usage";
 import FAQ from "./pages/FAQ";
 import Chat from "./pages/Chat";
@@ -35,6 +36,7 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="voice" element={<Voice />} />
+          <Route path="capabilities" element={<Capabilities />} />
           <Route path="email" element={<Navigate to="/connections" replace />} />
           <Route path="chat" element={<Chat />} />
           <Route path="team" element={<Team />} />

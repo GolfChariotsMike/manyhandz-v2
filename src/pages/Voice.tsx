@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
 import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
-import { notifyMobilePlaceholder, notifySmsPayloadFromForm, provisionNumberBody } from "../lib/onboarding";
+import { provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
 import { closingMessagePlaceholder, greetingSettingsDbPatch } from "../lib/closing-message";
@@ -130,140 +130,6 @@ function CallLog({ calls }: { calls: any[] }) {
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function CapabilitiesSection({ config, customerId, anon, url }: { config: any, customerId: string, anon: string, url: string }) {
-  const CAPS = [
-    { key: "cap_confirm_bookings", label: "Book into calendar", desc: "When Google or Outlook Calendar is connected, the agent can check free/busy and create a real booking.", default: false },
-    { key: "cap_quote_prices",     label: "Quote prices",    desc: "Agent can quote prices from the knowledge base.", default: false },
-    { key: "cap_transfer_calls",   label: "Transfer calls",  desc: "Agent can transfer callers through to staff.", default: true },
-    { key: "cap_send_sms",         label: "Send SMS",        desc: "Agent can send text messages to callers with links or info.", default: true },
-    { key: "cap_create_simpro_job", label: "Create SimPRO leads", desc: "When SimPRO is connected, the agent can create a real lead from the call or website chat and read back the lead number.", default: true },
-    { key: "cap_create_servicem8_job", label: "Create ServiceM8 jobs", desc: "When ServiceM8 is connected, the agent can create a real job from the call and read back the job UUID.", default: false },
-    { key: "cap_create_xero_invoice", label: "Create Xero draft invoices", desc: "When Xero is connected, the agent can raise a draft sales invoice. The office still approves it.", default: false },
-    { key: "cap_disclose_ai",      label: "Say you're AI",   desc: "On the first reply after the greeting, answer the caller and mention you are an AI assistant. Off = do not volunteer it.", default: false },
-    { key: "cap_hangup_on_goodbye", label: "Hang up after goodbye", desc: "If they say goodbye once or twice, say a short bye and end the call. Don't loop.", default: true },
-  ];
-
-  const [caps, setCaps] = useState<Record<string, boolean>>(() => {
-    const out: Record<string, boolean> = {};
-    for (const c of CAPS) out[c.key] = config?.[c.key] ?? c.default;
-    return out;
-  });
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  async function saveCaps() {
-    if (!config?.id) return;
-    setSaving(true);
-    await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-      method: "PATCH",
-      headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
-      body: JSON.stringify(caps),
-    });
-    // Trigger agent resync
-    await fetch(`${url}/functions/v1/mh-sync-agent`, {
-      method: "POST",
-      headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ customer_id: customerId }),
-    }).catch(() => {});
-    setSaving(false); setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  return (
-    <div className="aurora-card p-6">
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="font-semibold">Agent capabilities</h3>
-        <button onClick={saveCaps} disabled={saving}
-          className="text-xs px-3 py-1.5 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 rounded-lg transition disabled:opacity-50">
-          {saved ? "Saved ✓" : saving ? "Saving..." : "Save"}
-        </button>
-      </div>
-      <p className="text-xs text-white/40 mb-4">Controls what your agent is allowed to do on calls. Changes sync to the agent immediately. Callers hear faint typing while the agent looks something up.</p>
-      <div className="space-y-3">
-        {CAPS.map(c => (
-          <div key={c.key} className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
-            <button onClick={() => setCaps(prev => ({ ...prev, [c.key]: !prev[c.key] }))}
-              className={`mt-0.5 w-10 h-6 rounded-full transition-colors shrink-0 relative ${
-                caps[c.key] ? "bg-yellow-500" : "bg-white/10"
-              }`}>
-              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
-                caps[c.key] ? "left-5" : "left-1"
-              }`} />
-            </button>
-            <div>
-              <p className="text-sm font-medium">{c.label}</p>
-              <p className="text-xs text-white/40">{c.desc}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function NotifySmsSection({
-  config,
-  customer,
-  anon,
-  url,
-}: {
-  config: any;
-  customer: any;
-  anon: string;
-  url: string;
-}) {
-  const [notifySms, setNotifySms] = useState(config?.notify_sms || "");
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  async function handleSave() {
-    if (!config?.id) return;
-    setSaving(true);
-    try {
-      const payload = notifySmsPayloadFromForm(notifySms, customer?.country);
-      await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-        method: "PATCH",
-        headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      setNotifySms(payload.notify_sms || "");
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div className="aurora-card p-6 mb-8">
-      <h3 className="font-semibold mb-1">Message alerts</h3>
-      <p className="text-sm text-white/50 mb-4">
-        When someone leaves a message or Charlie creates a SimPRO lead, we text this number. Same field as onboarding notify mobile.
-      </p>
-      <label className="text-sm text-white/60 block mb-1">Notify SMS</label>
-      <div className="flex gap-2">
-        <input
-          type="tel"
-          value={notifySms}
-          onChange={e => setNotifySms(e.target.value)}
-          placeholder={notifyMobilePlaceholder(customer?.country)}
-          className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
-        />
-        <button
-          onClick={handleSave}
-          disabled={saving || !config?.id}
-          className="btn-primary text-sm flex items-center gap-2 shrink-0"
-        >
-          {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
-          {saved ? "Saved!" : saving ? "Saving..." : "Save"}
-        </button>
-      </div>
     </div>
   );
 }
@@ -819,7 +685,7 @@ export default function Voice() {
         <p className="text-xs text-white/30 mt-2">Keep it natural and under 2 sentences. The AI will take it from there.</p>
 
         <label className="text-sm font-medium block mt-5 mb-1">Sign-off</label>
-        <p className="text-xs text-white/30 mb-2">Last spoken line before the call ends. Hang up after goodbye stays a toggle below.</p>
+        <p className="text-xs text-white/30 mb-2">Last spoken line before the call ends. Hang up after goodbye is a toggle on Capabilities.</p>
         <input
           type="text"
           value={closing}
@@ -903,12 +769,12 @@ export default function Voice() {
         canSave={Boolean(config?.el_agent_id || customer?.el_agent_id)}
       />
 
-      {/* Capabilities */}
-      <div className="mb-8">
-        <CapabilitiesSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <div className="aurora-card p-4 mb-8 text-sm text-white/50">
+        Agent tools (quote, transfer, SimPRO leads, hang up after goodbye) live on{" "}
+        <Link to="/capabilities" className="text-yellow-400 hover:text-yellow-300">Capabilities</Link>
+        . Office email and SMS alerts are on the SimPRO card under{" "}
+        <Link to="/connections" className="text-yellow-400 hover:text-yellow-300">Connections</Link>.
       </div>
-
-      <NotifySmsSection config={config} customer={customer} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Whitelist + Bridge */}
       <WhitelistSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />

@@ -20,6 +20,7 @@ import {
   leadNotifyEmailSubject,
   leadNotifySmsBody,
   pickNotifyEmail,
+  pickNotifySms,
   sanitizeNotifyError,
   sendLeadNotifyEmail,
 } from "./notify.ts";
@@ -574,6 +575,9 @@ test("encrypt/decrypt matches the live connect wrap and index has no secrets", a
   assert.match(src, /leadNotifyHooks/);
   assert.match(src, /mh_v2_customers/);
   assert.match(src, /notify_sms/);
+  assert.match(src, /notify_email/);
+  assert.match(src, /notify_sms_enabled/);
+  assert.match(src, /notify_email_enabled/);
   assert.equal(/sk_|client_secret\s*[:=]\s*['"][^'"]+['"]/.test(src), false);
   assert.doesNotMatch(src, /Tradify/i);
 });
@@ -652,10 +656,41 @@ test("notify email + SMS fire on lead success, not on missing_fields or not_conn
   assert.doesNotMatch(JSON.stringify(emails), /9901|7702/);
 });
 
+test("disabled or empty notify channels skip send and still create the lead", async () => {
+  const { env, emails, sms } = envFor({
+    connection: await connected(),
+    notify: {
+      ...glacierNotify,
+      notify_email: "office@glacier.test",
+      notify_email_enabled: false,
+      notify_sms_enabled: false,
+    },
+    fetchImpl: happyLeadFetch(),
+  });
+  const result = await createSimproJob(input, env);
+  assert.equal(result.ok, true);
+  assert.equal(emails.length, 0);
+  assert.equal(sms.length, 0);
+
+  const empty = envFor({
+    connection: await connected(),
+    notify: { email: "", notify_sms: "", notify_email_enabled: true, notify_sms_enabled: true },
+    fetchImpl: happyLeadFetch(),
+  });
+  const emptyResult = await createSimproJob(input, empty.env);
+  assert.equal(emptyResult.ok, true);
+  assert.equal(empty.emails.length, 0);
+  assert.equal(empty.sms.length, 0);
+});
+
 test("notify prefers notify_email then login email; failures do not fail the lead", async () => {
   assert.equal(pickNotifyEmail({ notify_email: "office@glacier.test", email: "nick.studer711@gmail.com" }), "office@glacier.test");
   assert.equal(pickNotifyEmail({ email: "nick.studer711@gmail.com" }), "nick.studer711@gmail.com");
   assert.equal(pickNotifyEmail({}), "");
+  assert.equal(pickNotifyEmail({ email: "nick.studer711@gmail.com", notify_email_enabled: false }), "");
+  assert.equal(pickNotifySms({ notify_sms: "+61422962169" }), "+61422962169");
+  assert.equal(pickNotifySms({ notify_sms: "+61422962169", notify_sms_enabled: false }), "");
+  assert.equal(pickNotifySms({ notify_sms: "  ", notify_sms_enabled: true }), "");
 
   const { env, emails, sms } = envFor({
     connection: await connected(),

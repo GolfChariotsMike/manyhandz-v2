@@ -13,6 +13,8 @@ Deploy the function with JWT verification **off** (`supabase/config.toml` alread
 
 Apply `supabase/migrations/20260830000000_mh_grokbot_tokens.sql` on the project before deploying.
 
+After merge, also apply `supabase/migrations/20260902030000_notify_email_and_sms_toggles.sql` on DraftPilot `kouembkldbpdbhzeaoth` (see `supabase/migrations/APPLY.md`) so notify email/SMS toggles exist before the dashboard and `mhv2-simpro-create-job` / `mh-save-message` read them.
+
 ## MCP tools
 
 | Tool | REST wrap | Notes |

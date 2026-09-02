@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound, ExternalLink } from "lucide-react";
-import { generateGrokbotKey, getGrokbotKey, getMe, revokeGrokbotKey } from "../lib/api";
+import { generateGrokbotKey, getGrokbotKey, getMe, getVoiceConfig, revokeGrokbotKey, saveVoiceNotifySms, updateProfile } from "../lib/api";
+import { notifyMobilePlaceholder } from "../lib/onboarding";
+import { notifyChannelOn, notifyEmailPayloadFromForm, notifySmsSettingsPayload } from "../lib/notify-settings";
 
 const GROK_BOT_DOWNLOAD_URL = "https://x.ai/bot";
 const GROK_BOT_MCP_URL = "https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-grokbot/mcp";
@@ -329,8 +331,152 @@ function GrokBotCard() {
   );
 }
 
+function NotifyToggle({
+  on,
+  label,
+  onToggle,
+}: {
+  on: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className={`w-10 h-6 rounded-full transition-colors shrink-0 relative ${
+        on ? "bg-yellow-500" : "bg-white/10"
+      }`}
+      aria-pressed={on}
+      aria-label={label}
+    >
+      <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${
+        on ? "left-5" : "left-1"
+      }`} />
+    </button>
+  );
+}
+
+function SimproNotifySettings({
+  customer,
+  voice,
+}: {
+  customer: { email?: string | null; country?: string | null; notify_email?: string | null; notify_email_enabled?: boolean | null } | null;
+  voice: { notify_sms?: string | null; notify_sms_enabled?: boolean | null } | null;
+}) {
+  const [email, setEmail] = useState(customer?.notify_email || "");
+  const [emailOn, setEmailOn] = useState(notifyChannelOn(customer?.notify_email_enabled));
+  const [sms, setSms] = useState(voice?.notify_sms || "");
+  const [smsOn, setSmsOn] = useState(notifyChannelOn(voice?.notify_sms_enabled));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setEmail(customer?.notify_email || "");
+    setEmailOn(notifyChannelOn(customer?.notify_email_enabled));
+  }, [customer?.notify_email, customer?.notify_email_enabled]);
+
+  useEffect(() => {
+    setSms(voice?.notify_sms || "");
+    setSmsOn(notifyChannelOn(voice?.notify_sms_enabled));
+  }, [voice?.notify_sms, voice?.notify_sms_enabled]);
+
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    try {
+      await updateProfile(notifyEmailPayloadFromForm(email, emailOn));
+      const smsRow = await saveVoiceNotifySms(notifySmsSettingsPayload(sms, smsOn, customer?.country));
+      const savedSms = smsRow?.voice?.notify_sms;
+      if (typeof savedSms === "string" || savedSms === null) setSms(savedSms || "");
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not save alerts");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 pt-5 border-t border-white/10 space-y-4">
+      <div>
+        <h3 className="text-white font-medium text-sm">Office alerts</h3>
+        <p className="text-white/40 text-xs mt-1">
+          These alerts fire when Charlie creates a SimPRO lead, and when someone leaves a message (SMS). Login email stays for signing in. Turn a channel off to skip it without deleting the address or number.
+        </p>
+      </div>
+
+      <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
+        <NotifyToggle on={emailOn} label="Notification email" onToggle={() => setEmailOn((v) => !v)} />
+        <div className="flex-1 min-w-0">
+          <label className="text-sm font-medium block mb-1">Notification email</label>
+          <p className="text-xs text-white/40 mb-2">
+            Lead-alert address. Off = do not email, even if a login email exists.
+            {emailOn && !email.trim() && customer?.email
+              ? ` Empty falls back to ${customer.email}.`
+              : ""}
+          </p>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={!emailOn}
+            placeholder={customer?.email || "office@yourbusiness.com"}
+            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50 disabled:opacity-40"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-start gap-3 p-3 bg-white/5 rounded-xl">
+        <NotifyToggle on={smsOn} label="Notification SMS" onToggle={() => setSmsOn((v) => !v)} />
+        <div className="flex-1 min-w-0">
+          <label className="text-sm font-medium block mb-1">Notification SMS</label>
+          <p className="text-xs text-white/40 mb-2">
+            Office mobile for lead and take-a-message texts. Off = no office SMS. We never text the caller on this number.
+          </p>
+          <input
+            type="tel"
+            value={sms}
+            onChange={(e) => setSms(e.target.value)}
+            disabled={!smsOn}
+            placeholder={notifyMobilePlaceholder(customer?.country)}
+            className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm placeholder-white/30 focus:outline-none focus:border-blue-500/50 disabled:opacity-40"
+          />
+        </div>
+      </div>
+
+      {error && (
+        <div className="flex items-center gap-2 text-red-400 text-sm">
+          <AlertCircle size={14} />
+          {error}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-500/20 text-yellow-300 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-50"
+      >
+        {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+        {saved ? "Saved!" : saving ? "Saving..." : "Save alerts"}
+      </button>
+    </div>
+  );
+}
+
 export default function Connections() {
   const [customerId, setCustomerId] = useState("");
+  const [customer, setCustomer] = useState<{
+    id?: string;
+    email?: string | null;
+    country?: string | null;
+    notify_email?: string | null;
+    notify_email_enabled?: boolean | null;
+  } | null>(null);
+  const [voice, setVoice] = useState<{ notify_sms?: string | null; notify_sms_enabled?: boolean | null } | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
   const [_loading, setLoading] = useState(true);
 
@@ -388,10 +534,17 @@ export default function Connections() {
       );
       window.history.replaceState({}, "", "/connections");
     }
-    getMe().then(({ customer }) => {
-      if (customer?.id) {
-        setCustomerId(customer.id);
-        loadConnections(customer.id);
+    getMe().then(({ customer: c }) => {
+      if (c?.id) {
+        setCustomer(c);
+        setCustomerId(c.id);
+        loadConnections(c.id);
+        getVoiceConfig(c.id)
+          .then((cfg) => {
+            const row = Array.isArray(cfg) ? cfg[0] || null : null;
+            setVoice(row);
+          })
+          .catch(() => setVoice(null));
       }
     }).catch(() => setLoading(false));
   }, []);
@@ -577,6 +730,8 @@ export default function Connections() {
             </button>
           </div>
         )}
+
+        <SimproNotifySettings customer={customer} voice={voice} />
       </div>
 
       {/* ServiceM8 Card */}

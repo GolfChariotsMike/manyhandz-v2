@@ -53,6 +53,7 @@ export type VoiceRow = {
   cap_disclose_ai?: boolean | null;
   cap_create_simpro_job?: boolean | null;
   notify_sms?: string | null;
+  notify_sms_enabled?: boolean | null;
 };
 
 export type CustomerRow = {
@@ -61,6 +62,7 @@ export type CustomerRow = {
   country?: string | null;
   email?: string | null;
   notify_email?: string | null;
+  notify_email_enabled?: boolean | null;
 };
 
 export type ChatSessionRow = {
@@ -156,7 +158,9 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
         return {
           email: row?.email ?? null,
           notify_email: row?.notify_email ?? null,
+          notify_email_enabled: row?.notify_email_enabled ?? null,
           notify_sms: voice?.notify_sms ?? null,
+          notify_sms_enabled: voice?.notify_sms_enabled ?? null,
           twilio_number: row?.twilio_number ?? null,
           business_name: row?.business_name ?? null,
         };

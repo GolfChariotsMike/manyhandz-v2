@@ -97,6 +97,8 @@ export type ProfileUpdates = {
   website_url?: string | null;
   industry?: string | null;
   onboarding_complete?: boolean;
+  notify_email?: string | null;
+  notify_email_enabled?: boolean;
 };
 
 /** Persist mh_v2_customers via mh-v2-save (service role). Do not PATCH REST with the anon key. */
@@ -121,6 +123,7 @@ export async function saveOnboardingKnowledge(kb: OnboardingKnowledge) {
 
 export type VoiceNotifySms = {
   notify_sms: string | null;
+  notify_sms_enabled?: boolean;
 };
 
 /** Persist mh_voice_config.notify_sms via mh-v2-save (creates the row if missing). */
