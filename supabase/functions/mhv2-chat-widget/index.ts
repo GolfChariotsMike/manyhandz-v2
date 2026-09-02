@@ -84,7 +84,7 @@ function supabaseStore(): ChatStore {
     async loadCustomer(customerId) {
       const { data } = await supabase
         .from("mh_v2_customers")
-        .select("business_name,twilio_number,country")
+        .select("email,business_name,twilio_number,country")
         .eq("id", customerId)
         .maybeSingle();
       return data;
@@ -126,6 +126,7 @@ Deno.serve((req) =>
     twilioAccountSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioAuthToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
     smsFallbackFrom: Deno.env.get("MANYHANDZ_SMS_FROM") || Deno.env.get("TWILIO_SMS_FROM") || "",
+    resendApiKey: Deno.env.get("RESEND_API_KEY") || "",
     store: supabaseStore(),
   }),
 );

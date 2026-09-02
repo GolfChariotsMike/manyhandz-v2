@@ -2,7 +2,14 @@
  * Create a real SimPRO lead (find-or-create customer + site, then POST lead).
  * Uses the same mh_crm_connections row and AES-GCM secret wrap as
  * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
- *
+ * On success, notifies the ManyHandz customer (email + notify_sms). Office
+ * notify lives here so voice and chat both fire — do not rely on send_sms.
+ */
+import { notifySimproLeadCreated, type LeadNotifyEnv, type LeadNotifyTargets } from "./notify.ts";
+
+export type { LeadNotifyTargets };
+
+/**
  * SimPRO Leads API (developer.simprogroup.com):
  * POST /api/v1.0/companies/{companyID}/leads/
  * Required: Customer (int), Site (int). Optional: LeadName, Description,
@@ -80,7 +87,7 @@ export type CreateJobEnv = {
   loadConnection: (customerId: string) => Promise<SimproConnection | null>;
   saveTokens?: (connectionId: string, encryptedToken: string, expiresAt: string) => Promise<void>;
   cacheJob?: (row: CachedJobRow) => Promise<void>;
-};
+} & LeadNotifyEnv;
 
 export function sanitizeSimproError(text: string): string {
   return String(text || "")
@@ -539,6 +546,12 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
         site_address: input.site_address,
         description: input.description,
       });
+    }
+
+    try {
+      await notifySimproLeadCreated(resolved, leadNumber, env);
+    } catch {
+      // Notify must never fail the lead. Errors are sanitized inside notify.
     }
 
     return {

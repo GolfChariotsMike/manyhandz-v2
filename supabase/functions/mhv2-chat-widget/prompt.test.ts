@@ -56,6 +56,8 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /SIMPRO LEADS/);
   assert.match(on, /lead number/);
   assert.match(on, /do not pretend a lead was created/i);
+  assert.match(on, /the function notifies/);
+  assert.match(on, /use save_message/);
   assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
   assert.match(on, /always collect their mobile first/);
   assert.match(on, /skip name and full site address/);

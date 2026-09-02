@@ -11,6 +11,7 @@ import {
   type CachedJobRow,
   type SimproConnection,
 } from "./create.ts";
+import { leadNotifyHooks } from "./notify.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -43,10 +44,36 @@ Deno.serve(async (req) => {
     const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
     const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
 
+    const fetchFn = globalThis.fetch.bind(globalThis);
     const result = await createSimproJob(parsed, {
-      fetch: globalThis.fetch.bind(globalThis),
+      fetch: fetchFn,
       now: () => new Date(),
       encryptionKey,
+      ...leadNotifyHooks({
+        fetch: fetchFn,
+        resendApiKey: Deno.env.get("RESEND_API_KEY") || "",
+        twilioAccountSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
+        twilioAuthToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+        smsFallbackFrom: Deno.env.get("MANYHANDZ_SMS_FROM") || Deno.env.get("TWILIO_SMS_FROM") || "",
+        loadNotifyTargets: async (customerId) => {
+          const [{ data: customer }, { data: voice }] = await Promise.all([
+            admin.from("mh_v2_customers")
+              .select("email,twilio_number,business_name")
+              .eq("id", customerId)
+              .maybeSingle(),
+            admin.from("mh_voice_config")
+              .select("notify_sms")
+              .eq("customer_id", customerId)
+              .maybeSingle(),
+          ]);
+          return {
+            email: customer?.email ?? null,
+            notify_sms: voice?.notify_sms ?? null,
+            twilio_number: customer?.twilio_number ?? null,
+            business_name: customer?.business_name ?? null,
+          };
+        },
+      }),
       loadConnection: async (customerId) => {
         const { data } = await admin
           .from("mh_crm_connections")
