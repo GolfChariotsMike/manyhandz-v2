@@ -4,6 +4,7 @@ import {
   asksNameOrAddress,
   canCreateLead,
   claimsLeadSuccess,
+  claimsLeadSuccessAfterFailedCreate,
   collectSlots,
   createJobInputFromSlots,
   extractNameFromText,
@@ -64,7 +65,11 @@ test("yes please is a booking confirm; Done/notified is a fake close", () => {
   assert.equal(looksLikeBookingConfirm("how much for a clean?"), false);
   assert.equal(claimsLeadSuccess("Done! The team has been notified"), true);
   assert.equal(claimsLeadSuccess("I've passed your details to the team and someone will be in touch to confirm."), true);
+  assert.equal(claimsLeadSuccess("I've saved your service request. The team will be in touch…"), true);
   assert.equal(claimsLeadSuccess("A split system clean is $330."), false);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("I've saved your service request. The team will be in touch…"), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("The team will contact you shortly."), true);
+  assert.equal(claimsLeadSuccessAfterFailedCreate("A split system clean is $330."), false);
 });
 
 test("collected-slots block lists fields and honest replies never fake notify", () => {
