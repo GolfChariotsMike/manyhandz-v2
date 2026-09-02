@@ -77,7 +77,11 @@ test("update_agent_voice sends tts + turn + greeting when provided", () => {
         similarity_boost: 0.8,
         speed: 0.95,
       },
-      turn: { turn_eagerness: "patient", turn_timeout: 7 },
+      turn: {
+        transcribe_on_disabled_interruptions: true,
+        turn_eagerness: "patient",
+        turn_timeout: 7,
+      },
       agent: {
         first_message: "... ... G'day, thanks for calling.",
         disable_first_message_interruptions: true,
@@ -145,7 +149,11 @@ test("handleElProxy keeps existing actions and forwards slider voice_settings", 
     similarity_boost: 0.8,
     speed: 0.95,
   });
-  assert.deepEqual(patch.conversation_config.turn, { turn_eagerness: "eager", turn_timeout: 7 });
+  assert.deepEqual(patch.conversation_config.turn, {
+    transcribe_on_disabled_interruptions: true,
+    turn_eagerness: "eager",
+    turn_timeout: 7,
+  });
   assert.deepEqual(patch.conversation_config.agent, {
     first_message: "... ... Hey, thanks for calling.",
     disable_first_message_interruptions: true,

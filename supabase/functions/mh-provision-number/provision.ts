@@ -170,7 +170,13 @@ export function provisionElConversationConfig(input: ProvisionAgentInput & { sys
       speed: 0.95,
     },
     asr: { quality: "high", provider: "elevenlabs", user_input_audio_format: "ulaw_8000" },
-    turn: { mode: "turn", turn_timeout: 7, turn_eagerness: "patient" },
+    turn: {
+      mode: "turn",
+      turn_timeout: 7,
+      turn_eagerness: "patient",
+      // Greeting stays locked (job-site noise). Speech during it is still transcribed.
+      transcribe_on_disabled_interruptions: true,
+    },
   };
 }
 
