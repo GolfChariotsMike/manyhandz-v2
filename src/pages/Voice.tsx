@@ -244,7 +244,7 @@ function NotifySmsSection({
     <div className="aurora-card p-6 mb-8">
       <h3 className="font-semibold mb-1">Message alerts</h3>
       <p className="text-sm text-white/50 mb-4">
-        When someone leaves a message, we text this number. Same field as onboarding notify mobile.
+        When someone leaves a message or Charlie creates a SimPRO lead, we text this number. Same field as onboarding notify mobile.
       </p>
       <label className="text-sm text-white/60 block mb-1">Notify SMS</label>
       <div className="flex gap-2">

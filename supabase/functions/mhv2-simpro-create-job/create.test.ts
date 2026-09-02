@@ -12,8 +12,17 @@ import {
   sanitizeSimproError,
   splitPersonName,
   type CreateJobEnv,
+  type LeadNotifyTargets,
   type SimproConnection,
 } from "./create.ts";
+import {
+  LEAD_NOTIFY_FROM,
+  leadNotifyEmailSubject,
+  leadNotifySmsBody,
+  pickNotifyEmail,
+  sanitizeNotifyError,
+  sendLeadNotifyEmail,
+} from "./notify.ts";
 
 const KEY = "test-encryption-key-not-a-secret";
 const CUST = "a77816d9-3b5f-4635-a77d-095e767a532e";
@@ -48,9 +57,22 @@ async function connected(overrides: Partial<SimproConnection> = {}): Promise<Sim
 function envFor(opts: {
   connection?: SimproConnection | null;
   fetchImpl?: CreateJobEnv["fetch"];
-}): { env: CreateJobEnv; calls: string[]; cached: unknown[] } {
+  notify?: LeadNotifyTargets | null;
+  notifyEmail?: CreateJobEnv["sendNotifyEmail"];
+  notifySms?: CreateJobEnv["sendNotifySms"];
+}): {
+  env: CreateJobEnv;
+  calls: string[];
+  cached: unknown[];
+  emails: unknown[];
+  sms: unknown[];
+  logs: string[];
+} {
   const calls: string[] = [];
   const cached: unknown[] = [];
+  const emails: unknown[] = [];
+  const sms: unknown[] = [];
+  const logs: string[] = [];
   const env: CreateJobEnv = {
     encryptionKey: KEY,
     now: () => new Date("2026-09-01T01:00:00+08:00"),
@@ -63,8 +85,32 @@ function envFor(opts: {
       calls.push(`${init?.method || "GET"} ${url}`);
       return new Response("{}", { status: 200 });
     }),
+    loadNotifyTargets: opts.notify === undefined
+      ? undefined
+      : async () => opts.notify ?? null,
+    sendNotifyEmail: opts.notifyEmail || (async (msg) => {
+      emails.push(msg);
+      return { ok: true };
+    }),
+    sendNotifySms: opts.notifySms || (async (msg) => {
+      sms.push(msg);
+      return { ok: true };
+    }),
+    smsFallbackFrom: "+61485021312",
+    log: (msg) => {
+      logs.push(msg);
+    },
   };
-  return { env, calls, cached };
+  return { env, calls, cached, emails, sms, logs };
+}
+
+async function runCreate(
+  body: unknown,
+  env: CreateJobEnv,
+): Promise<ReturnType<typeof parseCreateJobInput> | Awaited<ReturnType<typeof createSimproJob>>> {
+  const parsed = parseCreateJobInput(body, CUST);
+  if ("ok" in parsed) return parsed;
+  return createSimproJob(parsed, env);
 }
 
 test("parse helpers split AU address and names", () => {
@@ -525,6 +571,143 @@ test("encrypt/decrypt matches the live connect wrap and index has no secrets", a
   assert.equal(await decryptSecret(cipher, KEY), "round-trip");
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   assert.match(src, /ENCRYPTION_KEY/);
+  assert.match(src, /leadNotifyHooks/);
+  assert.match(src, /mh_v2_customers/);
+  assert.match(src, /notify_sms/);
   assert.equal(/sk_|client_secret\s*[:=]\s*['"][^'"]+['"]/.test(src), false);
   assert.doesNotMatch(src, /Tradify/i);
+});
+
+const glacierNotify: LeadNotifyTargets = {
+  email: "nick.studer711@gmail.com",
+  notify_sms: "+61422962169",
+  twilio_number: "+61485000000",
+  business_name: "Glacier Air",
+};
+
+function happyLeadFetch(): CreateJobEnv["fetch"] {
+  return async (inputUrl, init) => {
+    const url = String(inputUrl);
+    const method = init?.method || "GET";
+    if (url.includes("/customers/") && method === "GET") {
+      return Response.json([{ ID: 9, Phone: "0411122333" }]);
+    }
+    if (url.includes("/sites") && method === "GET") {
+      return Response.json([{ ID: 3, Name: "12 Frost St" }]);
+    }
+    if (url.includes("/leads/") && method === "POST") {
+      return Response.json({ ID: 18421 }, { status: 201 });
+    }
+    if (url.includes("/jobs/")) {
+      return new Response("must not POST /jobs/", { status: 500 });
+    }
+    return Response.json([]);
+  };
+}
+
+test("notify email + SMS fire on lead success, not on missing_fields or not_connected", async () => {
+  const { env, emails, sms, logs } = envFor({
+    connection: await connected(),
+    notify: glacierNotify,
+    fetchImpl: happyLeadFetch(),
+  });
+
+  const missing = await runCreate({ caller_name: "Sam Glacier" }, env);
+  assert.equal("ok" in missing && missing.ok === false, true);
+  if ("ok" in missing) assert.equal(missing.code, "missing_fields");
+  assert.equal(emails.length, 0);
+  assert.equal(sms.length, 0);
+
+  const disconnected = envFor({
+    connection: null,
+    notify: glacierNotify,
+  });
+  const notConnected = await runCreate(input, disconnected.env);
+  assert.equal(notConnected.ok, false);
+  if (!notConnected.ok) assert.equal(notConnected.code, "not_connected");
+  assert.equal(disconnected.emails.length, 0);
+  assert.equal(disconnected.sms.length, 0);
+
+  const result = await runCreate(input, env);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "18421");
+  assert.equal(emails.length, 1);
+  assert.equal(sms.length, 1);
+  const email = emails[0] as { to: string; subject: string; text: string; html: string };
+  assert.equal(email.to, "nick.studer711@gmail.com");
+  assert.match(email.subject, /18421/);
+  assert.match(email.text, /Sam Glacier/);
+  assert.match(email.text, /\+61411122333/);
+  assert.match(email.text, /12 Frost St/);
+  assert.match(email.html, /18421/);
+  const text = sms[0] as { from: string; to: string; body: string };
+  assert.equal(text.to, "+61422962169");
+  assert.equal(text.from, "+61485000000");
+  assert.match(text.body, /18421/);
+  assert.match(text.body, /Sam Glacier/);
+  assert.match(text.body, /12 Frost St/);
+  assert.equal(JSON.stringify({ result, emails, sms, logs }).includes("super-secret"), false);
+  assert.equal(JSON.stringify({ result, emails, sms, logs }).includes("live-token"), false);
+  assert.doesNotMatch(JSON.stringify(emails), /9901|7702/);
+});
+
+test("notify prefers notify_email then login email; failures do not fail the lead", async () => {
+  assert.equal(pickNotifyEmail({ notify_email: "office@glacier.test", email: "nick.studer711@gmail.com" }), "office@glacier.test");
+  assert.equal(pickNotifyEmail({ email: "nick.studer711@gmail.com" }), "nick.studer711@gmail.com");
+  assert.equal(pickNotifyEmail({}), "");
+
+  const { env, emails, sms } = envFor({
+    connection: await connected(),
+    notify: glacierNotify,
+    fetchImpl: happyLeadFetch(),
+    notifyEmail: async () => {
+      throw new Error("Bearer leaked-token-value client_secret=nope re_live_secret");
+    },
+    notifySms: async () => ({ ok: false, error: "Twilio access_token=tok" }),
+  });
+  const logs: string[] = [];
+  env.log = (msg) => logs.push(msg);
+
+  const result = await createSimproJob(input, env);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "18421");
+  assert.equal(emails.length, 0);
+  assert.equal(sms.length, 0);
+  assert.equal(logs.some((l) => l.includes("notify email failed")), true);
+  assert.equal(logs.some((l) => l.includes("notify sms failed")), true);
+  const joined = logs.join("\n");
+  assert.equal(joined.includes("leaked-token-value"), false);
+  assert.equal(joined.includes("nope"), false);
+  assert.equal(joined.includes("re_live_secret"), false);
+  assert.equal(JSON.stringify(result).includes("super-secret"), false);
+});
+
+test("notify helpers redact secrets and use the ManyHandz noreply From", async () => {
+  const cleaned = sanitizeNotifyError("Bearer abc.secret client_secret=hunter2 access_token=tok re_live_secret SK0123456789abcdef");
+  assert.equal(cleaned.includes("abc.secret"), false);
+  assert.equal(cleaned.includes("hunter2"), false);
+  assert.equal(cleaned.includes("re_live_secret"), false);
+  assert.match(cleaned, /Bearer \[redacted\]/);
+  assert.equal(LEAD_NOTIFY_FROM, "ManyHandz <noreply@manyhandz.ai>");
+  assert.match(leadNotifySmsBody(input, "18421", "Glacier Air"), /Glacier Air/);
+  assert.match(leadNotifyEmailSubject(input, "18421"), /18421/);
+
+  let from = "";
+  const sent = await sendLeadNotifyEmail(
+    (async (_url, init) => {
+      const body = JSON.parse(String(init?.body || "{}"));
+      from = body.from;
+      assert.deepEqual(body.to, ["nick.studer711@gmail.com"]);
+      assert.equal(String(init?.headers && (init.headers as Record<string, string>).Authorization || "").includes("re_live"), true);
+      return new Response("Bearer leaked-token-value", { status: 500 });
+    }) as typeof fetch,
+    "re_live_testkey",
+    { to: "nick.studer711@gmail.com", subject: "x", html: "h", text: "t" },
+  );
+  assert.equal(from, LEAD_NOTIFY_FROM);
+  assert.equal(sent.ok, false);
+  assert.equal(String(sent.error || "").includes("leaked-token-value"), false);
+  assert.equal(String(sent.error || "").includes("re_live"), false);
 });

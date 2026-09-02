@@ -12,6 +12,7 @@ import {
   type ChatToolExecutors,
 } from "./tools.ts";
 import type { CreateJobEnv, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
+import { leadNotifyHooks } from "../mhv2-simpro-create-job/notify.ts";
 import type { SaveMessageEnv } from "../mh-save-message/save.ts";
 import type { SendSmsEnv } from "../mh-send-sms/send.ts";
 
@@ -58,6 +59,8 @@ export type CustomerRow = {
   business_name?: string | null;
   twilio_number?: string | null;
   country?: string | null;
+  email?: string | null;
+  notify_email?: string | null;
 };
 
 export type ChatSessionRow = {
@@ -92,6 +95,7 @@ export type ChatEnv = {
   twilioAccountSid: string;
   twilioAuthToken: string;
   smsFallbackFrom: string;
+  resendApiKey?: string;
   store: ChatStore;
   executors?: ChatToolExecutors;
 };
@@ -138,6 +142,26 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
     loadConnection: (id) => store.loadSimproConnection(id),
     saveTokens: store.saveSimproTokens,
     cacheJob: store.cacheJob,
+    ...leadNotifyHooks({
+      fetch: env.fetch,
+      resendApiKey: env.resendApiKey || "",
+      twilioAccountSid: env.twilioAccountSid,
+      twilioAuthToken: env.twilioAuthToken,
+      smsFallbackFrom: env.smsFallbackFrom,
+      loadNotifyTargets: async (id) => {
+        const [voice, row] = await Promise.all([
+          store.loadVoice(id),
+          store.loadCustomer(id),
+        ]);
+        return {
+          email: row?.email ?? null,
+          notify_email: row?.notify_email ?? null,
+          notify_sms: voice?.notify_sms ?? null,
+          twilio_number: row?.twilio_number ?? null,
+          business_name: row?.business_name ?? null,
+        };
+      },
+    }),
   };
   const saveMessageEnv: SaveMessageEnv = {
     accountSid: env.twilioAccountSid,
