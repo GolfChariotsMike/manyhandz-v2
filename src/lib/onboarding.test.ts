@@ -15,6 +15,7 @@ import {
   onboardingNumberBlurb,
   parseOnboardingDraft,
   parseSignupCountry,
+  parseSignupEmail,
   profileUpdatesFromForm,
   provisionNumberBody,
   provisionedNumberPlaceholder,
@@ -130,6 +131,13 @@ test("signup country query param is US or AU only — no geo guess", () => {
   assert.equal(parseSignupCountry(null), "AU");
   assert.equal(parseSignupCountry("AU"), "AU");
   assert.equal(normalizeMarket("NZ"), "AU");
+});
+
+test("signup email query param keeps the address typed on login", () => {
+  assert.equal(parseSignupEmail("nick@glacier.net.au"), "nick@glacier.net.au");
+  assert.equal(parseSignupEmail("  Nick.Studer711@gmail.com "), "Nick.Studer711@gmail.com");
+  assert.equal(parseSignupEmail("not-an-email"), "");
+  assert.equal(parseSignupEmail(null), "");
 });
 
 test("onboarding copy matches market without claiming a US company", () => {

@@ -155,12 +155,39 @@ test("requestMagicLink sends country so a US signup survives the email click", a
     industry: "Retail",
     website_url: "acme.com",
     country: "US",
+    intent: "signup",
   });
 
   await requestMagicLink("au@example.com", "Smith Plumbing", "Trade / Construction", "", "AU");
   assert.equal((calls[1].body as { country: string }).country, "AU");
+  assert.equal((calls[1].body as { intent: string }).intent, "signup");
 
   await requestMagicLink("login@example.com");
   assert.equal("country" in (calls[2].body as object), false);
+  assert.equal((calls[2].body as { intent: string }).intent, "login");
+});
+
+test("login requestMagicLink surfaces no_account without creating anything client-side", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage("");
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({ error: "no_account" }), {
+      status: 404,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await assert.rejects(() => requestMagicLink("nick@glacier.net.au"), /no_account/);
+});
+
+test("existing-email auth failures stay a password error", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage("");
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({}), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await assert.rejects(() => requestMagicLink("nick.studer711@gmail.com"), /Incorrect email or password/);
 });
 

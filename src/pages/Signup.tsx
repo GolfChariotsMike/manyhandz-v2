@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { requestMagicLink } from "../lib/api";
-import { parseSignupCountry, signupWebsitePlaceholder } from "../lib/onboarding";
+import { parseSignupCountry, parseSignupEmail, signupWebsitePlaceholder } from "../lib/onboarding";
 import { Mail } from "lucide-react";
 
 const industries = [
@@ -13,7 +13,7 @@ const industries = [
 export default function Signup() {
   const [params] = useSearchParams();
   const country = parseSignupCountry(params.get("country"));
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => parseSignupEmail(params.get("email")));
   const [businessName, setBusinessName] = useState("");
   const [industry, setIndustry] = useState("");
   const [website, setWebsite] = useState("");
