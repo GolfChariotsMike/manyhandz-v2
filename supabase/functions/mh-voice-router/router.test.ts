@@ -111,14 +111,16 @@ test("inboundLogLine keeps the live mh-voice-router wording", () => {
   );
 });
 
-test("registerCallBody never sends the business line as system__caller_id", () => {
+test("registerCallBody keeps from/to and never sends system__* dynamic variables", () => {
   const body = registerCallBody(AGENT, MIKE, GLACIER_TO);
   assert.equal(body.from_number, MIKE);
   assert.equal(body.to_number, GLACIER_TO);
   assert.equal(body.direction, "inbound");
-  const dyn = (body.conversation_initiation_client_data as { dynamic_variables: { system__caller_id: string } })
+  const dyn = (body.conversation_initiation_client_data as { dynamic_variables: Record<string, string> })
     .dynamic_variables;
-  assert.equal(dyn.system__caller_id, MIKE);
+  assert.equal(dyn.caller_id, MIKE);
+  assert.equal(Object.keys(dyn).some((k) => k.startsWith("system__")), false);
+  assert.equal(JSON.stringify(body).includes("system__"), false);
   assert.equal(JSON.stringify(body).includes(GLACIER_TO.slice(-3)), true);
   assert.equal(JSON.stringify(dyn).includes("301"), false);
 });
@@ -137,9 +139,10 @@ test("Glacier inbound registers EL + logs with Mike's mobile, not …301", async
   assert.equal(registerBodies.length, 1);
   assert.equal(registerBodies[0].from_number, MIKE);
   const dyn = (registerBodies[0].conversation_initiation_client_data as {
-    dynamic_variables: { system__caller_id: string };
+    dynamic_variables: Record<string, string>;
   }).dynamic_variables;
-  assert.equal(dyn.system__caller_id, MIKE);
+  assert.equal(dyn.caller_id, MIKE);
+  assert.equal(Object.keys(dyn).some((k) => k.startsWith("system__")), false);
 
   const callLog = writes.find((w) => w.method === "POST" && w.url.includes("mh_call_log"));
   assert.equal(callLog?.body?.from_number, MIKE);
