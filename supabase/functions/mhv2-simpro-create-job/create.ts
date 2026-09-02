@@ -340,25 +340,82 @@ export function optionalPositiveId(value: unknown): number | undefined {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : undefined;
 }
 
-/** Format a SimPRO site row for the agent (name + address only — never jobs). */
+const GENERIC_SITE_NAME = /^(site|address|location)$/i;
+
+export const SITE_LIST_COLUMNS = "ID,Name,Address,Customer";
+export const SPEAKABLE_SITE_MAX = 4;
+
+export function isGenericSiteName(name: string): boolean {
+  return !String(name || "").trim() || GENERIC_SITE_NAME.test(String(name || "").trim());
+}
+
+function joinAddressParts(parts: unknown[]): string {
+  return parts
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .join(", ");
+}
+
+/** Flatten a SimPRO Address object or string. Nested Address/City/State/PostalCode. */
+export function formatSimproAddress(addr: unknown): string {
+  if (!addr) return "";
+  if (typeof addr === "string") return addr.trim();
+  if (typeof addr !== "object" || Array.isArray(addr)) return "";
+  const a = addr as Record<string, unknown>;
+  const nested = a.Address;
+  const street = typeof nested === "string"
+    ? nested.trim()
+    : nested && typeof nested === "object"
+    ? formatSimproAddress(nested)
+    : "";
+  return joinAddressParts([
+    street || a.Street || a.Line1 || a.address,
+    a.City || a.Suburb || a.Town,
+    a.State,
+    a.PostalCode || a.Postcode || a.Zip,
+  ]);
+}
+
+function addressFromSiteRow(row: Record<string, unknown>): string {
+  return formatSimproAddress(row.Address ?? row.address) || joinAddressParts([
+    row.Street,
+    row.City || row.Suburb,
+    row.State,
+    row.PostalCode || row.Postcode,
+  ]);
+}
+
+/** Street + suburb for the caller. Never a bare "Site" or an ID. */
+export function siteSpokenLabel(site: { name?: string; address?: string }): string {
+  const address = String(site.address || "").trim();
+  const name = String(site.name || "").trim();
+  if (address) return address.replace(/,\s*[A-Za-z]{2,3},\s*\d{4}$/i, "").trim();
+  return isGenericSiteName(name) ? "" : name;
+}
+
+export function formatSpokenSiteChoices(sites: Array<{ name?: string; address?: string }>): string {
+  const labels = sites.map(siteSpokenLabel).filter(Boolean);
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`;
+  if (labels.length <= SPEAKABLE_SITE_MAX) {
+    return `${labels.slice(0, -1).join(", ")}, or ${labels[labels.length - 1]}`;
+  }
+  return "";
+}
+
+/** Format a SimPRO site row for the agent (streets/suburbs — never jobs or id-only "Site"). */
 export function formatSimproSite(row: Record<string, unknown>): SimproSiteSummary | null {
   const id = Number(row.ID ?? row.id);
   if (!id) return null;
-  const name = String(row.Name || "").trim();
-  let address = "";
-  const addr = row.Address;
-  if (addr && typeof addr === "object") {
-    const a = addr as Record<string, unknown>;
-    address = [a.Address, a.City, a.State, a.PostalCode]
-      .map((s) => String(s || "").trim())
-      .filter(Boolean)
-      .join(", ");
-  } else if (typeof addr === "string") {
-    address = addr.trim();
-  }
+  const rawName = String(row.Name || row.name || "").trim();
+  const name = isGenericSiteName(rawName) ? "" : rawName;
+  const address = addressFromSiteRow(row);
+  const spoken = address || name;
+  if (!spoken) return null;
   return {
     id,
-    name: name || address || "Site",
+    name: name || spoken.split(",")[0].trim() || spoken,
     address: address || name,
   };
 }
@@ -825,22 +882,109 @@ async function createCustomer(
 
 type ListedSite = SimproSiteSummary & { hay: string };
 
+const HYDRATE_SITE_MAX = 20;
+
 function siteHaystack(row: Record<string, unknown>): string {
   return JSON.stringify({
     Address: row.Address,
     Name: row.Name,
     address: row.address,
+    City: row.City,
+    Suburb: row.Suburb,
   }).toLowerCase();
 }
 
+function customerIdFromSiteRow(row: Record<string, unknown>): number | null {
+  const customer = row.Customer ?? row.customer;
+  if (customer == null) return null;
+  if (typeof customer === "number" || typeof customer === "string") {
+    const n = Number(customer);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  if (typeof customer === "object") {
+    const n = Number((customer as Record<string, unknown>).ID ?? (customer as Record<string, unknown>).id);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+  return null;
+}
+
 function listedSiteFromRow(row: Record<string, unknown>): ListedSite | null {
+  const id = Number(row.ID ?? row.id);
+  if (!id) return null;
   const summary = formatSimproSite(row);
-  if (!summary) return null;
-  return { ...summary, hay: siteHaystack(row) };
+  return {
+    id,
+    name: summary?.name || String(row.Name || row.name || "").trim() || "Site",
+    address: summary?.address || "",
+    hay: siteHaystack(row),
+  };
 }
 
 function siteSummaries(sites: ListedSite[]): SimproSiteSummary[] {
-  return sites.map(({ id, name, address }) => ({ id, name, address }));
+  return sites
+    .map((site) => formatSimproSite({ ID: site.id, Name: site.name, Address: site.address }))
+    .filter((site): site is SimproSiteSummary => Boolean(site && siteSpokenLabel(site)));
+}
+
+function withSiteListQuery(url: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}pageSize=250&columns=${SITE_LIST_COLUMNS}`;
+}
+
+async function fetchSiteRows(
+  env: CreateJobEnv,
+  token: string,
+  url: string,
+): Promise<Array<Record<string, unknown>>> {
+  const res = await simproJson(env, token, url);
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return res.data as Array<Record<string, unknown>>;
+}
+
+async function hydrateSiteRow(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  row: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  if (formatSimproSite(row)) return row;
+  const id = Number(row.ID ?? row.id);
+  if (!id) return row;
+  const urls = [
+    `${apiBase(conn)}/sites/${id}`,
+    `${apiBase(conn)}/customers/${customerId}/sites/${id}`,
+  ];
+  for (const url of urls) {
+    const res = await simproJson(env, token, url);
+    if (res.ok && res.data && typeof res.data === "object" && !Array.isArray(res.data)) {
+      return { ...row, ...(res.data as Record<string, unknown>) };
+    }
+  }
+  return row;
+}
+
+async function mapCustomerSiteRows(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  rows: Array<Record<string, unknown>>,
+  requireCustomerMatch: boolean,
+): Promise<ListedSite[]> {
+  const scoped = rows.filter((row) => {
+    const owner = customerIdFromSiteRow(row);
+    if (requireCustomerMatch) return owner === customerId;
+    return owner == null || owner === customerId;
+  });
+  const hydrate = scoped.length > 0 && scoped.length <= HYDRATE_SITE_MAX;
+  const items: ListedSite[] = [];
+  for (const row of scoped) {
+    const raw = hydrate ? await hydrateSiteRow(env, conn, token, customerId, row) : row;
+    const site = listedSiteFromRow(raw);
+    if (site) items.push(site);
+  }
+  return items;
 }
 
 async function listCustomerSites(
@@ -849,37 +993,58 @@ async function listCustomerSites(
   token: string,
   customerId: number,
 ): Promise<ListedSite[]> {
-  const urls = [
-    `${apiBase(conn)}/customers/${customerId}/sites/`,
-    `${apiBase(conn)}/sites/?Customer=${customerId}&pageSize=50`,
+  // Customer-scoped first. Never treat GET /sites/?pageSize=50 as this customer —
+  // that is company-wide and SimPRO defaults to ID-only columns.
+  const scopedUrls = [
+    withSiteListQuery(`${apiBase(conn)}/customers/${customerId}/sites/`),
+    withSiteListQuery(`${apiBase(conn)}/customers/companies/${customerId}/sites/`),
+    withSiteListQuery(`${apiBase(conn)}/customers/individuals/${customerId}/sites/`),
   ];
-  for (const url of urls) {
-    const res = await simproJson(env, token, url);
-    if (!res.ok || !Array.isArray(res.data)) continue;
-    const items: ListedSite[] = [];
-    for (const row of res.data as Array<Record<string, unknown>>) {
-      const site = listedSiteFromRow(row);
-      if (site) items.push(site);
-    }
+  for (const url of scopedUrls) {
+    const rows = await fetchSiteRows(env, token, url);
+    if (!rows.length) continue;
+    const items = await mapCustomerSiteRows(env, conn, token, customerId, rows, false);
+    if (items.length) return items;
+  }
+
+  // Company list only if Customer.ID (or Customer) actually matches this customer.
+  const filteredUrls = [
+    withSiteListQuery(`${apiBase(conn)}/sites/?Customer.ID=${customerId}`),
+    withSiteListQuery(`${apiBase(conn)}/sites/?Customer=${customerId}`),
+  ];
+  for (const url of filteredUrls) {
+    const rows = await fetchSiteRows(env, token, url);
+    const items = await mapCustomerSiteRows(env, conn, token, customerId, rows, true);
     if (items.length) return items;
   }
   return [];
 }
 
+function siteMatchesSpoken(site: ListedSite, needle: string, parsedStreet: string): boolean {
+  const hay = `${site.hay} ${site.name} ${site.address}`.toLowerCase();
+  if (parsedStreet && hay.includes(parsedStreet.slice(0, Math.min(12, parsedStreet.length)))) return true;
+  if (needle && hay.includes(needle)) return true;
+  const tokens = needle.split(/[^a-z0-9]+/).filter((token) => token.length >= 3 && !/^\d+$/.test(token));
+  return tokens.length > 0 && tokens.every((token) => hay.includes(token));
+}
+
 function pickSiteId(sites: ListedSite[], address: string, reuseFirst: boolean): number | null {
   if (!sites.length) return null;
-  const needle = parseSiteAddress(address).address.toLowerCase();
+  const needle = String(address || "").replace(/\s+/g, " ").trim().toLowerCase();
   if (!needle) return sites[0].id;
-  const match = sites.find((row) => row.hay.includes(needle.slice(0, 12)));
+  const parsedStreet = parseSiteAddress(address).address.toLowerCase();
+  const match = sites.find((row) => siteMatchesSpoken(row, needle, parsedStreet));
   if (match) return match.id;
   return reuseFirst ? sites[0].id : null;
 }
 
-function formatSiteChoiceList(sites: ListedSite[] | SimproSiteSummary[]): string {
-  return sites.map((site, i) => {
-    const extra = site.address && site.address !== site.name ? ` — ${site.address}` : "";
-    return `${i + 1}. ${site.name}${extra} (site_id ${site.id})`;
-  }).join("\n");
+function sitePickInstruction(customerId: number, sites: ListedSite[]): string {
+  const spoken = siteSummaries(sites);
+  const choices = formatSpokenSiteChoices(spoken);
+  if (spoken.length > SPEAKABLE_SITE_MAX || !choices) {
+    return `Ask which street or suburb the work is at — do not read site IDs or a long numbered list. Then call create_simpro_job with simpro_customer_id ${customerId} and site_address (or the site_id of the matching street from the sites array). Callers do not know site IDs.`;
+  }
+  return `Ask which site — ${choices}? Speak those streets only; never say site IDs to the caller. Then call create_simpro_job with simpro_customer_id ${customerId} and the site_id of the street they picked (from the sites array).`;
 }
 
 function needSiteChoiceResult(customerId: number, sites: ListedSite[]): CreateJobResult {
@@ -889,7 +1054,7 @@ function needSiteChoiceResult(customerId: number, sites: ListedSite[]): CreateJo
     simpro_customer_id: customerId,
     sites: siteSummaries(sites),
     error:
-      `This customer has more than one site. Ask which site they want, then call create_simpro_job with site_id. Sites:\n${formatSiteChoiceList(sites)}\nDo not claim a lead was created.`,
+      `This customer has more than one site. ${sitePickInstruction(customerId, sites)} Do not claim a lead was created.`,
   };
 }
 
@@ -1092,8 +1257,8 @@ async function resolveSiteForLead(
     return { siteId: known?.id ?? explicitSiteId, siteCreated: false };
   }
 
-  // Existing customer, several sites, no street and no pick — ask which site.
-  if (!customerCreated && !siteAddress && sites.length > 1) {
+  // Existing customer, several readable streets, no street and no pick — ask which.
+  if (!customerCreated && !siteAddress && siteSummaries(sites).length > 1) {
     return { choice: needSiteChoiceResult(customerId, sites) };
   }
 
@@ -1308,13 +1473,21 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
 
 function lookupHitMessage(match: "phone" | "name" | "id", customer: FoundCustomer, sites: ListedSite[]): string {
   const who = customer.name || "Existing customer";
-  if (sites.length > 1) {
-    return `${who} is on file (${match} match). Ask which site they want, then call create_simpro_job with simpro_customer_id ${customer.id} and site_id. Sites:\n${formatSiteChoiceList(sites)}\nDo not create a new customer.`;
+  const spoken = siteSummaries(sites);
+  const choices = formatSpokenSiteChoices(spoken);
+  const createHint =
+    `Then collect the job description and call create_simpro_job with simpro_customer_id ${customer.id} and the site_id of the matching street from the sites array (never say site IDs to the caller). Do not create a new customer.`;
+  if (spoken.length > SPEAKABLE_SITE_MAX) {
+    return `${who} is on file (${match} match) with several sites. Ask which street or suburb the work is at — do not read site IDs or a long numbered list. ${createHint}`;
   }
-  if (sites.length === 1) {
-    const site = sites[0];
-    const label = site.address && site.address !== site.name ? `${site.name} — ${site.address}` : site.name;
-    return `${who} is on file (${match} match) with site ${label} (site_id ${site.id}). Confirm this site or accept a different street as a new extra site on this same customer. Then collect the job description and call create_simpro_job with simpro_customer_id ${customer.id}. Do not create a new customer.`;
+  if (spoken.length > 1) {
+    return `${who} is on file (${match} match). Ask which site — ${choices}? Speak those streets only; never say site IDs or list numbers 1–20. ${createHint}`;
+  }
+  if (spoken.length === 1) {
+    return `${who} is on file (${match} match). Confirm the street ${choices} — do not ask for a site ID. If they want a different street, pass that as site_address for a new extra site on this same customer. ${createHint}`;
+  }
+  if (sites.length > 0) {
+    return `${who} is on file (${match} match). Ask which street or suburb the work is at — never read site IDs. Then call create_simpro_job with simpro_customer_id ${customer.id} and site_address. Do not create a new customer.`;
   }
   return `${who} is on file (${match} match) but has no site. Ask for the work site address, then call create_simpro_job with simpro_customer_id ${customer.id}. Do not create a new customer.`;
 }
@@ -1404,13 +1577,14 @@ export async function lookupSimproCustomer(
     }
 
     const sites = await listCustomerSites(env, conn, token, found.id);
+    const spoken = siteSummaries(sites);
     return {
       ok: true,
       found: true,
       match,
       customer: found,
-      sites: siteSummaries(sites),
-      need_site_choice: sites.length > 1,
+      sites: spoken,
+      need_site_choice: spoken.length > 1,
       message: lookupHitMessage(match, found, sites),
     };
   } catch (err) {

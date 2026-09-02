@@ -57,7 +57,8 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.ok(lookup);
   assert.match(lookup.description, /BOOKING PATH ONLY/i);
   assert.match(lookup.description, /never creates/i);
-  assert.match(lookup.description, /which site/i);
+  assert.match(lookup.description, /which street/i);
+  assert.match(lookup.description, /37 Derictoe or 67 Mars/);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
   assert.match(create.description, /MUST call this once you have their mobile/i);

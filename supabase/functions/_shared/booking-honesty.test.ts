@@ -7,6 +7,7 @@ import {
   neverFakeLeadCloseRule,
   simproHonestyAddon,
   siteContactRule,
+  siteSpeakRule,
 } from "./booking-honesty.ts";
 
 test("honesty addon forbids fake notify and save_message-only close", () => {
@@ -25,9 +26,14 @@ test("honesty addon forbids fake notify and save_message-only close", () => {
   assert.match(siteContactRule(), /Do not ask whether they are a company or an individual/);
   assert.match(bookingPathOnlyRule(), /BOOKING PATH ONLY/);
   assert.match(bookingPathOnlyRule(), /lookup_simpro_customer/);
+  assert.match(siteSpeakRule(), /Callers do not know SimPRO site IDs/);
+  assert.match(siteSpeakRule(), /37 Derictoe or 67 Mars/);
+  assert.match(siteSpeakRule(), /Never read site IDs/);
   assert.match(chat, /site contact/i);
+  assert.match(chat, /37 Derictoe or 67 Mars/);
   assert.match(chat, /BOOKING PATH ONLY/);
   assert.match(voice, /site contact/i);
+  assert.match(voice, /do not ask for an ID/i);
   assert.doesNotMatch(chat, /system__/);
   assert.doesNotMatch(voice, /system__/);
 });

@@ -23,11 +23,15 @@ export function siteContactRule(): string {
   return `- SITE CONTACT: For a private / individual customer the person booking is the site contact — never ask for a separate site contact; pass their name and phone (site_contact_name / site_contact_phone, or caller_name / caller_phone). For a company booking you need a person's name as the site contact. If they already gave a human name (e.g. "Jane from Woolies", or their name plus a company), use that — do not ask again. If you only have a company name, ask "who's the site contact at the site?" before calling create_simpro_job. Do not ask whether they are a company or an individual.`;
 }
 
+export function siteSpeakRule(): string {
+  return `- SITE PICK: Callers do not know SimPRO site IDs. Ask using streets and suburbs (e.g. "37 Derictoe or 67 Mars?"). Never read site IDs or a numbered list of 1–20. If one site, confirm that street — do not ask for an ID. If many sites, ask which street or suburb and match. After they pick a street, pass that site's site_id to create_simpro_job internally.`;
+}
+
 export function bookingPathOnlyRule(): string {
   return `- BOOKING PATH ONLY: lookup_simpro_customer and create_simpro_job are only for when they want work booked / a lead created. Quotes, job-status questions, transfers, and general FAQs must not look up or create SimPRO customers. Never look up, list, or read out other customers' leads or jobs.`;
 }
 
 /** Appended to SIMPRO LEADS when create_simpro_job is enabled. */
 export function simproHonestyAddon(channel: "chat" | "voice"): string {
-  return `${bookingPathOnlyRule()}\n${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}`;
+  return `${bookingPathOnlyRule()}\n${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}\n${siteSpeakRule()}`;
 }
