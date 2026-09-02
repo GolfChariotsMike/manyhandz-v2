@@ -53,10 +53,12 @@ test("chat tools are save_message + create_simpro_job + send_sms when caps are o
   ]);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
+  assert.match(create.description, /MUST call this once you have their mobile/i);
   assert.match(create.description, /find-or-create/i);
   assert.match(create.description, /no caller ID/i);
   assert.match(create.description, /mobile first/i);
   assert.match(create.description, /skip name and full site address/i);
+  assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /lead number/i);
   assert.match(create.description, /never pretend a lead was created/i);
   assert.ok(create.input_schema.required?.includes("caller_phone"));

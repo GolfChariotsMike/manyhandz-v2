@@ -39,9 +39,10 @@ test("mergeSendSmsTool attaches the webhook when the cap is on and strips it whe
   assert.equal(tool.api_schema.url, url);
   assert.equal(tool.stale, undefined);
   const to = tool.api_schema.request_body_schema.properties.to;
-  assert.equal(to.dynamic_variable, "system__caller_id");
+  assert.equal(to.dynamic_variable, "caller_id");
   assert.equal(to.is_system_provided, false);
   assert.equal(to.description, undefined);
+  assert.equal(JSON.stringify(tool).includes("system__"), false);
   assert.equal(
     tool.api_schema.request_body_schema.properties.body.description,
     "Short SMS body — a link or a few sentences of info.",
@@ -51,6 +52,14 @@ test("mergeSendSmsTool attaches the webhook when the cap is on and strips it whe
   assert.equal(off.some((t) => (t as { name?: string }).name === SEND_SMS_TOOL_NAME), false);
   assert.equal(off.some((t) => (t as { name?: string }).name === "save_message"), true);
   assert.equal(off.some((t) => (t as { name?: string }).name === "send_signup_sms"), false);
+});
+
+test("send_sms tool JSON never includes system__* vars", () => {
+  const tools = mergeSendSmsTool([], "https://example.test/mh-send-sms?customer_id=cust-1", true);
+  const blob = JSON.stringify(tools);
+  assert.equal(blob.includes("system__"), false);
+  assert.match(blob, /"caller_id"/);
+  assert.match(blob, /Never use this to notify the office/);
 });
 
 test("config.toml leaves Twilio/EL SMS webhooks verify_jwt false", async () => {

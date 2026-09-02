@@ -102,11 +102,14 @@ export function buildSystemPrompt(data: PromptInput): string {
     ? `\nSERVICES WE OFFER:\n${services.map((s) => `  - ${s}`).join("\n")}`
     : "";
 
+  const createJobOn = capCreateSimproJob ?? true;
   const bookingRule = capConfirmBookings
     ? (calendarConnected
-      ? `- BOOKINGS: You can confirm bookings. Use check_calendar_availability then book_calendar_event. Speak success only if the tool returns ok:true. If it fails or says not_connected, take a message — never pretend a booking was made.`
-      : `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.`)
-    : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants to book, collect their name, preferred date/time, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`;
+      ? `- BOOKINGS: You can confirm bookings. Use check_calendar_availability then book_calendar_event. Speak success only if the tool returns ok:true. If it fails or says not_connected, take a message — never pretend a booking was made.${createJobOn ? " If they want work done, you MUST still call create_simpro_job once you have the work description — do not only book a calendar slot." : ""}`
+      : `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.${createJobOn ? " If they want work done, you MUST still call create_simpro_job once you have the work description." : ""}`)
+    : (createJobOn
+      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants work done or a technician booked, that is a SimPRO lead — you MUST call create_simpro_job once you have the work description (existing customers can skip name/address). Do not only take a verbal message. Do not use send_sms to notify the office.`
+      : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants to book, collect their name, preferred date/time, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`);
 
   const pricingRule = capQuotePrices
     ? `- PRICING: You can quote prices from your knowledge base and pricing sheet.`
@@ -117,12 +120,11 @@ export function buildSystemPrompt(data: PromptInput): string {
     : `- TRANSFERS: Do not transfer calls. Take a message and tell the caller someone will call them back.`;
 
   const smsRule = capSendSms
-    ? `- SMS: You can send the caller a text message with links or information if helpful.`
+    ? `- SMS: You can send the caller a text message with links or information if helpful. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified.`
     : "";
 
-  const createJobOn = capCreateSimproJob ?? true;
   const simproJobRule = createJobOn
-    ? `- SIMPRO LEADS: When a caller wants work done, briefly check if they have used the company before — or treat caller ID as enough. Phone comes from caller ID; do not ask for it. Existing customers: collect only a short description of the work, then use create_simpro_job. Do not interrogate name or full site address. Optionally confirm the site if they volunteer a different address or mention more than one site. New customers: collect name, site/address, and a short description, then use create_simpro_job. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a caller wants work done, briefly check if they have used the company before — or treat caller ID as enough. Phone comes from caller ID; do not ask for it. Existing customers: collect only a short description of the work. New customers: collect name, site/address, and a short description. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office. Collecting details without invoking the tool is a failure. Do not interrogate name or full site address for existing customers. Optionally confirm the site if they volunteer a different address or mention more than one site. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const servicem8JobRule = capCreateServicem8Job && servicem8Connected

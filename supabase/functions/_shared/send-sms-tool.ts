@@ -3,6 +3,9 @@
  * Attached when mh_voice_config.cap_send_sms is true (provision + sync).
  * Do not reuse Jake outbound send_signup_sms.
  *
+ * Bind to to caller_id (sent by mh-voice-router). Never send system__*
+ * ElevenLabs dynamic variables — EL rejects those names.
+ *
  * Typing is applied by mergeToolCallTyping. Never put this shape on end_call.
  */
 
@@ -18,7 +21,7 @@ export function sendSmsWebhookTool(functionUrl: string): Record<string, unknown>
     type: "webhook",
     name: SEND_SMS_TOOL_NAME,
     description:
-      "Send the caller a short text with a link or info when helpful. Use the caller ID when texting the current caller. Keep the body brief. If the tool fails, do not claim a text was sent.",
+      "Send the caller a short text with a link or info when helpful. Use the caller ID when texting the current caller. Keep the body brief. Never use this to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.",
     response_timeout_secs: 20,
     api_schema: {
       kind: "webhook",
@@ -31,7 +34,7 @@ export function sendSmsWebhookTool(functionUrl: string): Record<string, unknown>
           to: {
             type: "string",
             // EL rejects description + dynamic_variable on the same property.
-            dynamic_variable: "system__caller_id",
+            dynamic_variable: "caller_id",
             is_system_provided: false,
           },
           body: {

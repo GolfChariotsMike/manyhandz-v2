@@ -74,8 +74,10 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     : "";
 
   const bookingRule = capConfirmBookings
-    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with visitors.`
-    : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants to book, collect their name, preferred date/time, mobile, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`;
+    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with visitors.${capCreateSimproJob ? " If they want work done, you MUST still call create_simpro_job once you have the work description." : ""}`
+    : (capCreateSimproJob
+      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants work done or a technician booked, that is a SimPRO lead — you MUST call create_simpro_job once you have their mobile and the work description (existing customers can skip name/address). Do not only take a verbal message. Do not use send_sms to notify the office.`
+      : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants to book, collect their name, preferred date/time, mobile, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`);
 
   const pricingRule = capQuotePrices
     ? `- PRICING: You can quote prices from your knowledge base and pricing sheet.`
@@ -85,11 +87,11 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     `- MESSAGES: If the visitor asks for a person or a callback, use the save_message tool. There is no call transfer or call connect on the website chat. Collect their name and a mobile number first.`;
 
   const smsRule = capSendSms
-    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile number first. If the tool fails, do not claim a text was sent.`
+    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile number first. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.`
     : "";
 
   const simproJobRule = capCreateSimproJob
-    ? `- SIMPRO LEADS: When a visitor wants work done, always collect their mobile first (there is no caller ID). Then briefly check if they have used the company before. If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. New customers: collect name, mobile, site/address, and a short description. Then use the create_simpro_job tool. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a visitor wants work done, always collect their mobile first (there is no caller ID). Then briefly check if they have used the company before. If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. New customers: collect name, mobile, site/address, and a short description. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office. Collecting details without invoking the tool is a failure. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const capabilitySection =
