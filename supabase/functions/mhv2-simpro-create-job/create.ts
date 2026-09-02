@@ -3,7 +3,9 @@
  * customer + site + site contact + Open lead together). Lookup/search never
  * creates anyone. New customers POST individuals/companies with Address and
  * ?createSite=true so SimPRO auto-creates the first site — do not POST a
- * second site unless the work address is a different property. IDs come from
+ * second site unless the work address is a different property. Extra sites on
+ * an existing customer POST /customers/{id}/sites/ with Address (never
+ * POST /sites/ with Customer — SimPRO rejects that as Invalid column). IDs come from
  * JSON `ID` or Location (201 + empty body is a known SimPRO pattern). Uses
  * the same mh_crm_connections row and AES-GCM secret wrap as
  * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
@@ -1079,6 +1081,30 @@ async function findSiteId(
   return pickSiteId(await listCustomerSites(env, conn, token, customerId), address, reuseFirst);
 }
 
+function customerSiteCreateUrls(conn: SimproConnection, customerId: number): string[] {
+  const base = apiBase(conn);
+  return [
+    `${base}/customers/${customerId}/sites/`,
+    `${base}/customers/individuals/${customerId}/sites/`,
+    `${base}/customers/companies/${customerId}/sites/`,
+  ];
+}
+
+function siteCreateBodies(siteAddress: string): Array<Record<string, unknown>> {
+  const parsed = parseSiteAddress(siteAddress);
+  const address = simproAddressBody(siteAddress);
+  return [
+    {
+      Name: parsed.name.slice(0, 80) || "Site",
+      Address: address,
+    },
+    { Address: address },
+  ];
+}
+
+/** Extra site on an existing customer. POST under the customer — Address
+ * (and Name). Never POST /sites/ with Customer: SimPRO returns
+ * `{"errors":[{"path":"/Customer","message":"Invalid column."}]}`. */
 async function createSite(
   env: CreateJobEnv,
   conn: SimproConnection,
@@ -1086,31 +1112,17 @@ async function createSite(
   customerId: number,
   siteAddress: string,
 ): Promise<number> {
-  const parsed = parseSiteAddress(siteAddress);
-  const body: Record<string, unknown> = {
-    Name: parsed.name.slice(0, 80) || "Site",
-    Address: simproAddressBody(siteAddress),
-    Customer: customerId,
-  };
-  const res = await simproJson(env, token, `${apiBase(conn)}/sites/`, { method: "POST", body });
-  if (!res.ok) {
-    const retry = await simproJson(env, token, `${apiBase(conn)}/customers/${customerId}/sites/`, {
-      method: "POST",
-      body: {
-        Name: body.Name,
-        Address: body.Address,
-      },
-    });
-    if (!retry.ok) {
-      throw simproFail(`Could not create SimPRO site: ${sanitizeSimproError(res.text || retry.text)}`);
+  let lastText = "";
+  for (const url of customerSiteCreateUrls(conn, customerId)) {
+    for (const body of siteCreateBodies(siteAddress)) {
+      const res = await simproJson(env, token, url, { method: "POST", body });
+      lastText = res.text || lastText;
+      if (!res.ok) continue;
+      const id = Number(createdId(res));
+      if (id) return id;
     }
-    const retryId = Number(createdId(retry));
-    if (!retryId) throw simproFail("SimPRO created a site but returned no ID");
-    return retryId;
   }
-  const id = Number(createdId(res));
-  if (!id) throw simproFail("SimPRO created a site but returned no ID");
-  return id;
+  throw simproFail(`Could not create SimPRO site: ${sanitizeSimproError(lastText)}`);
 }
 
 function contactPhones(row: Record<string, unknown>): unknown[] {
