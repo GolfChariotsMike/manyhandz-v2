@@ -16,8 +16,10 @@ export type { LeadNotifyTargets };
 /**
  * SimPRO Leads API (developer.simprogroup.com):
  * POST /api/v1.0/companies/{companyID}/leads/
- * Required: Customer (int), Site (int). Optional: LeadName, Description,
- * Stage ("Open"|"Closed"). Status is a project-status ID — omit unless known.
+ * Required: Customer (int), Site (int). Always send SiteContact (contact id).
+ * CustomerContact is the same id for individuals. Optional: LeadName,
+ * Description, Stage ("Open"|"Closed"). Status is a project-status ID — omit
+ * unless known. Never omit SiteContact so SimPRO cannot default another contact.
  * Do not send Job Type / DateIssued / Stage "Pending".
  */
 
@@ -47,6 +49,10 @@ export type CreateJobInput = {
   job_name?: string;
   /** Optional. Inferred from caller_name when it looks like a business. */
   company_name?: string;
+  /** Person at the site. Individuals default to caller_name. */
+  site_contact_name?: string;
+  /** Site-contact phone. Falls back to caller_phone. */
+  site_contact_phone?: string;
 };
 
 export type CreateJobFailureCode =
@@ -195,6 +201,13 @@ export function simproAddressBody(siteAddress: string): Record<string, string> {
  * Pty / Pty Ltd / Inc / "from X" / CompanyName → company. If unsure, individual.
  * Do not ask the caller whether they are a company.
  */
+const COMPANY_LEGAL =
+  /\b(?:pty\.?\s*ltd\.?|pty\.?|inc\.?|incorporated|llc|ltd\.?)\b/i;
+
+export function looksLikeCompanyOnlyName(raw: string): boolean {
+  return COMPANY_LEGAL.test(String(raw || "").trim());
+}
+
 export function inferCompanyName(callerName: string, companyField?: string): string | null {
   const dedicated = String(companyField || "").trim();
   if (dedicated) return dedicated;
@@ -205,10 +218,51 @@ export function inferCompanyName(callerName: string, companyField?: string): str
     const company = fromMatch[1].replace(/[.,]+$/, "").trim();
     if (company.length > 1) return company;
   }
-  if (/\b(?:pty\.?\s*ltd\.?|pty\.?|inc\.?|incorporated|llc|ltd\.?)\b/i.test(raw)) {
-    return raw;
-  }
+  if (looksLikeCompanyOnlyName(raw)) return raw;
   return null;
+}
+
+/** "Jane from Woolies" → Jane. Empty when the spoken name is only a company. */
+export function personNameFromSpoken(callerName: string): string {
+  const raw = String(callerName || "").trim();
+  if (!raw) return "";
+  const fromMatch = raw.match(/^(.+?)\s+from\s+(.+)$/i);
+  if (fromMatch) {
+    const person = fromMatch[1].replace(/[.,]+$/, "").trim();
+    if (person && !looksLikeCompanyOnlyName(person)) return person;
+    return "";
+  }
+  if (looksLikeCompanyOnlyName(raw)) return "";
+  return raw;
+}
+
+/**
+ * Site-contact person for the lead. Individuals: the booker.
+ * Companies: site_contact_name, or the human part of "Jane from Woolies" /
+ * caller_name when that is a person plus a company — never a company-only name.
+ */
+export function resolveSiteContactPerson(input: {
+  caller_name?: string;
+  company_name?: string;
+  site_contact_name?: string;
+}): string {
+  const explicit = String(input.site_contact_name || "").trim();
+  if (explicit) return explicit;
+  const raw = String(input.caller_name || "").trim();
+  const fromPerson = personNameFromSpoken(raw);
+  const company = inferCompanyName(raw, input.company_name);
+  if (!company) return fromPerson || raw;
+  if (fromPerson && fromPerson.toLowerCase() !== company.toLowerCase()) return fromPerson;
+  return "";
+}
+
+export function siteContactMissingError(): CreateJobResult {
+  return {
+    ok: false,
+    code: "missing_fields",
+    error:
+      "Need the site contact's name at the site. Ask who's the site contact at the site? Do not claim a lead was created.",
+  };
 }
 
 export function idFromLocation(location: string): string {
@@ -226,6 +280,8 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const description = String(src.description || src.message || src.work || "").trim();
   const job_name = String(src.job_name || src.lead_name || src.title || "").trim();
   const company_name = String(src.company_name || src.CompanyName || src.company || "").trim();
+  const site_contact_name = String(src.site_contact_name || src.SiteContactName || "").trim();
+  const site_contact_phone = String(src.site_contact_phone || src.SiteContactPhone || "").trim();
   const cid = String(customerId || src.customer_id || "").trim();
   if (!cid || !caller_phone || !description) {
     return {
@@ -235,7 +291,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
         "Need the caller's phone and a description of the work. Do not claim a lead was created.",
     };
   }
-  return {
+  const parsed: CreateJobInput = {
     customer_id: cid,
     caller_name,
     caller_phone,
@@ -243,7 +299,13 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
     description,
     job_name: job_name || undefined,
     ...(company_name ? { company_name } : {}),
+    ...(site_contact_name ? { site_contact_name } : {}),
+    ...(site_contact_phone ? { site_contact_phone } : {}),
   };
+  if (inferCompanyName(caller_name, company_name) && !resolveSiteContactPerson(parsed)) {
+    return siteContactMissingError();
+  }
+  return parsed;
 }
 
 async function deriveKey(rawKey: string): Promise<CryptoKey> {
@@ -415,7 +477,11 @@ export function customerDisplayName(row: Record<string, unknown>): string {
   return [given, family].filter(Boolean).join(" ") || company;
 }
 
-type FoundCustomer = { id: number; name: string };
+type FoundCustomer = { id: number; name: string; isCompany: boolean };
+
+function customerIsCompany(row: Record<string, unknown>): boolean {
+  return Boolean(String(row.CompanyName || "").trim());
+}
 
 /** Last-9 phone match against SimPRO customers. Name search is a fallback only. */
 async function findCustomerId(
@@ -438,7 +504,9 @@ async function findCustomerId(
     if (!res.ok || !Array.isArray(res.data)) continue;
     const match = (res.data as Array<Record<string, unknown>>).find((row) => phoneMatches(row.Phone, digits));
     const id = Number(match?.ID ?? match?.id);
-    if (id) return { id, name: customerDisplayName(match || {}) };
+    if (id) {
+      return { id, name: customerDisplayName(match || {}), isCompany: customerIsCompany(match || {}) };
+    }
   }
   return null;
 }
@@ -571,6 +639,93 @@ async function createSite(
   return id;
 }
 
+function contactPhones(row: Record<string, unknown>): unknown[] {
+  return [row.Phone, row.CellPhone, row.WorkPhone, row.AltPhone];
+}
+
+export function contactMatchesPerson(
+  row: Record<string, unknown>,
+  name: string,
+  phone: string,
+): boolean {
+  const digits = digitsOnly(phone);
+  if (digits && contactPhones(row).some((value) => phoneMatches(value, digits))) return true;
+  const want = String(name || "").trim().toLowerCase();
+  if (!want) return false;
+  const given = String(row.GivenName || "").trim();
+  const family = String(row.FamilyName || "").trim();
+  const full = [given, family].filter(Boolean).join(" ").toLowerCase();
+  if (full && full === want) return true;
+  const parts = splitPersonName(name);
+  if (given.toLowerCase() !== parts.givenName.toLowerCase()) return false;
+  if (parts.familyName === "Customer") return true;
+  return family.toLowerCase() === parts.familyName.toLowerCase();
+}
+
+async function listCustomerContacts(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+): Promise<Array<Record<string, unknown>>> {
+  const res = await simproJson(
+    env,
+    token,
+    `${apiBase(conn)}/customers/${customerId}/contacts/`,
+  );
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return res.data as Array<Record<string, unknown>>;
+}
+
+async function findMatchingContactId(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  name: string,
+  phone: string,
+): Promise<number | null> {
+  const rows = await listCustomerContacts(env, conn, token, customerId);
+  const match = rows.find((row) => contactMatchesPerson(row, name, phone));
+  const id = Number(match?.ID ?? match?.id);
+  return id || null;
+}
+
+/** Find or POST the site-contact person. Never pick an unrelated existing contact. */
+async function ensureSiteContact(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  name: string,
+  phone: string,
+): Promise<number> {
+  const existing = await findMatchingContactId(env, conn, token, customerId, name, phone);
+  if (existing) return existing;
+
+  const names = splitPersonName(name);
+  const body = {
+    GivenName: names.givenName,
+    FamilyName: names.familyName,
+    Phone: phone,
+    CellPhone: phone,
+  };
+  const res = await simproJson(
+    env,
+    token,
+    `${apiBase(conn)}/customers/${customerId}/contacts/`,
+    { method: "POST", body },
+  );
+  if (!res.ok) {
+    throw simproFail(`Could not create SimPRO site contact: ${sanitizeSimproError(res.text)}`);
+  }
+  const id = Number(createdId(res));
+  if (id) return id;
+  const recovered = await findMatchingContactId(env, conn, token, customerId, name, phone);
+  if (recovered) return recovered;
+  throw simproFail("SimPRO created a contact but returned no ID");
+}
+
 async function postLead(
   env: CreateJobEnv,
   conn: SimproConnection,
@@ -578,19 +733,27 @@ async function postLead(
   input: CreateJobInput,
   customerId: number,
   siteId: number,
+  contactId: number,
+  includeCustomerContact: boolean,
 ): Promise<string> {
+  if (!contactId) {
+    throw simproFail("Could not create or find a SimPRO site contact");
+  }
   const name = (input.job_name || input.description).slice(0, 80);
   const description = [
     input.description,
     `Caller: ${input.caller_name}`,
     `Phone: ${input.caller_phone}`,
     `Site: ${input.site_address}`,
+    `Site contact: ${resolveSiteContactPerson(input) || input.caller_name}`,
   ].join("\n");
   const res = await simproJson(env, token, `${apiBase(conn)}/leads/`, {
     method: "POST",
     body: {
       Customer: customerId,
       Site: siteId,
+      SiteContact: contactId,
+      ...(includeCustomerContact ? { CustomerContact: contactId } : {}),
       LeadName: name,
       Description: description,
       Stage: "Open",
@@ -669,11 +832,22 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     // then a Lead on the auto-site. Existing last-9 phone is reused; never POST
     // a second individual. A new Lead is still always created.
     const found = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
-    let simproCustomerId: number;
     let callerName = input.caller_name;
+    if (found && !callerName) callerName = found.name;
+
+    const company = inferCompanyName(input.caller_name, input.company_name);
+    const isCompanyCustomer = Boolean(company || found?.isCompany);
+    let siteContactName = resolveSiteContactPerson(input);
+    if (!siteContactName && !isCompanyCustomer) {
+      siteContactName = input.caller_name || found?.name || "";
+    }
+    if (isCompanyCustomer && !siteContactName) {
+      return siteContactMissingError();
+    }
+
+    let simproCustomerId: number;
     if (found) {
       simproCustomerId = found.id;
-      if (!callerName) callerName = found.name;
     } else {
       if (!input.caller_name || !input.site_address) {
         return {
@@ -698,15 +872,46 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     let siteId = resolvedSite.siteId;
     siteCreated = resolvedSite.siteCreated;
 
-    const resolved: CreateJobInput = { ...input, caller_name: callerName || found?.name || "Customer" };
+    const resolved: CreateJobInput = {
+      ...input,
+      caller_name: callerName || found?.name || "Customer",
+      site_contact_name: siteContactName || callerName || found?.name || "Customer",
+      site_contact_phone: input.site_contact_phone || input.caller_phone,
+    };
+    const contactId = await ensureSiteContact(
+      env,
+      conn,
+      token,
+      simproCustomerId,
+      resolved.site_contact_name || resolved.caller_name,
+      resolved.site_contact_phone || resolved.caller_phone,
+    );
     let leadNumber: string;
     try {
-      leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
+      leadNumber = await postLead(
+        env,
+        conn,
+        token,
+        resolved,
+        simproCustomerId,
+        siteId,
+        contactId,
+        !isCompanyCustomer,
+      );
     } catch (err) {
       const retrySite = await findSiteId(env, conn, token, simproCustomerId, input.site_address, true);
       if (!retrySite) throw err;
       siteId = retrySite;
-      leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
+      leadNumber = await postLead(
+        env,
+        conn,
+        token,
+        resolved,
+        simproCustomerId,
+        siteId,
+        contactId,
+        !isCompanyCustomer,
+      );
     }
 
     if (env.cacheJob) {

@@ -63,10 +63,16 @@ test("chat tools are save_message + create_simpro_job + send_sms when caps are o
   assert.match(create.description, /save_message as the only close/i);
   assert.match(create.description, /lead number/i);
   assert.match(create.description, /never pretend a lead was created/i);
+  assert.match(create.description, /site contact/i);
+  assert.match(create.description, /Jane from Woolies/);
+  assert.match(create.description, /do not ask for a separate one/i);
   assert.ok(create.input_schema.required?.includes("caller_phone"));
   assert.ok(create.input_schema.required?.includes("description"));
   assert.equal(create.input_schema.required?.includes("caller_name"), false);
   assert.equal(create.input_schema.required?.includes("site_address"), false);
+  assert.equal(create.input_schema.required?.includes("site_contact_name"), false);
+  assert.ok(create.input_schema.properties.site_contact_name);
+  assert.ok(create.input_schema.properties.site_contact_phone);
 });
 
 test("caps strip send_sms and create_simpro_job; transfer and lookup never appear", () => {
@@ -145,6 +151,58 @@ test("executeChatTool allows create_simpro_job with phone and description only",
   assert.equal((seen as { caller_phone: string }).caller_phone, "+61411122333");
   assert.equal((seen as { caller_name: string }).caller_name, "");
   assert.equal((seen as { site_address: string }).site_address, "");
+});
+
+test("executeChatTool company with a person name reaches create_simpro_job", async () => {
+  let seen: unknown = null;
+  const ctx = stubCtx({
+    createSimproJob: async (input) => {
+      seen = input;
+      return {
+        ok: true,
+        lead_number: "8803",
+        lead_id: "8803",
+        job_number: "8803",
+        customer_created: true,
+        site_created: true,
+        message: "Created SimPRO lead 8803. Tell the caller this lead number.",
+      };
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  const raw = await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, {
+    caller_name: "Jane from Woolies",
+    caller_phone: "+61411122333",
+    site_address: "12 Frost St, Malaga WA 6090",
+    description: "Split system not cooling",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, true);
+  assert.equal((seen as { caller_name: string }).caller_name, "Jane from Woolies");
+});
+
+test("executeChatTool company without a person name is missing_fields for site contact", async () => {
+  let called = false;
+  const ctx = stubCtx({
+    createSimproJob: async () => {
+      called = true;
+      return { ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" };
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  const raw = await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, {
+    caller_name: "Woolies Pty Ltd",
+    caller_phone: "+61411122333",
+    site_address: "12 Frost St, Malaga WA 6090",
+    description: "Split system not cooling",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "missing_fields");
+  assert.match(result.error, /who'?s the site contact at the site/i);
+  assert.equal(called, false);
 });
 
 test("executeChatTool refuses create_simpro_job without phone or description", async () => {
