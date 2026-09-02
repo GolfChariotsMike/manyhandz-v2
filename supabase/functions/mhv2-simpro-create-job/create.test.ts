@@ -2032,7 +2032,7 @@ test("create source POSTs /leads/ and never /jobs/", async () => {
   const objAt = linkFn.search(/Customers:\s*\[\{\s*ID:\s*customerId\s*\}\]/);
   assert.ok(intAt >= 0 && idsAt > intAt && objAt > idsAt, "Customers:[id] then CustomerIDs then [{ID}]");
   assert.match(src, /CellPhone:\s*phone/);
-  assert.doesNotMatch(src, /Phone:\s*phone/);
+  assert.doesNotMatch(src, /(?<![A-Za-z])Phone:\s*phone/);
   assert.match(src, /\$\{apiBase\(conn\)\}\/sites\//);
 });
 
