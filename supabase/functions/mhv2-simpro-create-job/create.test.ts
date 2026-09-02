@@ -863,7 +863,8 @@ test("lookupSimproCustomer miss creates nothing", async () => {
   assert.equal(result.ok, true);
   if (!result.ok) throw new Error(result.error);
   assert.equal(result.found, false);
-  assert.match(result.message, /used the company before/i);
+  assert.match(result.message, /already a customer/i);
+  assert.match(result.message, /THEN collect name, site address/);
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
 });
 

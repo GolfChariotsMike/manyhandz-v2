@@ -4,6 +4,7 @@
  * Does not dump SimPRO jobs into the prompt.
  */
 import {
+  asksNameOrAddress,
   canCreateLead,
   claimsLeadSuccess,
   collectSlots,
@@ -11,10 +12,13 @@ import {
   honestLeadFailureReply,
   honestLeadSuccessReply,
   looksLikeBookingConfirm,
+  shouldForceLookup,
 } from "../_shared/collected-slots.ts";
+import { lookupHitSpokenReply, lookupMissSpokenReply } from "../_shared/booking-honesty.ts";
 import { buildChatSystemPrompt, type PriceItem } from "./prompt.ts";
 import {
   CREATE_SIMPRO_JOB_TOOL_NAME,
+  LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
   chatTools,
   defaultChatToolExecutors,
   executeChatTool,
@@ -183,6 +187,20 @@ export function attachLookupToCreateInput(
   return true;
 }
 
+export function spokenReplyFromLookup(
+  looked: LookupCustomerResult,
+  businessName: string,
+): string | null {
+  if (!looked.ok) return null;
+  if (!looked.found) return lookupMissSpokenReply(businessName);
+  if ("need_customer_choice" in looked && looked.need_customer_choice) {
+    return looked.message;
+  }
+  if (!("customer" in looked)) return lookupMissSpokenReply(businessName);
+  const streets = looked.sites.map((site) => site.address || site.name).filter(Boolean);
+  return lookupHitSpokenReply(looked.customer.name, streets);
+}
+
 export function parseToolResult(raw: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(raw) as unknown;
@@ -335,6 +353,9 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     let iterations = 0;
     let createLeadNumber = "";
     let createOk = false;
+    let lookupRan = false;
+    let lastLookup: LookupCustomerResult | null = null;
+    const forceLookup = capCreateSimproJob && shouldForceLookup(slots, bookingConfirm);
 
     while (iterations < 5) {
       iterations++;
@@ -345,7 +366,9 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
         messages: loopMessages,
         tools,
       };
-      if (preferCreate && !createOk && iterations === 1) {
+      if (forceLookup && !lookupRan && iterations === 1) {
+        payload.tool_choice = { type: "tool", name: LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME };
+      } else if (preferCreate && !createOk && lookupRan) {
         payload.tool_choice = { type: "tool", name: CREATE_SIMPRO_JOB_TOOL_NAME };
       }
       const claudeRes = await env.fetch("https://api.anthropic.com/v1/messages", {
@@ -379,6 +402,10 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
         for (const tool of toolBlocks) {
           const result = await executeChatTool(tool.name || "", tool.input || {}, ctx);
           const parsed = parseToolResult(result);
+          if (tool.name === LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME) {
+            lookupRan = true;
+            lastLookup = parsed as LookupCustomerResult | null;
+          }
           if (tool.name === CREATE_SIMPRO_JOB_TOOL_NAME) {
             if (parsed?.ok === true) {
               createOk = true;
@@ -400,20 +427,44 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
 
     if (!finalReply) finalReply = fallback;
 
+    if (forceLookup && !lookupRan && slots.phone) {
+      const looked = parseToolResult(
+        await executeChatTool(LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME, {
+          caller_phone: slots.phone,
+          ...(slots.name ? { caller_name: slots.name } : {}),
+        }, ctx),
+      ) as LookupCustomerResult | null;
+      if (looked) {
+        lookupRan = true;
+        lastLookup = looked;
+      }
+    }
+
+    if (lastLookup && asksNameOrAddress(finalReply)) {
+      const spoken = spokenReplyFromLookup(lastLookup, customer?.business_name || "this business");
+      if (spoken) finalReply = spoken;
+    }
+
     const shouldForceCreate = capCreateSimproJob && !createOk && canCreateLead(slots) &&
       (bookingConfirm || claimsLeadSuccess(finalReply));
     if (shouldForceCreate) {
       const createInput: Record<string, unknown> = { ...createJobInputFromSlots(slots) };
-      const lookupFn = ctx.executors?.lookupSimproCustomer;
       let skipForce = false;
-      if (lookupFn && slots.phone) {
+      if (lastLookup) {
+        skipForce = !attachLookupToCreateInput(createInput, lastLookup, slots.site);
+      } else if (slots.phone) {
         try {
-          const looked = await lookupFn({
-            customer_id: customerId,
-            caller_phone: slots.phone,
-            ...(slots.name ? { caller_name: slots.name } : {}),
-          }, ctx.simproEnv);
-          skipForce = !attachLookupToCreateInput(createInput, looked, slots.site);
+          const looked = parseToolResult(
+            await executeChatTool(LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME, {
+              caller_phone: slots.phone,
+              ...(slots.name ? { caller_name: slots.name } : {}),
+            }, ctx),
+          ) as LookupCustomerResult | null;
+          if (looked) {
+            lookupRan = true;
+            lastLookup = looked;
+            skipForce = !attachLookupToCreateInput(createInput, looked, slots.site);
+          }
         } catch {
           skipForce = false;
         }

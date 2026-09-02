@@ -31,7 +31,53 @@ export function bookingPathOnlyRule(): string {
   return `- BOOKING PATH ONLY: lookup_simpro_customer and create_simpro_job are only for when they want work booked / a lead created. Quotes, job-status questions, transfers, and general FAQs must not look up or create SimPRO customers. Never look up, list, or read out other customers' leads or jobs.`;
 }
 
+/** Spoken miss-path question — use the business name (e.g. Glacier Air). */
+export function existingCustomerQuestion(businessName: string): string {
+  const name = String(businessName || "").trim() || "our business";
+  return `Are you already a ${name} customer?`;
+}
+
+export function lookupFirstBeforeNameRule(channel: "chat" | "voice"): string {
+  if (channel === "chat") {
+    return `- LOOKUP FIRST: Booking path only — after they want work booked, not on the greeting. Collect a mobile first if they have not already typed one; never drop a number already in this thread. Do not ask name or address until lookup_simpro_customer returns. FIRST action after you have a mobile is lookup_simpro_customer.`;
+  }
+  return `- LOOKUP FIRST: Booking path only — after they want work booked, not on the greeting. Do not ask name or address on the greeting. Phone already has caller ID — do not ask for the mobile. FIRST action this turn is lookup_simpro_customer. Do not ask name or address until that tool returns.`;
+}
+
+/**
+ * Voice / chat SIMPRO booking path. Lookup first; name + address only after a miss.
+ * Never dump jobs. Leads not jobs.
+ */
+export function simproLeadsBookingRule(channel: "chat" | "voice", businessName: string): string {
+  const question = existingCustomerQuestion(businessName);
+  const contact = channel === "chat"
+    ? "Chat has no caller ID — collect a mobile first if they have not already typed one; never drop a number already in this thread. Do not ask name or address until lookup_simpro_customer returns. FIRST action after you have a mobile is lookup_simpro_customer."
+    : "Phone already has caller ID — do not ask for the mobile. FIRST action this turn is lookup_simpro_customer (phone is auto-filled). Do not ask name or address until that tool returns.";
+  const greeting = channel === "chat"
+    ? "Booking path only — after they want work booked, not on the greeting."
+    : "Booking path only — after they want work booked, not on the greeting. Do not ask name or address on the greeting.";
+  const speakLead = channel === "chat" ? "tell them clearly" : "speak it clearly";
+  return `- SIMPRO LEADS: ${greeting} Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. ${contact} It never creates anyone. HIT: they are existing — NEVER create a new customer and never ask name or address. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If several sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). Then collect only a short description of the work and call create_simpro_job with simpro_customer_id and site_id. MISS: ask exactly "${question}" If yes, ask for their name or business name and call lookup_simpro_customer again with that name; HIT → same as above. If they say no, or lookup still misses, THEN collect name, site address, and a short description (skip any already given) and call create_simpro_job — the function creates customer + site + site contact + Open lead together. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. If the tool returns a lead number, ${speakLead}. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.\n${simproHonestyAddon(channel)}`;
+}
+
+export function lookupHitSpokenReply(name: string, streets: string[]): string {
+  const who = String(name || "").trim() || "you";
+  const labels = streets.map((s) => String(s || "").trim()).filter(Boolean);
+  if (labels.length === 1) {
+    return `Thanks — I have you as ${who} at ${labels[0]}. What work do you need done there?`;
+  }
+  if (labels.length > 1) {
+    const pair = labels.slice(0, 2).join(" or ");
+    return `Thanks — I have you as ${who}. Which street is this for — ${pair}?`;
+  }
+  return `Thanks — I have you as ${who}. What work do you need done?`;
+}
+
+export function lookupMissSpokenReply(businessName: string): string {
+  return existingCustomerQuestion(businessName);
+}
+
 /** Appended to SIMPRO LEADS when create_simpro_job is enabled. */
 export function simproHonestyAddon(channel: "chat" | "voice"): string {
-  return `${bookingPathOnlyRule()}\n${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}\n${siteSpeakRule()}`;
+  return `${bookingPathOnlyRule()}\n${lookupFirstBeforeNameRule(channel)}\n${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}\n${siteSpeakRule()}`;
 }

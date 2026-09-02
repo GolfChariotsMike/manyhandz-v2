@@ -3,7 +3,7 @@
  * agent (mh-sync-agent/prompt.ts), minus transfer / hang-up / caller ID.
  * Never dump a SimPRO job board into this prompt.
  */
-import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
+import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
 import { formatCollectedSlots, type CollectedSlots } from "../_shared/collected-slots.ts";
 import {
   formatHours,
@@ -56,7 +56,7 @@ export function chatChannelOverlay(collectedSlots?: CollectedSlots): string {
   return `WEBSITE CHAT:
 - The rules in this section override any phone-only instructions above.
 - There is no call transfer or call connect. Ignore transfer_to_staff and end_call. If the visitor asks for a person or a callback, use the save_message tool.
-- You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. On the booking path, look that mobile up before creating.
+- You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. On the booking path, collect a mobile first, then lookup_simpro_customer — do not ask name or address until that tool returns.
 - Do not hang up or use the end_call tool.
 ${slots}`.trim();
 }
@@ -102,7 +102,7 @@ export function composeChatSystemPrompt(data: ChatPromptInput): string {
   const bookingRule = capConfirmBookings
     ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with visitors.${capCreateSimproJob ? " If they want work done, you MUST still call create_simpro_job once you have the work description." : ""}`
     : (capCreateSimproJob
-      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants work done or a technician booked, that is a SimPRO lead — you MUST call create_simpro_job once you have their mobile and the work description (existing customers can skip name/address). Do not only take a verbal message. Do not use send_sms to notify the office.`
+      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants work done or a technician booked, that is a SimPRO lead — collect a mobile first if needed, then FIRST look them up with lookup_simpro_customer (do not ask name or address until it returns), then create_simpro_job once you have the work description. Do not only take a verbal message. Do not use send_sms to notify the office.`
       : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants to book, collect their name, preferred date/time, mobile, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`);
 
   const pricingRule = capQuotePrices
@@ -117,7 +117,7 @@ export function composeChatSystemPrompt(data: ChatPromptInput): string {
     : "";
 
   const simproJobRule = capCreateSimproJob
-    ? `- SIMPRO LEADS: Use this path ONLY when the visitor wants work done or a technician booked (create a lead). Quotes, job-status questions, and general FAQs must not call lookup_simpro_customer or create_simpro_job. Chat has no caller ID — ask for a mobile only if they have not already typed one; never drop a number already in this thread. Then call lookup_simpro_customer with that mobile — it never creates anyone. HIT: they are existing — NEVER create a new customer. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If a few sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. MISS: ask "Have you used ${businessName} before?" (existing / used the company before). If yes, ask for their name or business name and call lookup_simpro_customer with that name; HIT → same as above. If still no SimPRO match, or they have not used the company before, go to create. New customers: collect name, mobile, site/address, and a short description (skip any of those already given). Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. The function creates customer + site + site contact + Open lead together — never leave an orphan customer. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.\n${simproHonestyAddon("chat")}`
+    ? simproLeadsBookingRule("chat", businessName)
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const capabilitySection =
@@ -143,7 +143,7 @@ YOUR ROLE:
 - Never look up, list, or read out other customers' leads or jobs
 
 VISITOR CONTACT:
-You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. On the booking path, look that mobile up before creating. Skip name and full site address when that mobile matches an existing customer.
+You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. On the booking path, collect a mobile first, then lookup_simpro_customer — do not ask name or address until that tool returns. The existing-customer question is only for a miss.
 
 CHAT HANDLING:
 - Keep replies short and friendly

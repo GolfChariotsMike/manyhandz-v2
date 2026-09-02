@@ -5,6 +5,9 @@ import {
   buildSystemPrompt,
   composeSystemPrompt,
   formatPriceList,
+  isGenericPromptLeftover,
+  isPersistedCompose,
+  isStaleNameFirstCompose,
   liveSystemPromptFromSource,
   operatorPromptOverride,
 } from "./prompt.ts";
@@ -56,14 +59,14 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   assert.match(on, /create_simpro_job/);
   assert.match(on, /SIMPRO LEADS/);
   assert.match(on, /lead number/);
-  assert.match(on, /used the company before/);
-  assert.match(on, /Existing customers: collect only a short description/);
+  assert.match(on, /Are you already a Acme Plumbing customer\?/);
+  assert.match(on, /FIRST action this turn is lookup_simpro_customer/);
+  assert.match(on, /Do not ask name or address until that tool returns/);
   assert.match(on, /MUST call create_simpro_job in the same turn/);
   assert.match(on, /do not use send_sms to notify the office/);
   assert.match(on, /Collecting details without invoking the tool is a failure/);
-  assert.match(on, /Do not interrogate name or full site address/);
-  assert.match(on, /New customers: collect name, site\/address/);
-  assert.match(on, /no SimPRO match/);
+  assert.match(on, /never ask name or address/i);
+  assert.match(on, /THEN collect name, site address/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /the function notifies/);
   assert.match(on, /use save_message/);
@@ -80,7 +83,7 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   assert.match(on, /never ask for a separate site contact/i);
   assert.match(on, /Do not ask whether they are a company or an individual/);
   assert.match(on, /lookup_simpro_customer/);
-  assert.match(on, /Have you used Acme Plumbing before/);
+  assert.match(on, /Do not ask name or address on the greeting/);
   assert.match(on, /which street/);
   assert.match(on, /37 Derictoe or 67 Mars/);
   assert.match(on, /callers do not know site IDs/i);
@@ -193,4 +196,48 @@ test("operator system_prompt overrides compose and is not concatenated onto it",
     ...base,
     systemPrompt: override,
   }), override);
+});
+
+test("booking copy forbids asking name/address before lookup", () => {
+  const on = composeSystemPrompt(base);
+  assert.match(on, /FIRST action this turn is lookup_simpro_customer/);
+  assert.match(on, /Do not ask name or address until that tool returns/);
+  assert.match(on, /Do not ask name or address on the greeting/);
+  assert.doesNotMatch(on, /New customers:\s*collect name/);
+  assert.doesNotMatch(on, /existing customers can skip name\/address/);
+  assert.doesNotMatch(on, /Have you used Acme Plumbing before/);
+});
+
+test("miss-path uses the existing-customer question", () => {
+  const on = composeSystemPrompt(base);
+  assert.match(on, /Are you already a Acme Plumbing customer\?/);
+  assert.match(on, /THEN collect name, site address/);
+  const glacier = composeSystemPrompt({ ...base, businessName: "Glacier Air", aiName: "Charlie" });
+  assert.match(glacier, /Are you already a Glacier Air customer\?/);
+  assert.doesNotMatch(glacier, /Have you used Glacier Air before/);
+});
+
+test("persisted compose leftover does not freeze Charlie on name-first wording", () => {
+  const composed = composeSystemPrompt(base);
+  const stale = `You are Charlie, the AI receptionist for Glacier Air.
+
+ABOUT US:
+We are Glacier Air.
+
+CAPABILITIES & RULES:
+- BOOKINGS: If they want work done, collect their name, site/address, and a short description.
+- SIMPRO LEADS: New customers: collect name, site/address, and a short description. Existing customers can skip name/address. Briefly check if they have used the company before.
+
+YOUR ROLE:
+- Answer calls warm and friendly`.repeat(8);
+  assert.equal(stale.length > 800, true);
+  assert.equal(isPersistedCompose(stale), true);
+  assert.equal(isStaleNameFirstCompose(stale), true);
+  assert.equal(isGenericPromptLeftover(stale), true);
+  assert.equal(operatorPromptOverride(stale), "");
+  assert.equal(buildSystemPrompt({ ...base, systemPrompt: stale }), composed);
+  assert.match(buildSystemPrompt({ ...base, systemPrompt: stale }), /FIRST action this turn is lookup_simpro_customer/);
+  assert.equal(isPersistedCompose(composed), true);
+  assert.equal(operatorPromptOverride(composed), "");
+  assert.equal(buildSystemPrompt({ ...base, systemPrompt: composed }), composed);
 });

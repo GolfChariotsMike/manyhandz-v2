@@ -63,14 +63,13 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /the function notifies/);
   assert.match(on, /use save_message/);
   assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
-  assert.match(on, /ask for a mobile only if they have not already typed one/);
+  assert.match(on, /collect a mobile first if they have not already typed one/);
   assert.match(on, /never drop a number already in this thread/);
-  assert.match(on, /skip name and full site address/);
+  assert.match(on, /Do not ask name or address until/);
   assert.match(on, /MUST call create_simpro_job in the same turn/);
   assert.match(on, /do not use send_sms to notify the office/);
   assert.match(on, /Collecting details without invoking the tool is a failure/);
-  assert.match(on, /New customers: collect name, mobile, site\/address/);
-  assert.match(on, /no SimPRO match/);
+  assert.match(on, /THEN collect name, site address/);
   assert.match(on, /never fake success/i);
   assert.match(on, /do not ask for those again/i);
   assert.match(on, /yes please/);
@@ -80,7 +79,9 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /never ask for a separate site contact/i);
   assert.match(on, /Do not ask whether they are a company or an individual/);
   assert.match(on, /lookup_simpro_customer/);
-  assert.match(on, /Have you used Acme Plumbing before/);
+  assert.match(on, /Are you already a Acme Plumbing customer\?/);
+  assert.match(on, /collect a mobile first/i);
+  assert.match(on, /FIRST action after you have a mobile is lookup_simpro_customer/);
   assert.match(on, /which street/);
   assert.match(on, /37 Derictoe or 67 Mars/);
   assert.match(on, /callers do not know site IDs/i);
@@ -139,6 +140,24 @@ test("disclosure and extra instructions stay chat-safe", () => {
   assert.match(chatAiDisclosureRule(true), /AI assistant/);
   assert.equal(customInstructionsBlock({ note: "obj" }), "");
   assert.equal(customInstructionsBlock("  "), "");
+});
+
+test("booking copy forbids asking name/address before lookup", () => {
+  const on = composeChatSystemPrompt(base);
+  assert.match(on, /FIRST action after you have a mobile is lookup_simpro_customer/);
+  assert.match(on, /Do not ask name or address until/);
+  assert.match(on, /collect a mobile first/i);
+  assert.doesNotMatch(on, /New customers:\s*collect name/);
+  assert.doesNotMatch(on, /existing customers can skip name\/address/);
+});
+
+test("miss-path uses the existing-customer question", () => {
+  const on = composeChatSystemPrompt(base);
+  assert.match(on, /Are you already a Acme Plumbing customer\?/);
+  assert.match(on, /THEN collect name, site address/);
+  const glacier = composeChatSystemPrompt({ ...base, businessName: "Glacier Air" });
+  assert.match(glacier, /Are you already a Glacier Air customer\?/);
+  assert.doesNotMatch(glacier, /Have you used Glacier Air before/);
 });
 
 test("empty system_prompt uses chat compose; override is the live source without doubling", () => {

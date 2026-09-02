@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  asksNameOrAddress,
   canCreateLead,
   claimsLeadSuccess,
   collectSlots,
@@ -13,6 +14,7 @@ import {
   honestLeadSuccessReply,
   looksLikeBookingConfirm,
   looksLikePersonName,
+  shouldForceLookup,
 } from "./collected-slots.ts";
 
 const micycleThread = [
@@ -76,7 +78,20 @@ test("collected-slots block lists fields and honest replies never fake notify", 
   assert.match(block, /Micycle Kerr/);
   assert.match(block, /\+61433121933/);
   assert.match(block, /do not ask again/);
+  assert.match(block, /LOOKUP NOW/);
+  assert.match(block, /do not ask name or address until it returns/i);
   assert.equal(formatCollectedSlots({}), "");
   assert.match(honestLeadFailureReply(), /have not notified the team/);
+});
+
+test("mobile on a booking path must lookup before name/address", () => {
+  assert.equal(shouldForceLookup({ phone: "+61433121933", description: "book a aircon service" }, false), true);
+  assert.equal(shouldForceLookup({ phone: "+61433121933" }, true), true);
+  assert.equal(shouldForceLookup({ description: "book a aircon service" }, false), false);
+  assert.equal(shouldForceLookup({ phone: "+61433121933" }, false), false);
+  assert.equal(asksNameOrAddress("What's your full name?"), true);
+  assert.equal(asksNameOrAddress("Where's the air conditioning unit located? (Street address or suburb)"), true);
+  assert.equal(asksNameOrAddress("Are you already a Glacier Air customer?"), false);
+  assert.equal(asksNameOrAddress("Thanks — I have you as Micycle Kerr at 12 Frost St."), false);
   assert.match(honestLeadSuccessReply("4421"), /SimPRO lead 4421/);
 });

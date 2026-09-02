@@ -61,12 +61,15 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.match(lookup.description, /37 Derictoe or 67 Mars/);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
-  assert.match(create.description, /MUST call this once you have their mobile/i);
+  assert.match(create.description, /MUST call this after lookup_simpro_customer has returned/i);
   assert.match(create.description, /find-or-create/i);
   assert.match(create.description, /no caller ID/i);
-  assert.match(create.description, /already typed a mobile/i);
+  assert.match(create.description, /collect a mobile first/i);
   assert.match(create.description, /yes please/i);
   assert.match(create.description, /skip name and full site address/i);
+  assert.match(lookup.description, /FIRST action after you have a mobile is this tool/i);
+  assert.match(lookup.description, /Do not ask name or address until this tool returns/i);
+  assert.match(lookup.description, /already a customer/i);
   assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /save_message as the only close/i);
   assert.match(create.description, /lead number/i);

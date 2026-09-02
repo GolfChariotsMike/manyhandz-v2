@@ -103,7 +103,10 @@ test("Knowledge save body writes the same live prompt the builder resolved", () 
   assert.deepEqual(knowledgeVoiceSaveBody(edited, composed), { system_prompt: edited });
   const secondSave = knowledgeVoiceSaveBody(edited, composed);
   assert.equal(secondSave.system_prompt.includes(composed + composed), false);
-  assert.equal(liveAiPromptFromRows({ ...rows, systemPrompt: secondSave.system_prompt }), edited);
+  // Persisted compose (even with a trailing note) must not freeze Charlie.
+  assert.equal(liveAiPromptFromRows({ ...rows, systemPrompt: secondSave.system_prompt }), composed);
+  const custom = "Always mention Malaga. Be extra brief.";
+  assert.equal(liveAiPromptFromRows({ ...rows, systemPrompt: custom }), custom);
 });
 
 test("nextDisplayedPrompt keeps edits and refreshes an untouched compose", () => {
