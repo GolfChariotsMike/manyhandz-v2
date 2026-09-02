@@ -1,7 +1,11 @@
 /**
  * Create a real SimPRO lead (find-or-create customer + site, then POST lead).
- * Uses the same mh_crm_connections row and AES-GCM secret wrap as
- * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
+ * New customers POST individuals/companies with Address and ?createSite=true so
+ * SimPRO auto-creates the first site — do not POST a second site unless the
+ * work address is a different property. IDs come from JSON `ID` or Location
+ * (201 + empty body is a known SimPRO pattern). Uses the same
+ * mh_crm_connections row and AES-GCM secret wrap as mhv2-simpro-connect /
+ * mhv2-simpro-sync. Does not log secrets.
  * On success, notifies the ManyHandz customer (email + notify_sms). Office
  * notify lives here so voice and chat both fire — do not rely on send_sms.
  */
@@ -41,6 +45,8 @@ export type CreateJobInput = {
   site_address: string;
   description: string;
   job_name?: string;
+  /** Optional. Inferred from caller_name when it looks like a business. */
+  company_name?: string;
 };
 
 export type CreateJobFailureCode =
@@ -108,6 +114,20 @@ export function splitPersonName(raw: string): { givenName: string; familyName: s
   return { givenName: parts.slice(0, -1).join(" "), familyName: parts[parts.length - 1] };
 }
 
+const AU_STREET_TYPES =
+  "Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Court|Ct|Place|Pl|Crescent|Cres|Lane|Ln|Terrace|Tce|Boulevard|Blvd|Circuit|Cct|Close|Parade|Grove|Rise|Trail|Highway|Hwy|Way|Circle|Cir|Esplanade|Esp|Row|Mews|Walk|Loop|Square|Sq|Track|Pass|Gate|Gardens|Green";
+
+function splitStreetAndSuburb(line: string): { address: string; city: string } {
+  const cleaned = String(line || "").replace(/\s+/g, " ").trim();
+  const re = new RegExp(
+    `^(\\d+[A-Za-z]?(?:\\s*[-/]\\s*\\d+[A-Za-z]?)?\\s+.+?\\s+(?:${AU_STREET_TYPES}))\\b(?:\\s+(.+))?$`,
+    "i",
+  );
+  const m = cleaned.match(re);
+  if (m) return { address: m[1].trim(), city: (m[2] || "").trim() };
+  return { address: cleaned, city: "" };
+}
+
 export function parseSiteAddress(raw: string): {
   name: string;
   address: string;
@@ -126,15 +146,74 @@ export function parseSiteAddress(raw: string): {
       postalCode: au[4],
     };
   }
+  const trailingStatePostcode = cleaned.match(/^(.+?)\s+([A-Za-z]{2,3})\s+(\d{4})\s*$/);
+  if (trailingStatePostcode) {
+    const rest = splitStreetAndSuburb(trailingStatePostcode[1]);
+    return {
+      name: rest.address || trailingStatePostcode[1],
+      address: rest.address || trailingStatePostcode[1],
+      city: rest.city,
+      state: trailingStatePostcode[2].toUpperCase(),
+      postalCode: trailingStatePostcode[3],
+    };
+  }
   const parts = cleaned.split(",").map((p) => p.trim()).filter(Boolean);
   const postcode = (cleaned.match(/\b\d{4}\b/) || [""])[0];
+  if (parts.length >= 2) {
+    return {
+      name: parts[0] || cleaned || "Site",
+      address: parts[0] || cleaned,
+      city: parts[1] || "",
+      state: (parts[2] || "").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase(),
+      postalCode: postcode,
+    };
+  }
+  const split = splitStreetAndSuburb(cleaned);
   return {
-    name: parts[0] || cleaned || "Site",
-    address: parts[0] || cleaned,
-    city: parts[1] || "",
-    state: (parts[2] || "").replace(/[^A-Za-z]/g, "").slice(0, 3).toUpperCase(),
+    name: split.address || cleaned || "Site",
+    address: split.address || cleaned,
+    city: split.city,
+    state: "",
     postalCode: postcode,
   };
+}
+
+/** Street + suburb-only / street-only still get an Address so SimPRO can auto-site. */
+export function simproAddressBody(siteAddress: string): Record<string, string> {
+  const parsed = parseSiteAddress(siteAddress);
+  return {
+    Address: parsed.address || siteAddress || "Site",
+    City: parsed.city,
+    State: parsed.state,
+    PostalCode: parsed.postalCode,
+    Country: "Australia",
+  };
+}
+
+/**
+ * Infer a company customer from a dedicated field or the spoken name.
+ * Pty / Pty Ltd / Inc / "from X" / CompanyName → company. If unsure, individual.
+ * Do not ask the caller whether they are a company.
+ */
+export function inferCompanyName(callerName: string, companyField?: string): string | null {
+  const dedicated = String(companyField || "").trim();
+  if (dedicated) return dedicated;
+  const raw = String(callerName || "").trim();
+  if (!raw) return null;
+  const fromMatch = raw.match(/\bfrom\s+(.+)$/i);
+  if (fromMatch) {
+    const company = fromMatch[1].replace(/[.,]+$/, "").trim();
+    if (company.length > 1) return company;
+  }
+  if (/\b(?:pty\.?\s*ltd\.?|pty\.?|inc\.?|incorporated|llc|ltd\.?)\b/i.test(raw)) {
+    return raw;
+  }
+  return null;
+}
+
+export function idFromLocation(location: string): string {
+  const m = String(location || "").trim().match(/\/(\d+)\/?$/);
+  return m ? m[1] : "";
 }
 
 export function parseCreateJobInput(body: unknown, customerId: string): CreateJobInput | CreateJobResult {
@@ -146,6 +225,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const site_address = String(src.site_address || src.address || src.site || "").trim();
   const description = String(src.description || src.message || src.work || "").trim();
   const job_name = String(src.job_name || src.lead_name || src.title || "").trim();
+  const company_name = String(src.company_name || src.CompanyName || src.company || "").trim();
   const cid = String(customerId || src.customer_id || "").trim();
   if (!cid || !caller_phone || !description) {
     return {
@@ -162,6 +242,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
     site_address,
     description,
     job_name: job_name || undefined,
+    ...(company_name ? { company_name } : {}),
   };
 }
 
@@ -208,12 +289,21 @@ function apiBase(conn: SimproConnection): string {
   return `${String(conn.simpro_build_url || "").replace(/\/$/, "")}/api/v1.0/companies/${companyIdOf(conn)}`;
 }
 
+type SimproHttp = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+  text: string;
+  location: string;
+  resourceIdHeader: string;
+};
+
 async function simproJson(
   env: CreateJobEnv,
   token: string,
   url: string,
   init?: { method?: string; body?: unknown },
-): Promise<{ ok: boolean; status: number; data: unknown; text: string }> {
+): Promise<SimproHttp> {
   const res = await env.fetch(url, {
     method: init?.method || "GET",
     headers: {
@@ -232,17 +322,37 @@ async function simproJson(
       data = text;
     }
   }
-  return { ok: res.ok, status: res.status, data, text };
+  return {
+    ok: res.ok,
+    status: res.status,
+    data,
+    text,
+    location: res.headers.get("Location") || res.headers.get("location") || "",
+    resourceIdHeader: res.headers.get("Resource-ID") || res.headers.get("resource-id") || "",
+  };
 }
 
-function resourceId(data: unknown, headersId?: string): string {
-  if (headersId) return headersId;
+/** JSON `ID` first, then Resource-ID, then the last path segment of Location. */
+export function resourceId(data: unknown, location = "", headerId = ""): string {
   if (data && typeof data === "object" && !Array.isArray(data)) {
     const row = data as Record<string, unknown>;
-    if (row.ID != null) return String(row.ID);
-    if (row.id != null) return String(row.id);
+    if (row.ID != null && String(row.ID).trim() !== "") return String(row.ID);
+    if (row.id != null && String(row.id).trim() !== "") return String(row.id);
   }
+  const header = String(headerId || "").trim();
+  if (/^\d+$/.test(header)) return header;
+  const fromLocation = idFromLocation(location);
+  if (fromLocation) return fromLocation;
+  if (/^\d+$/.test(String(location).trim())) return String(location).trim();
   return "";
+}
+
+function createdId(res: SimproHttp): string {
+  return resourceId(res.data, res.location, res.resourceIdHeader);
+}
+
+function simproFail(message: string): Error {
+  return Object.assign(new Error(message), { code: "simpro_error" as const });
 }
 
 export function hasSimproOauth(conn: SimproConnection): boolean {
@@ -337,25 +447,83 @@ async function createCustomer(
   env: CreateJobEnv,
   conn: SimproConnection,
   token: string,
-  name: string,
-  phone: string,
+  input: CreateJobInput,
 ): Promise<number> {
-  const { givenName, familyName } = splitPersonName(name);
-  const res = await simproJson(env, token, `${apiBase(conn)}/customers/individuals/`, {
-    method: "POST",
-    body: { GivenName: givenName, FamilyName: familyName, Phone: phone },
-  });
+  const company = inferCompanyName(input.caller_name, input.company_name);
+  const address = simproAddressBody(input.site_address);
+  const path = company
+    ? `${apiBase(conn)}/customers/companies/?createSite=true`
+    : `${apiBase(conn)}/customers/individuals/?createSite=true`;
+  const names = splitPersonName(input.caller_name);
+  const body = company
+    ? {
+      CompanyName: company,
+      CustomerType: "Customer",
+      Phone: input.caller_phone,
+      Address: address,
+    }
+    : {
+      GivenName: names.givenName,
+      FamilyName: names.familyName,
+      CustomerType: "Customer",
+      Phone: input.caller_phone,
+      Address: address,
+    };
+  const res = await simproJson(env, token, path, { method: "POST", body });
   if (!res.ok) {
-    throw Object.assign(
-      new Error(`Could not create SimPRO customer: ${sanitizeSimproError(res.text)}`),
-      { code: "simpro_error" as const },
-    );
+    throw simproFail(`Could not create SimPRO customer: ${sanitizeSimproError(res.text)}`);
   }
-  const id = Number(resourceId(res.data));
+  const id = Number(createdId(res));
   if (!id) {
-    throw Object.assign(new Error("SimPRO created a customer but returned no ID"), { code: "simpro_error" as const });
+    // 201 + empty body + missing Location: recover via last-9 so we do not POST again.
+    const found = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
+    if (found) return found.id;
+    throw simproFail("SimPRO created a customer but returned no ID");
   }
   return id;
+}
+
+type ListedSite = { id: number; hay: string };
+
+function siteHaystack(row: Record<string, unknown>): string {
+  return JSON.stringify({
+    Address: row.Address,
+    Name: row.Name,
+    address: row.address,
+  }).toLowerCase();
+}
+
+async function listCustomerSites(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+): Promise<ListedSite[]> {
+  const urls = [
+    `${apiBase(conn)}/customers/${customerId}/sites/`,
+    `${apiBase(conn)}/sites/?Customer=${customerId}&pageSize=50`,
+  ];
+  for (const url of urls) {
+    const res = await simproJson(env, token, url);
+    if (!res.ok || !Array.isArray(res.data)) continue;
+    const items: ListedSite[] = [];
+    for (const row of res.data as Array<Record<string, unknown>>) {
+      const id = Number(row.ID ?? row.id);
+      if (!id) continue;
+      items.push({ id, hay: siteHaystack(row) });
+    }
+    if (items.length) return items;
+  }
+  return [];
+}
+
+function pickSiteId(sites: ListedSite[], address: string, reuseFirst: boolean): number | null {
+  if (!sites.length) return null;
+  const needle = parseSiteAddress(address).address.toLowerCase();
+  if (!needle) return sites[0].id;
+  const match = sites.find((row) => row.hay.includes(needle.slice(0, 12)));
+  if (match) return match.id;
+  return reuseFirst ? sites[0].id : null;
 }
 
 async function findSiteId(
@@ -364,30 +532,9 @@ async function findSiteId(
   token: string,
   customerId: number,
   address: string,
+  reuseFirst = false,
 ): Promise<number | null> {
-  const needle = parseSiteAddress(address).address.toLowerCase();
-  const urls = [
-    `${apiBase(conn)}/customers/${customerId}/sites/`,
-    `${apiBase(conn)}/sites/?Customer=${customerId}&pageSize=50`,
-  ];
-  for (const url of urls) {
-    const res = await simproJson(env, token, url);
-    if (!res.ok) continue;
-    const items = Array.isArray(res.data)
-      ? res.data as Array<Record<string, unknown>>
-      : [];
-    if (!items.length) continue;
-    const match = items.find((row) => {
-      const hay = JSON.stringify(row.Address || row.Name || "").toLowerCase();
-      return Boolean(needle) && hay.includes(needle.slice(0, 12));
-    });
-    // Empty site_address → reuse the first existing site. A provided address
-    // that does not match must create a new site (do not silently reuse).
-    const pick = match || (!needle ? items[0] : undefined);
-    const id = Number(pick?.ID ?? pick?.id);
-    if (id) return id;
-  }
-  return null;
+  return pickSiteId(await listCustomerSites(env, conn, token, customerId), address, reuseFirst);
 }
 
 async function createSite(
@@ -400,13 +547,7 @@ async function createSite(
   const parsed = parseSiteAddress(siteAddress);
   const body: Record<string, unknown> = {
     Name: parsed.name.slice(0, 80) || "Site",
-    Address: {
-      Address: parsed.address,
-      City: parsed.city,
-      State: parsed.state,
-      PostalCode: parsed.postalCode,
-      Country: "Australia",
-    },
+    Address: simproAddressBody(siteAddress),
     Customer: customerId,
   };
   const res = await simproJson(env, token, `${apiBase(conn)}/sites/`, { method: "POST", body });
@@ -419,21 +560,14 @@ async function createSite(
       },
     });
     if (!retry.ok) {
-      throw Object.assign(
-        new Error(`Could not create SimPRO site: ${sanitizeSimproError(res.text || retry.text)}`),
-        { code: "simpro_error" as const },
-      );
+      throw simproFail(`Could not create SimPRO site: ${sanitizeSimproError(res.text || retry.text)}`);
     }
-    const retryId = Number(resourceId(retry.data));
-    if (!retryId) {
-      throw Object.assign(new Error("SimPRO created a site but returned no ID"), { code: "simpro_error" as const });
-    }
+    const retryId = Number(createdId(retry));
+    if (!retryId) throw simproFail("SimPRO created a site but returned no ID");
     return retryId;
   }
-  const id = Number(resourceId(res.data));
-  if (!id) {
-    throw Object.assign(new Error("SimPRO created a site but returned no ID"), { code: "simpro_error" as const });
-  }
+  const id = Number(createdId(res));
+  if (!id) throw simproFail("SimPRO created a site but returned no ID");
   return id;
 }
 
@@ -463,16 +597,53 @@ async function postLead(
     },
   });
   if (!res.ok) {
-    throw Object.assign(
-      new Error(`SimPRO could not create the lead: ${sanitizeSimproError(res.text)}`),
-      { code: "simpro_error" as const },
-    );
+    throw simproFail(`SimPRO could not create the lead: ${sanitizeSimproError(res.text)}`);
   }
-  const leadNumber = resourceId(res.data);
-  if (!leadNumber) {
-    throw Object.assign(new Error("SimPRO created a lead but returned no lead number"), { code: "simpro_error" as const });
-  }
+  const leadNumber = createdId(res);
+  if (!leadNumber) throw simproFail("SimPRO created a lead but returned no lead number");
   return leadNumber;
+}
+
+async function resolveSiteForLead(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  siteAddress: string,
+  customerCreated: boolean,
+): Promise<{ siteId: number; siteCreated: boolean }> {
+  // New customer: SimPRO auto-site is this property — use it, do not POST another.
+  // Empty address: reuse the first existing site.
+  let siteId = await findSiteId(
+    env,
+    conn,
+    token,
+    customerId,
+    siteAddress,
+    customerCreated || !siteAddress,
+  );
+  let siteCreated = Boolean(customerCreated && siteId);
+
+  if (!siteId && siteAddress) {
+    try {
+      siteId = await createSite(env, conn, token, customerId, siteAddress);
+      siteCreated = true;
+    } catch (err) {
+      siteId = await findSiteId(env, conn, token, customerId, siteAddress, true);
+      if (!siteId) throw err;
+    }
+  }
+
+  if (!siteId) {
+    if (!siteAddress) {
+      throw Object.assign(
+        new Error("Need the work site address — this customer has no site on file. Do not claim a lead was created."),
+        { code: "missing_fields" as const },
+      );
+    }
+    throw simproFail("Could not create or find a SimPRO site for that address");
+  }
+  return { siteId, siteCreated };
 }
 
 export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv): Promise<CreateJobResult> {
@@ -494,8 +665,9 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     let customerCreated = false;
     let siteCreated = false;
 
-    // Mike/Nick: unknown callers get a new SimPRO customer + site, then a Lead.
-    // Existing last-9 phone match is reused; a new Lead is still always created.
+    // Mike/Nick: unknown callers get a new SimPRO customer (createSite + Address)
+    // then a Lead on the auto-site. Existing last-9 phone is reused; never POST
+    // a second individual. A new Lead is still always created.
     const found = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
     let simproCustomerId: number;
     let callerName = input.caller_name;
@@ -511,26 +683,31 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
             "This phone is not on file in SimPRO. Need the caller's name and site address to create a new customer. Do not claim a lead was created.",
         };
       }
-      simproCustomerId = await createCustomer(env, conn, token, input.caller_name, input.caller_phone);
+      simproCustomerId = await createCustomer(env, conn, token, input);
       customerCreated = true;
     }
 
-    let siteId = await findSiteId(env, conn, token, simproCustomerId, input.site_address);
-    if (!siteId) {
-      if (!input.site_address) {
-        return {
-          ok: false,
-          code: "missing_fields",
-          error:
-            "Need the work site address — this customer has no site on file. Do not claim a lead was created.",
-        };
-      }
-      siteId = await createSite(env, conn, token, simproCustomerId, input.site_address);
-      siteCreated = true;
-    }
+    const resolvedSite = await resolveSiteForLead(
+      env,
+      conn,
+      token,
+      simproCustomerId,
+      input.site_address,
+      customerCreated,
+    );
+    let siteId = resolvedSite.siteId;
+    siteCreated = resolvedSite.siteCreated;
 
     const resolved: CreateJobInput = { ...input, caller_name: callerName || found?.name || "Customer" };
-    const leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
+    let leadNumber: string;
+    try {
+      leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
+    } catch (err) {
+      const retrySite = await findSiteId(env, conn, token, simproCustomerId, input.site_address, true);
+      if (!retrySite) throw err;
+      siteId = retrySite;
+      leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
+    }
 
     if (env.cacheJob) {
       await env.cacheJob({
@@ -568,10 +745,18 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       ? (err as { code?: CreateJobFailureCode }).code
       : "simpro_error";
     const message = err instanceof Error ? sanitizeSimproError(err.message) : "SimPRO request failed";
+    const resolvedCode = code === "auth_error"
+      ? "auth_error"
+      : code === "missing_fields"
+      ? "missing_fields"
+      : "simpro_error";
+    const suffix = /do not claim a lead was created/i.test(message)
+      ? ""
+      : " Do not claim a lead was created.";
     return {
       ok: false,
-      code: code === "auth_error" ? "auth_error" : "simpro_error",
-      error: `${message} Do not claim a lead was created.`,
+      code: resolvedCode,
+      error: `${message}${suffix}`,
     };
   }
 }
