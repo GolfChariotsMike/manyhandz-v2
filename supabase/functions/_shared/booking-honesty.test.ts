@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  alreadyCollectedRule,
+  bookingConfirmMustCreateRule,
+  neverFakeLeadCloseRule,
+  simproHonestyAddon,
+} from "./booking-honesty.ts";
+
+test("honesty addon forbids fake notify and save_message-only close", () => {
+  const chat = simproHonestyAddon("chat");
+  const voice = simproHonestyAddon("voice");
+  for (const text of [chat, voice, neverFakeLeadCloseRule(), bookingConfirmMustCreateRule()]) {
+    assert.match(text, /NEVER CLAIM SUCCESS|yes please|create_simpro_job/);
+  }
+  assert.match(neverFakeLeadCloseRule(), /never fake success/i);
+  assert.match(neverFakeLeadCloseRule(), /ok:true/);
+  assert.match(bookingConfirmMustCreateRule(), /yes please/);
+  assert.match(bookingConfirmMustCreateRule(), /Do not use save_message as the only close/);
+  assert.doesNotMatch(chat, /system__/);
+  assert.doesNotMatch(voice, /system__/);
+});
+
+test("chat already-collected rule keeps a typed mobile; voice uses caller ID", () => {
+  const chat = alreadyCollectedRule("chat");
+  const voice = alreadyCollectedRule("voice");
+  assert.match(chat, /do not ask for those again/i);
+  assert.match(chat, /not a reason to drop a number/i);
+  assert.match(chat, /no caller ID/);
+  assert.match(voice, /do not ask for those again/i);
+  assert.match(voice, /caller ID/);
+  assert.doesNotMatch(voice, /not a reason to drop a number/);
+});

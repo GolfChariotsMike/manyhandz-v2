@@ -48,6 +48,8 @@ test("chat prompt never includes transfer, hang-up, caller ID, or a job-board du
   assert.doesNotMatch(prompt, /Never ask for their callback number/);
   assert.match(prompt, /You do not have caller ID/);
   assert.match(prompt, /no call transfer or call connect/);
+  assert.match(prompt, /already typed a mobile/);
+  assert.doesNotMatch(prompt, /Always ask for a mobile first/);
 });
 
 test("simpro create-lead rule is default-on, honest on failure, and asks for a mobile", () => {
@@ -59,13 +61,19 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /the function notifies/);
   assert.match(on, /use save_message/);
   assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
-  assert.match(on, /always collect their mobile first/);
+  assert.match(on, /ask for a mobile only if they have not already typed one/);
+  assert.match(on, /never drop a number already in this thread/);
   assert.match(on, /skip name and full site address/);
   assert.match(on, /MUST call create_simpro_job in the same turn/);
   assert.match(on, /do not use send_sms to notify the office/);
   assert.match(on, /Collecting details without invoking the tool is a failure/);
   assert.match(on, /New customers: collect name, mobile, site\/address/);
   assert.match(on, /no SimPRO match/);
+  assert.match(on, /never fake success/i);
+  assert.match(on, /do not ask for those again/i);
+  assert.match(on, /yes please/);
+  assert.match(on, /Do not use save_message as the only close/);
+  assert.doesNotMatch(on, /always collect their mobile first/);
   assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildChatSystemPrompt({ ...base, capCreateSimproJob: false });
   assert.match(off, /Do not create leads in SimPRO/);
@@ -87,6 +95,22 @@ test("SMS and booking rules follow voice caps; bookings take a message when off"
   assert.match(off, /You CANNOT confirm, reserve, or make any booking/);
   const book = buildChatSystemPrompt({ ...base, capConfirmBookings: true });
   assert.match(book, /You can confirm bookings/);
+});
+
+test("collected slots are injected so the model cannot re-ask", () => {
+  const prompt = buildChatSystemPrompt({
+    ...base,
+    collectedSlots: {
+      name: "Micycle Kerr",
+      phone: "+61433121933",
+      site: "Malaga",
+      description: "Split system clean. Quoted $1,155.",
+    },
+  });
+  assert.match(prompt, /ALREADY COLLECTED IN THIS CHAT/);
+  assert.match(prompt, /Micycle Kerr/);
+  assert.match(prompt, /\+61433121933/);
+  assert.match(prompt, /Malaga/);
 });
 
 test("disclosure and extra instructions stay chat-safe", () => {

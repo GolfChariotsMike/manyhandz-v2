@@ -42,6 +42,8 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
   assert.match(created.description, /used the company before/i);
   assert.match(created.description, /do not interrogate name or address/i);
   assert.match(created.description, /do not use send_sms to notify the office/i);
+  assert.match(created.description, /yes please/i);
+  assert.match(created.description, /save_message as the only close/i);
   assert.doesNotMatch(created.description, /job number/i);
   assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
   assert.deepEqual(created.api_schema.request_body_schema.required, ["caller_phone", "description"]);

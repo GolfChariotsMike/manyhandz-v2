@@ -3,6 +3,7 @@
  * Hang-up-on-goodbye and SimPRO create-job are the extra capability sections;
  * disclosure wording matches the live function so existing agents do not shift.
  */
+import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
 
 export type PriceItem = {
@@ -124,7 +125,7 @@ export function buildSystemPrompt(data: PromptInput): string {
     : "";
 
   const simproJobRule = createJobOn
-    ? `- SIMPRO LEADS: When a caller wants work done, briefly check if they have used the company before — or treat caller ID as enough. Phone comes from caller ID; do not ask for it. Existing customers: collect only a short description of the work. New customers: collect name, site/address, and a short description. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. Do not interrogate name or full site address for existing customers. Optionally confirm the site if they volunteer a different address or mention more than one site. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a caller wants work done, briefly check if they have used the company before — or treat caller ID as enough. Phone comes from caller ID; do not ask for it. Existing customers: collect only a short description of the work. New customers: collect name, site/address, and a short description (skip any already given on this call). Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. Do not interrogate name or full site address for existing customers. Optionally confirm the site if they volunteer a different address or mention more than one site. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.\n${simproHonestyAddon("voice")}`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const servicem8JobRule = capCreateServicem8Job && servicem8Connected

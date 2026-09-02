@@ -3,8 +3,18 @@
  * as mh-sync-agent, except staff transfer / call connect.
  * Does not dump SimPRO jobs into the prompt.
  */
+import {
+  canCreateLead,
+  claimsLeadSuccess,
+  collectSlots,
+  createJobInputFromSlots,
+  honestLeadFailureReply,
+  honestLeadSuccessReply,
+  looksLikeBookingConfirm,
+} from "../_shared/collected-slots.ts";
 import { buildChatSystemPrompt, type PriceItem } from "./prompt.ts";
 import {
+  CREATE_SIMPRO_JOB_TOOL_NAME,
   chatTools,
   defaultChatToolExecutors,
   executeChatTool,
@@ -24,6 +34,8 @@ export const corsHeaders = {
 
 export const CLAUDE_MODEL = "claude-haiku-4-5";
 export const VISITOR_ERROR = "Sorry, something went wrong. Please try again.";
+/** Keep enough turns that a quote + name + mobile still reach Claude. */
+export const CHAT_HISTORY_LIMIT = 40;
 
 export type ChatConfigRow = {
   id?: string;
@@ -135,6 +147,17 @@ export function customInstructionsFromKb(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
 }
 
+export function parseToolResult(raw: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: string): ChatToolContext {
   const store = env.store;
   const simproEnv: CreateJobEnv = {
@@ -238,6 +261,9 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     const stored = asChatHistory(existing?.messages);
     const capCreateSimproJob = voice?.cap_create_simpro_job ?? true;
     const capSendSms = voice?.cap_send_sms ?? true;
+    const slots = collectSlots([...stored, { role: "user", content: message }], customer?.country);
+    const bookingConfirm = looksLikeBookingConfirm(message);
+    const preferCreate = capCreateSimproJob && canCreateLead(slots) && bookingConfirm;
 
     const systemPrompt = buildChatSystemPrompt({
       aiName: voice?.ai_name?.trim() || "Your AI assistant",
@@ -254,13 +280,14 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       capSendSms,
       capDiscloseAi: voice?.cap_disclose_ai ?? false,
       capCreateSimproJob,
+      collectedSlots: slots,
     });
 
     const tools = chatTools({ capCreateSimproJob, capSendSms });
     const ctx = toolContext(env, customer, customerId);
 
     const loopMessages: Array<Record<string, unknown>> = [
-      ...stored.slice(-10).map((m) => ({
+      ...stored.slice(-CHAT_HISTORY_LIMIT).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content,
       })),
@@ -269,9 +296,21 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
 
     let finalReply = "";
     let iterations = 0;
+    let createLeadNumber = "";
+    let createOk = false;
 
     while (iterations < 5) {
       iterations++;
+      const payload: Record<string, unknown> = {
+        model: CLAUDE_MODEL,
+        max_tokens: 1024,
+        system: systemPrompt,
+        messages: loopMessages,
+        tools,
+      };
+      if (preferCreate && !createOk && iterations === 1) {
+        payload.tool_choice = { type: "tool", name: CREATE_SIMPRO_JOB_TOOL_NAME };
+      }
       const claudeRes = await env.fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
@@ -279,13 +318,7 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
           "x-api-key": env.anthropicKey,
           "anthropic-version": "2023-06-01",
         },
-        body: JSON.stringify({
-          model: CLAUDE_MODEL,
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: loopMessages,
-          tools,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!claudeRes.ok) {
@@ -308,6 +341,13 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
         const toolResults = [];
         for (const tool of toolBlocks) {
           const result = await executeChatTool(tool.name || "", tool.input || {}, ctx);
+          const parsed = parseToolResult(result);
+          if (tool.name === CREATE_SIMPRO_JOB_TOOL_NAME) {
+            if (parsed?.ok === true) {
+              createOk = true;
+              createLeadNumber = String(parsed.lead_number || parsed.job_number || "");
+            }
+          }
           toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
         }
         loopMessages.push(
@@ -322,6 +362,26 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     }
 
     if (!finalReply) finalReply = fallback;
+
+    const shouldForceCreate = capCreateSimproJob && !createOk && canCreateLead(slots) &&
+      (bookingConfirm || claimsLeadSuccess(finalReply));
+    if (shouldForceCreate) {
+      const forced = parseToolResult(
+        await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, createJobInputFromSlots(slots), ctx),
+      );
+      if (forced?.ok === true) {
+        createOk = true;
+        createLeadNumber = String(forced.lead_number || forced.job_number || "");
+      }
+    }
+
+    if (createOk) {
+      if (!finalReply.includes(createLeadNumber) || claimsLeadSuccess(finalReply)) {
+        finalReply = honestLeadSuccessReply(createLeadNumber);
+      }
+    } else if (claimsLeadSuccess(finalReply) && capCreateSimproJob) {
+      finalReply = honestLeadFailureReply();
+    }
 
     const nextMessages = [
       ...stored,

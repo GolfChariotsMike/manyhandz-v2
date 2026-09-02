@@ -1,0 +1,25 @@
+/**
+ * Shared honesty + memory rules for voice and website chat.
+ * A booking close that claims the team was notified without a successful
+ * create_simpro_job is a product failure (Glacier / Micycle Kerr).
+ */
+
+export function neverFakeLeadCloseRule(): string {
+  return `- NEVER CLAIM SUCCESS: Do not say the team was notified, a lead was created, a booking is lodged, or close with "Done" about a booking until create_simpro_job has returned ok:true with a lead number. If the tool was not called or failed, say so plainly and retry or take a message — never fake success.`;
+}
+
+export function alreadyCollectedRule(channel: "chat" | "voice"): string {
+  if (channel === "chat") {
+    return `- ALREADY COLLECTED: Once the visitor has given their name, mobile, address/suburb, or job description in this conversation, do not ask for those again. Use what is already in the thread. Chat has no caller ID — that is not a reason to drop a number they already typed.`;
+  }
+  return `- ALREADY COLLECTED: Once the caller has given their name, site/address, or job description in this call, do not ask for those again. Use what they already said. Phone comes from caller ID — do not ask for it.`;
+}
+
+export function bookingConfirmMustCreateRule(): string {
+  return `- BOOKING CONFIRM: When they confirm they want to book / say "yes please", you MUST call create_simpro_job in that turn with the collected fields (name, phone, site, description including any quote). Do not use save_message as the only close when SimPRO create is enabled.`;
+}
+
+/** Appended to SIMPRO LEADS when create_simpro_job is enabled. */
+export function simproHonestyAddon(channel: "chat" | "voice"): string {
+  return `${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}`;
+}
