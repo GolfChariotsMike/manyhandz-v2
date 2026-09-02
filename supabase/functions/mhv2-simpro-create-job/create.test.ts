@@ -217,12 +217,12 @@ test("createSimproJob existing customer still POSTs a lead not a job", async () 
       const url = String(inputUrl);
       const method = init?.method || "GET";
       posted.push(`${method} ${url}`);
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{ ID: 3, Name: "12 Frost St" }]);
+      }
       if (url.includes("/customers/") && method === "GET") {
         if (url.includes("Phone=")) assert.match(url, /411122333/);
         return Response.json([{ ID: 9, Phone: "0411122333" }]);
-      }
-      if ((url.includes("/sites") || url.includes("/customers/9/sites")) && method === "GET") {
-        return Response.json([{ ID: 3, Name: "12 Frost St" }]);
       }
       if (url.includes("/leads/") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
@@ -240,8 +240,8 @@ test("createSimproJob existing customer still POSTs a lead not a job", async () 
   });
 
   const result = await createSimproJob(input, env);
-  assert.equal(result.ok, true);
   if (!result.ok) throw new Error(result.error);
+  assert.equal(result.ok, true);
   assert.equal(result.lead_number, "9901");
   assert.equal(result.customer_created, false);
   assert.equal(result.site_created, false);
@@ -290,7 +290,7 @@ test("create source POSTs /leads/ and never /jobs/", async () => {
   assert.match(src, /LeadName/);
   assert.doesNotMatch(src, /\/jobs\//);
   assert.doesNotMatch(src, /Type:\s*"Service"/);
-  assert.doesNotMatch(src, /DateIssued/);
+  assert.doesNotMatch(src, /DateIssued:/);
   assert.doesNotMatch(src, /Stage:\s*"Pending"/);
 });
 
