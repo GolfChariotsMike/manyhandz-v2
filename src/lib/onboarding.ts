@@ -107,6 +107,13 @@ export function parseSignupCountry(param: string | null | undefined): Market {
   return normalizeMarket(param);
 }
 
+/** Keep the email typed on login when they choose to create an account. */
+export function parseSignupEmail(param: string | null | undefined): string {
+  const value = String(param || "").trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) return "";
+  return value;
+}
+
 export function onboardingNumberBlurb(country?: string | null): string {
   return normalizeMarket(country) === "US"
     ? "We'll give you a US phone number you can call."

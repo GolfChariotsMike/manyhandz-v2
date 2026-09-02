@@ -69,7 +69,14 @@ export async function requestMagicLink(
   website_url?: string,
   country?: string,
 ) {
-  const body: Record<string, unknown> = { email, business_name, industry, website_url };
+  const isSignup = business_name !== undefined || industry !== undefined || website_url !== undefined || country !== undefined;
+  const body: Record<string, unknown> = {
+    email,
+    business_name,
+    industry,
+    website_url,
+    intent: isSignup ? "signup" : "login",
+  };
   if (country !== undefined) body.country = country === "US" ? "US" : "AU";
   return callFn("mh-v2-auth", "magic-link", "POST", body);
 }

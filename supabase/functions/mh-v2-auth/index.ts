@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { newCustomerInsertSql, normalizeMarket, signupDataJson, sqlLiteral } from "./country.ts";
+import { NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -139,12 +140,20 @@ serve(async (req) => {
       if (!email) throw new Error("Email is required");
       const cleanEmail = email.toLowerCase().trim();
       const market = normalizeMarket(country);
+      const intent = parseMagicLinkIntent(body);
 
       const existingArr = await dbQuery(`SELECT id, email FROM mh_v2_customers WHERE email = ${sqlLiteral(cleanEmail)} LIMIT 1`);
       const existing = existingArr[0] || null;
+      const plan = planMagicLink(intent, existing);
 
-      let customerId = existing?.id || null;
-      const isNew = !existing;
+      if (plan.action === "no_account") {
+        return new Response(JSON.stringify({ error: NO_ACCOUNT_CODE }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      let customerId = plan.action === "send_existing" ? plan.customerId : null;
+      const isNew = plan.action === "create_and_send";
 
       if (isNew) {
         const newCust = await dbQuery(newCustomerInsertSql({
@@ -158,6 +167,7 @@ serve(async (req) => {
         customerId = newCust[0].id;
         try { await dbQuery(`INSERT INTO mh_knowledge_base (customer_id) VALUES ('${customerId}')`); } catch { /* kb row is optional at signup */ }
       }
+      if (!customerId) throw new Error("Account not found");
 
       const rawToken = crypto.randomUUID() + crypto.randomUUID();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();

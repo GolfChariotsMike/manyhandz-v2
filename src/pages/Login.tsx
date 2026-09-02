@@ -1,19 +1,23 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { requestMagicLink } from "../lib/api";
+import { classifyLoginError, signupUrlFromLoginEmail } from "../lib/login";
 import { Mail } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [error, setError] = useState("");
+  const [unknownEmail, setUnknownEmail] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
   const isValidEmail = (val: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(val.trim());
+  const signupHref = signupUrlFromLoginEmail(email);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setUnknownEmail(false);
     if (!isValidEmail(email)) {
       setError("Please enter a valid email address.");
       return;
@@ -22,8 +26,13 @@ export default function Login() {
     try {
       await requestMagicLink(email);
       setSent(true);
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      const classified = classifyLoginError(err);
+      if (classified.kind === "no_account") {
+        setUnknownEmail(true);
+      } else {
+        setError(classified.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -59,10 +68,19 @@ export default function Login() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="text-sm text-white/60 mb-1 block">Email</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} required placeholder="you@yourbusiness.com" autoFocus />
+            <input type="email" value={email} onChange={e => { setEmail(e.target.value); setUnknownEmail(false); }} required placeholder="you@yourbusiness.com" autoFocus />
           </div>
 
-          {error && <p className="text-red-400 text-sm">{error}</p>}
+          {unknownEmail && (
+            <div className="rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-4 space-y-3">
+              <p className="text-yellow-100 text-sm">No account for that email. Create a new account?</p>
+              <Link to={signupHref} className="btn-primary w-full inline-block text-center">
+                Create a new account
+              </Link>
+            </div>
+          )}
+
+          {error && !unknownEmail && <p className="text-red-400 text-sm">{error}</p>}
 
           <button type="submit" className="btn-primary w-full" disabled={loading || !email}>
             {loading ? "Sending link..." : "Send me a sign-in link →"}
@@ -72,7 +90,7 @@ export default function Login() {
 
         <p className="text-white/40 text-sm mt-6 text-center">
           Don't have an account?{" "}
-          <Link to="/signup" className="text-yellow-400 hover:text-yellow-300">Get started free</Link>
+          <Link to={signupHref} className="text-yellow-400 hover:text-yellow-300">Get started free</Link>
         </p>
       </div>
     </div>
