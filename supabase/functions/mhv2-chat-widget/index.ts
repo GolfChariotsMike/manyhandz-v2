@@ -118,7 +118,10 @@ Deno.serve((req) =>
   handleRequest(req, {
     fetch: globalThis.fetch.bind(globalThis),
     now: () => new Date(),
-    anthropicKey: Deno.env.get("MH_ANTHROPIC_KEY") || Deno.env.get("ANTHROPIC_API_KEY") || "",
+    // Prefer ANTHROPIC_API_KEY (working functions: mh-onboarding-chat, chat-respond,
+    // generate-draft, legacy chat-widget). MH_ANTHROPIC_KEY is a fallback only —
+    // if it is set first and stale/revoked, Anthropic returns 401.
+    anthropicKey: Deno.env.get("ANTHROPIC_API_KEY") || Deno.env.get("MH_ANTHROPIC_KEY") || "",
     encryptionKey: Deno.env.get("ENCRYPTION_KEY") || "",
     twilioAccountSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioAuthToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
