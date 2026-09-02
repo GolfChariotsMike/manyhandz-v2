@@ -19,6 +19,8 @@ import {
   parseLookupCustomerInput,
   parseSiteAddress,
   personNameFromSpoken,
+  SITE_LIST_COLUMNS,
+  siteBelongsToCustomer,
   siteSpokenLabel,
   resolveSiteContactPerson,
   resourceId,
@@ -1103,6 +1105,20 @@ test("lookupSimproCustomer many sites asks for street or suburb instead of readi
   assert.doesNotMatch(result.message, /1\. /);
 });
 
+test("siteBelongsToCustomer matches Customer scalar or Customers array", () => {
+  assert.equal(siteBelongsToCustomer({ Customer: 4708 }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ Customer: { ID: 4708 } }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ Customers: [4708] }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ Customers: [{ ID: 4708 }] }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ CustomerIDs: [4708] }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ Customer: 9, Customers: [4708] }, 4708), true);
+  assert.equal(siteBelongsToCustomer({ Customers: [9] }, 4708), false);
+  assert.equal(siteBelongsToCustomer({ Customer: 9 }, 4708), false);
+  assert.equal(siteBelongsToCustomer({ ID: 1, Name: "Site" }, 4708), false);
+  assert.match(SITE_LIST_COLUMNS, /Address/);
+  assert.match(SITE_LIST_COLUMNS, /Customers/);
+});
+
 test("customerNameMatches and formatSimproSite help the picker", () => {
   assert.equal(customerNameMatches({ CompanyName: "Woolies Pty Ltd" }, "Woolies"), true);
   assert.equal(customerNameMatches({ GivenName: "Sam", FamilyName: "Glacier" }, "Sam Glacier"), true);
@@ -1967,6 +1983,230 @@ test("lookupSimproCustomer 4708 with blank ID dump returns 0 sites and creates n
   assert.equal(posted.some((c) => c.includes("/jobs/")), false);
 });
 
+const DERICOTTE_SITE = {
+  ID: 8801,
+  Name: "37 Dericote Way",
+  Address: { Address: "37 Dericote Way", City: "Greenwood", State: "WA", PostalCode: "6024" },
+  Customers: [4708],
+};
+
+function isCustomersFilterUrl(url: string): boolean {
+  return /\/sites\/?\?/.test(url) && /(?:^|[?&])Customers(?:\.ID)?=\d+/.test(url);
+}
+
+function isCustomerScalarFilterUrl(url: string): boolean {
+  return /\/sites\/?\?/.test(url) && /(?:^|[?&])Customer(?:\.ID)?=\d+/.test(url) && !isCustomersFilterUrl(url);
+}
+
+function micycle4708(url: string, method: string): Response | null {
+  if (method !== "GET") return null;
+  if (url.includes("Phone=") && /433121933/.test(url)) {
+    return Response.json([{
+      ID: 4708,
+      Phone: "0433121933",
+      GivenName: "Micycle",
+      FamilyName: "Kerr",
+    }]);
+  }
+  if (
+    (url.includes("/customers/4708") || /\/customers\/(?:individuals|companies)\/4708(?:\?|$)/.test(url)) &&
+    !url.includes("/sites") &&
+    !url.includes("/contacts")
+  ) {
+    return Response.json({
+      ID: 4708,
+      GivenName: "Micycle",
+      FamilyName: "Kerr",
+      Phone: "0433121933",
+    });
+  }
+  return null;
+}
+
+test("lookupSimproCustomer 4708 after POST /sites/ Customers:[4708] 201 returns 37 Dericote", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  let extraSite: Record<string, unknown> | null = null;
+  const { env } = envFor({
+    connection: conn,
+    notify: {
+      email: "office@glacier.test",
+      notify_sms: "+61422962169",
+      twilio_number: "+61485000000",
+      business_name: "Glacier Air",
+    },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (method === "OPTIONS") {
+        return new Response(null, { status: 204, headers: { Allow: "SEARCH, POST, OPTIONS" } });
+      }
+      const customer = micycle4708(url, method);
+      if (customer) return customer;
+      if (url.includes("/contacts/") && method === "GET") return Response.json([]);
+      if (url.includes("/contacts/") && method === "POST") {
+        return Response.json({ ID: 4708 }, { status: 201 });
+      }
+      if ((url.includes("/customers/") && url.includes("/sites") && method === "GET") ||
+        (isCustomerScalarFilterUrl(url) && method === "GET")) {
+        return Response.json([]);
+      }
+      if (isCustomersFilterUrl(url) && method === "GET") {
+        return Response.json(extraSite ? [extraSite] : []);
+      }
+      if (method === "SEARCH" && url.includes("/sites")) {
+        return Response.json(extraSite ? [extraSite] : []);
+      }
+      if ((url.endsWith("/sites/8801") || url.endsWith("/sites/8801/")) && method === "GET") {
+        return Response.json(extraSite || DERICOTTE_SITE);
+      }
+      if (isCompanyWideSitesUrl(url) && method === "POST") {
+        assert.equal(customersIsIntegerIds(body, 4708), true);
+        extraSite = { ...DERICOTTE_SITE };
+        return Response.json({ ID: 8801 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 5 }, { status: 201 });
+      }
+      if (url.includes("/jobs/")) return new Response("must not list jobs", { status: 500 });
+      if (method === "POST") return new Response("unexpected POST", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const created = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Micycle Kerr",
+    caller_phone: "+61433121933",
+    site_address: "37 Dericote Way Greenwood WA",
+    description: "3 split services",
+    simpro_customer_id: 4708,
+    existing_customer: true,
+  }, env);
+  if (!created.ok) throw new Error(created.error);
+  assert.equal(created.ok, true);
+  assert.equal(created.site_created, true);
+  assert.equal(extraSite?.ID, 8801);
+
+  const beforeLookup = posted.length;
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+    simpro_customer_id: 4708,
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected 4708 hit");
+  assert.equal(result.customer.id, 4708);
+  assert.equal(result.sites.length, 1);
+  assert.match(result.sites[0].address, /37 Dericote/);
+  assert.match(result.sites[0].address, /Greenwood/);
+  assert.match(result.message, /37 Dericote/);
+  assert.doesNotMatch(result.message, /site_id \d+/);
+  assert.doesNotMatch(result.message, /1\. Site/);
+  assert.doesNotMatch(result.message, /no site/i);
+  assert.equal(posted.slice(beforeLookup).some((c) => c.method === "POST"), false);
+  assert.equal(posted.some((c) => c.method === "GET" && isCustomersFilterUrl(String(c.url))), true);
+});
+
+test("lookupSimproCustomer 4708 nested empty + Customer scalar miss still finds via Customers.ID", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      const customer = micycle4708(url, method);
+      if (customer) return customer;
+      if (url.includes("/customers/") && url.includes("/sites") && method === "GET") {
+        return Response.json([]);
+      }
+      if (isCustomerScalarFilterUrl(url) && method === "GET") {
+        return Response.json(Array.from({ length: 20 }, (_, i) => ({
+          ID: i + 1,
+          Name: `Site ${i + 1}`,
+        })));
+      }
+      if (isCustomersFilterUrl(url) && method === "GET") {
+        assert.match(url, /Customers(?:\.ID)?=4708/);
+        assert.match(url, /columns=/);
+        assert.match(url, /Customers/);
+        return Response.json([{ ...DERICOTTE_SITE }]);
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      if (url.includes("/jobs/")) return new Response("must not list jobs", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+    simpro_customer_id: 4708,
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected Customers.ID hit");
+  assert.equal(result.customer.id, 4708);
+  assert.equal(result.sites.length, 1);
+  assert.match(result.sites[0].address, /37 Dericote Way/);
+  assert.match(result.message, /37 Dericote/);
+  assert.match(result.message, /Confirm the street/);
+  assert.doesNotMatch(result.message, /Site 1/);
+  assert.doesNotMatch(result.message, /site_id \d+/);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+  assert.equal(posted.some((c) => c.includes("Customers.ID=4708") || c.includes("Customers=4708")), true);
+  assert.equal(posted.some((c) => /GET .*\/sites\/\?.*Customer(\.ID)?=4708/.test(c) && !c.includes("Customers")), true);
+});
+
+test("lookupSimproCustomer 4708 hydrates Sites from individual/company retrieve when list filters miss", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      const customer = micycle4708(url, method);
+      if (url.includes("/customers/individuals/4708") && method === "GET" && !url.includes("/sites")) {
+        assert.match(url, /Sites/);
+        return Response.json({
+          ID: 4708,
+          GivenName: "Micycle",
+          FamilyName: "Kerr",
+          Sites: [{ ID: 8801 }],
+        });
+      }
+      if (customer) return customer;
+      if (url.includes("/sites") && (method === "GET" || method === "SEARCH") && !/\/sites\/8801/.test(url)) {
+        return Response.json([]);
+      }
+      if ((url.endsWith("/sites/8801") || url.endsWith("/sites/8801/")) && method === "GET") {
+        return Response.json({ ...DERICOTTE_SITE });
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+    simpro_customer_id: 4708,
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected Sites hydrate");
+  assert.equal(result.sites.length, 1);
+  assert.match(result.sites[0].address, /37 Dericote Way/);
+  assert.match(result.message, /37 Dericote/);
+  assert.equal(posted.some((c) => /GET .*\/customers\/individuals\/4708/.test(c) && c.includes("Sites")), true);
+  assert.equal(posted.some((c) => /GET .*\/sites\/8801/.test(c)), true);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+});
+
 test("createSimproJob returns a clear failure on SimPRO API error", async () => {
   const conn = await connected();
   const { env } = envFor({
@@ -2034,6 +2274,12 @@ test("create source POSTs /leads/ and never /jobs/", async () => {
   assert.match(src, /CellPhone:\s*phone/);
   assert.doesNotMatch(src, /(?<![A-Za-z])Phone:\s*phone/);
   assert.match(src, /\$\{apiBase\(conn\)\}\/sites\//);
+  assert.match(src, /sites\/\?Customers=\$\{customerId\}/);
+  assert.match(src, /sites\/\?Customers\.ID=\$\{customerId\}/);
+  assert.match(src, /method:\s*"SEARCH"/);
+  assert.match(src, /customers\/individuals\/\$\{customerId\}\?columns=/);
+  assert.match(src, /customers\/companies\/\$\{customerId\}\?columns=/);
+  assert.match(SITE_LIST_COLUMNS, /ID,Name,Address,Customer,Customers/);
 });
 
 test("individual Ada-style lead uses the created contact as SiteContact, not Georgia", async () => {
