@@ -39,6 +39,7 @@ type StoreData = {
   prices?: PriceItem[];
   voice?: {
     ai_name?: string;
+    system_prompt?: string;
     cap_confirm_bookings?: boolean;
     cap_quote_prices?: boolean;
     cap_send_sms?: boolean;
@@ -205,6 +206,36 @@ test("chat turn injects KB + price list and phone tools, never a job dump or tra
     "create_simpro_job",
     "send_sms",
   ]);
+});
+
+test("chat turn uses saved system_prompt as the live source and stays without transfer", async () => {
+  const override = "Always mention Malaga. Keep replies to one sentence.";
+  const { env, claudeBodies } = envFor({
+    data: defaultData({
+      voice: {
+        ai_name: "Trinity",
+        system_prompt: override,
+        cap_quote_prices: true,
+        cap_send_sms: true,
+        cap_create_simpro_job: true,
+      },
+    }),
+  });
+  await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "Hi" }),
+    }),
+    env,
+  );
+  const system = String(claudeBodies[0].system);
+  assert.match(system, /Always mention Malaga/);
+  assert.match(system, /no call transfer or call connect/i);
+  assert.doesNotMatch(system, /You are Trinity, the AI assistant for Acme Plumbing/);
+  assert.doesNotMatch(system, /lookup_jobs/);
+  const tools = claudeBodies[0].tools as Array<{ name: string }>;
+  assert.equal(tools.some((t) => t.name === "transfer_to_staff"), false);
 });
 
 test("caps off drop create_simpro_job and send_sms from the Claude payload", async () => {

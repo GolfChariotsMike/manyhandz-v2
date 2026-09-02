@@ -76,7 +76,7 @@ function supabaseStore(): ChatStore {
     async loadVoice(customerId) {
       const { data } = await supabase
         .from("mh_voice_config")
-        .select("ai_name,cap_confirm_bookings,cap_quote_prices,cap_send_sms,cap_disclose_ai,cap_create_simpro_job,notify_sms,notify_sms_enabled")
+        .select("ai_name,system_prompt,cap_confirm_bookings,cap_quote_prices,cap_send_sms,cap_disclose_ai,cap_create_simpro_job,notify_sms,notify_sms_enabled")
         .eq("customer_id", customerId)
         .maybeSingle();
       return data;

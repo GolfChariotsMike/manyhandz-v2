@@ -204,6 +204,18 @@ export async function getVoiceConfig(customerId: string) {
   return supabaseRest("mh_voice_config", `customer_id=eq.${customerId}&select=*`);
 }
 
+export async function getPriceList(customerId: string) {
+  return supabaseRest("mh_price_list", `customer_id=eq.${customerId}&select=*&order=sort_order.asc`);
+}
+
+export async function getActiveConnectionPlatforms(customerId: string) {
+  const rows = await supabaseRest(
+    "mh_crm_connections",
+    `customer_id=eq.${customerId}&is_active=eq.true&select=platform`,
+  );
+  return rows.map((row) => String(row?.platform || "")).filter(Boolean);
+}
+
 export async function getVoiceNumbers(customerId: string) {
   return supabaseRest("mh_voice_numbers", `customer_id=eq.${customerId}&select=*&status=eq.active`);
 }

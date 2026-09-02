@@ -59,6 +59,7 @@ export type KbRow = {
 
 export type VoiceRow = {
   ai_name?: string | null;
+  system_prompt?: string | null;
   cap_confirm_bookings?: boolean | null;
   cap_quote_prices?: boolean | null;
   cap_send_sms?: boolean | null;
@@ -316,6 +317,7 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       capDiscloseAi: voice?.cap_disclose_ai ?? false,
       capCreateSimproJob,
       collectedSlots: slots,
+      systemPrompt: voice?.system_prompt,
     });
 
     const tools = chatTools({ capCreateSimproJob, capSendSms });

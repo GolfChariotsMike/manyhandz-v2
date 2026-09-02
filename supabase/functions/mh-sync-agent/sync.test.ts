@@ -11,6 +11,7 @@ import {
   JAKE_OUTBOUND_AGENT_ID,
   type SyncEnv,
 } from "./sync.ts";
+import { composeSystemPrompt } from "./prompt.ts";
 
 const SERVICE = "service-role-test-key";
 const EL_KEY = "el-test-key";
@@ -31,8 +32,14 @@ function makeEnv(opts?: {
   connections?: Record<string, unknown>[];
   agents?: Record<string, ElAgent>;
   patchOk?: boolean;
-}): { env: SyncEnv; patches: { url: string; body: Record<string, unknown> }[]; gets: string[] } {
+}): {
+  env: SyncEnv;
+  patches: { url: string; body: Record<string, unknown> }[];
+  gets: string[];
+  restPatches: { url: string; body: Record<string, unknown> }[];
+} {
   const patches: { url: string; body: Record<string, unknown> }[] = [];
+  const restPatches: { url: string; body: Record<string, unknown> }[] = [];
   const gets: string[] = [];
   const agents = opts?.agents ?? {};
   const env: SyncEnv = {
@@ -48,6 +55,10 @@ function makeEnv(opts?: {
         return Response.json(opts?.kb ?? [{ about: "Plumbers", services: ["Drains"], faqs: [], hours: {}, tone: "friendly" }]);
       }
       if (url.includes("/rest/v1/mh_voice_config")) {
+        if ((init?.method || "GET").toUpperCase() === "PATCH") {
+          restPatches.push({ url, body: JSON.parse(String(init?.body || "{}")) as Record<string, unknown> });
+          return new Response(null, { status: 204 });
+        }
         return Response.json(opts?.voice ?? [{
           ai_name: "Trinity",
           greeting_script: "Hey, thanks for calling Acme.",
@@ -116,7 +127,7 @@ function makeEnv(opts?: {
       return Response.json([]);
     },
   };
-  return { env, patches, gets };
+  return { env, patches, gets, restPatches };
 }
 
 function post(body: unknown, auth = "anon-jwt") {
@@ -597,4 +608,67 @@ test("index never hardcodes an API key", async () => {
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   assert.match(src, /Deno\.env\.get\("ELEVENLABS_API_KEY"\)/);
   assert.equal(/sk_|xi-|EL_[A-Z0-9]{10,}/.test(src), false);
+});
+
+test("empty system_prompt syncs the composed live prompt and persists it", async () => {
+  const { env, patches, restPatches } = makeEnv();
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const prompt = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { prompt: string } } };
+  }).conversation_config.agent.prompt.prompt;
+  assert.match(prompt, /You are Trinity, the AI receptionist for Acme/);
+  assert.match(prompt, /lookup_simpro_customer/);
+  assert.match(prompt, /SITE CONTACT/);
+  assert.doesNotMatch(prompt, /lookup_jobs/);
+  const persisted = restPatches.find((p) => p.url.includes("/rest/v1/mh_voice_config"));
+  assert.ok(persisted);
+  assert.equal(persisted.body.system_prompt, prompt);
+  assert.match(String(persisted.body.system_prompt), /SIMPRO LEADS/);
+});
+
+test("saved system_prompt is what ElevenLabs gets and is not concatenated onto compose", async () => {
+  const override = "Always mention Malaga. Be extra brief.";
+  const { env, patches, restPatches } = makeEnv({
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_create_simpro_job: true,
+      system_prompt: override,
+    }],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const prompt = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { prompt: string } } };
+  }).conversation_config.agent.prompt.prompt;
+  assert.equal(prompt, override);
+  assert.doesNotMatch(prompt, /You are Trinity/);
+  assert.doesNotMatch(prompt, /SIMPRO LEADS/);
+  const composed = composeSystemPrompt({
+    aiName: "Trinity",
+    businessName: "Acme",
+    about: "Plumbers",
+    services: ["Drains"],
+    faqs: [],
+    hours: {},
+    tone: "friendly",
+    priceList: [],
+    capConfirmBookings: false,
+    capQuotePrices: false,
+    capTransferCalls: true,
+    capSendSms: true,
+    capDiscloseAi: false,
+    capHangupOnGoodbye: true,
+    capCreateSimproJob: true,
+    closingMessage: null,
+  });
+  assert.equal(prompt.includes(composed), false);
+  assert.equal(restPatches.some((p) => p.url.includes("/rest/v1/mh_voice_config")), false);
 });

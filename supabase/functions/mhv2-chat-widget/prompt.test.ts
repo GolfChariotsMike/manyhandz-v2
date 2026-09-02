@@ -5,6 +5,8 @@ import { formatPriceList } from "../mh-sync-agent/prompt.ts";
 import {
   buildChatSystemPrompt,
   chatAiDisclosureRule,
+  chatChannelOverlay,
+  composeChatSystemPrompt,
   customInstructionsBlock,
 } from "./prompt.ts";
 
@@ -137,10 +139,33 @@ test("disclosure and extra instructions stay chat-safe", () => {
   assert.equal(customInstructionsBlock("  "), "");
 });
 
-test("chat prompt source does not query a job board or mention transfer tools", async () => {
+test("empty system_prompt uses chat compose; override is the live source without doubling", () => {
+  const composed = composeChatSystemPrompt(base);
+  assert.equal(buildChatSystemPrompt(base), composed);
+  assert.equal(buildChatSystemPrompt({ ...base, systemPrompt: "  " }), composed);
+  assert.doesNotMatch(composed, /transfer_to_staff/);
+  const override = "Always mention Malaga. Keep replies to one sentence.";
+  const live = buildChatSystemPrompt({ ...base, systemPrompt: override });
+  assert.match(live, /Always mention Malaga/);
+  assert.match(live, /no call transfer or call connect/i);
+  assert.match(live, /Ignore transfer_to_staff/);
+  assert.doesNotMatch(live, /You are Trinity, the AI assistant for Acme Plumbing/);
+  assert.equal(live.includes(composed), false);
+  assert.equal(live.includes(override + override), false);
+  const withSlots = buildChatSystemPrompt({
+    ...base,
+    systemPrompt: override,
+    collectedSlots: { name: "Micycle Kerr", phone: "+61433121933" },
+  });
+  assert.match(withSlots, /Always mention Malaga/);
+  assert.match(withSlots, /Micycle Kerr/);
+  assert.match(chatChannelOverlay(), /WEBSITE CHAT/);
+});
+
+test("chat prompt source does not query a job board or attach transfer tools", async () => {
   const src = await readFile(new URL("./prompt.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(src, /transfer_to_staff/);
+  assert.doesNotMatch(src, /call the transfer_to_staff tool FIRST/);
   assert.doesNotMatch(src, /lookup_jobs/);
   assert.doesNotMatch(src, /mh_crm_jobs/);
-  assert.doesNotMatch(src, /end_call/);
+  assert.match(src, /Ignore transfer_to_staff and end_call/);
 });
