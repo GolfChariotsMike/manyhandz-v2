@@ -347,7 +347,7 @@ export function optionalPositiveId(value: unknown): number | undefined {
 
 const GENERIC_SITE_NAME = /^(site|address|location)$/i;
 
-export const SITE_LIST_COLUMNS = "ID,Name,Address,Customer";
+export const SITE_LIST_COLUMNS = "ID,Name,Address,Customer,Customers";
 export const SPEAKABLE_SITE_MAX = 4;
 
 export function isGenericSiteName(name: string): boolean {
@@ -714,6 +714,7 @@ export function customerDisplayName(row: Record<string, unknown>): string {
 type FoundCustomer = SimproCustomerSummary;
 
 const CUSTOMER_COLUMNS = "ID,GivenName,FamilyName,CompanyName,Phone,Email";
+const CUSTOMER_SITES_COLUMNS = `${CUSTOMER_COLUMNS},Sites`;
 
 function customerIsCompany(row: Record<string, unknown>): boolean {
   return Boolean(String(row.CompanyName || "").trim());
@@ -899,18 +900,59 @@ function siteHaystack(row: Record<string, unknown>): string {
   }).toLowerCase();
 }
 
-function customerIdFromSiteRow(row: Record<string, unknown>): number | null {
-  const customer = row.Customer ?? row.customer;
-  if (customer == null) return null;
-  if (typeof customer === "number" || typeof customer === "string") {
-    const n = Number(customer);
+function idFromCustomerRef(value: unknown): number | null {
+  if (value == null) return null;
+  if (typeof value === "number" || typeof value === "string") {
+    const n = Number(value);
     return Number.isFinite(n) && n > 0 ? n : null;
   }
-  if (typeof customer === "object") {
-    const n = Number((customer as Record<string, unknown>).ID ?? (customer as Record<string, unknown>).id);
+  if (typeof value === "object") {
+    const n = Number((value as Record<string, unknown>).ID ?? (value as Record<string, unknown>).id);
     return Number.isFinite(n) && n > 0 ? n : null;
   }
   return null;
+}
+
+function customerIdFromSiteRow(row: Record<string, unknown>): number | null {
+  return idFromCustomerRef(row.Customer ?? row.customer);
+}
+
+function customerIdsFromCustomersArray(row: Record<string, unknown>): number[] {
+  const arrays = [row.Customers, row.customers, row.CustomerIDs, row.customerIDs];
+  const ids: number[] = [];
+  for (const arr of arrays) {
+    if (!Array.isArray(arr)) continue;
+    for (const item of arr) {
+      const id = idFromCustomerRef(item);
+      if (id) ids.push(id);
+    }
+  }
+  return ids;
+}
+
+/** Site belongs if Customer==id or Customers / CustomerIDs contains that id (number or {ID}). */
+export function siteBelongsToCustomer(row: Record<string, unknown>, customerId: number): boolean {
+  if (customerIdFromSiteRow(row) === customerId) return true;
+  return customerIdsFromCustomersArray(row).includes(customerId);
+}
+
+function siteHasCustomerOwner(row: Record<string, unknown>): boolean {
+  return customerIdFromSiteRow(row) != null || customerIdsFromCustomersArray(row).length > 0;
+}
+
+function siteRowsFromCustomerSites(row: Record<string, unknown>): Array<Record<string, unknown>> {
+  const sites = row.Sites ?? row.sites;
+  if (!Array.isArray(sites)) return [];
+  const rows: Array<Record<string, unknown>> = [];
+  for (const item of sites) {
+    if (typeof item === "number" || typeof item === "string") {
+      const id = Number(item);
+      if (Number.isFinite(id) && id > 0) rows.push({ ID: id });
+    } else if (item && typeof item === "object") {
+      rows.push(item as Record<string, unknown>);
+    }
+  }
+  return rows;
 }
 
 function listedSiteFromRow(row: Record<string, unknown>): ListedSite | null {
@@ -978,9 +1020,9 @@ async function mapCustomerSiteRows(
   requireCustomerMatch: boolean,
 ): Promise<ListedSite[]> {
   const scoped = rows.filter((row) => {
-    const owner = customerIdFromSiteRow(row);
-    if (requireCustomerMatch) return owner === customerId;
-    return owner == null || owner === customerId;
+    const belongs = siteBelongsToCustomer(row, customerId);
+    if (requireCustomerMatch) return belongs;
+    return !siteHasCustomerOwner(row) || belongs;
   });
   const hydrate = scoped.length > 0 && scoped.length <= HYDRATE_SITE_MAX;
   const items: ListedSite[] = [];
@@ -990,6 +1032,37 @@ async function mapCustomerSiteRows(
     if (site) items.push(site);
   }
   return items;
+}
+
+async function searchSiteRows(
+  env: CreateJobEnv,
+  token: string,
+  url: string,
+  body: Record<string, unknown>,
+): Promise<Array<Record<string, unknown>>> {
+  const res = await simproJson(env, token, url, { method: "SEARCH", body });
+  if (!res.ok || !Array.isArray(res.data)) return [];
+  return res.data as Array<Record<string, unknown>>;
+}
+
+async function listSitesFromCustomerRecord(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+): Promise<ListedSite[]> {
+  const urls = [
+    `${apiBase(conn)}/customers/individuals/${customerId}?columns=${CUSTOMER_SITES_COLUMNS}`,
+    `${apiBase(conn)}/customers/companies/${customerId}?columns=${CUSTOMER_SITES_COLUMNS}`,
+  ];
+  const rows: Array<Record<string, unknown>> = [];
+  for (const url of urls) {
+    const res = await simproJson(env, token, url);
+    if (!res.ok || !res.data || typeof res.data !== "object" || Array.isArray(res.data)) continue;
+    rows.push(...siteRowsFromCustomerSites(res.data as Record<string, unknown>));
+  }
+  if (!rows.length) return [];
+  return mapCustomerSiteRows(env, conn, token, customerId, rows, false);
 }
 
 async function listCustomerSites(
@@ -1012,17 +1085,33 @@ async function listCustomerSites(
     if (items.length) return items;
   }
 
-  // Company list only if Customer.ID (or Customer) actually matches this customer.
+  // Company list only if Customer==id or Customers contains this id.
+  // Extra sites created with POST /sites/ + Customers:[id] expose Customers,
+  // not a scalar Customer — Customer.ID filters miss those rows.
   const filteredUrls = [
     withSiteListQuery(`${apiBase(conn)}/sites/?Customer.ID=${customerId}`),
     withSiteListQuery(`${apiBase(conn)}/sites/?Customer=${customerId}`),
+    withSiteListQuery(`${apiBase(conn)}/sites/?Customers=${customerId}`),
+    withSiteListQuery(`${apiBase(conn)}/sites/?Customers.ID=${customerId}`),
   ];
   for (const url of filteredUrls) {
     const rows = await fetchSiteRows(env, token, url);
     const items = await mapCustomerSiteRows(env, conn, token, customerId, rows, true);
     if (items.length) return items;
   }
-  return [];
+
+  const searchUrl = withSiteListQuery(`${apiBase(conn)}/sites/`);
+  const searchBodies: Array<Record<string, unknown>> = [
+    { "Customers.ID": customerId },
+    { Customers: customerId },
+  ];
+  for (const body of searchBodies) {
+    const rows = await searchSiteRows(env, token, searchUrl, body);
+    const items = await mapCustomerSiteRows(env, conn, token, customerId, rows, true);
+    if (items.length) return items;
+  }
+
+  return listSitesFromCustomerRecord(env, conn, token, customerId);
 }
 
 function siteMatchesSpoken(site: ListedSite, needle: string, parsedStreet: string): boolean {

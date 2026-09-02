@@ -70,6 +70,9 @@ test("booking copy forbids asking name/address before lookup", () => {
   assert.match(voice, /FIRST action this turn is lookup_simpro_customer/);
   assert.match(voice, /Do not ask name or address on the greeting/);
   assert.match(voice, /do not ask for the mobile/i);
+  assert.match(voice, /one moment/);
+  assert.match(voice, /do not re-ask confirmation after they already said yes/i);
+  assert.doesNotMatch(chat, /one moment/);
   assert.match(chat, /Collect a mobile first|collect a mobile first/);
   assert.match(chat, /FIRST action after you have a mobile is lookup_simpro_customer/);
 });
