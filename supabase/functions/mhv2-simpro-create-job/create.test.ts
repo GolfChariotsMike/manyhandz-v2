@@ -981,7 +981,8 @@ test("individual Ada-style lead uses the created contact as SiteContact, not Geo
   assert.ok(contactPost);
   assert.equal((contactPost.body as { GivenName: string }).GivenName, "Ada");
   const leadPost = posted.find((c) => c.method === "POST" && String(c.url).includes("/leads/"));
-  assert.equal((leadPost?.body as { SiteContact: number }).SiteContact, 77);
+  assert.ok(leadPost);
+  assert.equal((leadPost.body as { SiteContact: number }).SiteContact, 77);
 });
 
 test("company with a person name uses that contact and does not ask again", async () => {
