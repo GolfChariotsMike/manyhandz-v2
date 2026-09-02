@@ -5,6 +5,7 @@
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders, jsonResponse } from "../_shared/crm-crypto.ts";
+import { requestCustomerAgentSync } from "../_shared/sync-agent-request.ts";
 import { connectSimpro, parseConnectInput } from "./connect.ts";
 
 function serviceClient() {
@@ -37,6 +38,12 @@ Deno.serve(async (req) => {
     });
 
     if (!result.ok) return jsonResponse({ error: result.error }, result.status);
+    const customerId = "customer_id" in parsed ? parsed.customer_id : "";
+    await requestCustomerAgentSync(customerId, {
+      supabaseUrl: Deno.env.get("SUPABASE_URL") || "",
+      serviceKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("MH_SERVICE_KEY") || "",
+      fetch: globalThis.fetch.bind(globalThis),
+    });
     return jsonResponse({ success: true, connection_id: result.connection_id, company_id: result.company_id });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Could not connect SimPRO";

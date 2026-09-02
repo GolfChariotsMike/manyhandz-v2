@@ -11,17 +11,12 @@ import {
   toolSoundRows,
   type ToolSoundRow,
 } from "../_shared/tool-call-typing.ts";
-import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
 import {
-  lookupSimproCustomerUrl,
-  mergeLookupSimproCustomerTool,
-} from "../_shared/simpro-lookup-customer-tool.ts";
-import { mergeSaveMessageTool, saveMessageUrl } from "../_shared/save-message-tool.ts";
-import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
+  mergeCoreReceptionistTools,
+  mergeSimproBookingTools,
+} from "../_shared/product-voice-tools.ts";
 import {
-  mergeTransferToStaffTool,
   staffTransferEnabled,
-  transferToStaffUrl,
 } from "../_shared/transfer-to-staff-tool.ts";
 import {
   calendarAvailabilityUrl,
@@ -379,12 +374,10 @@ export async function syncCustomerAgent(
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);
   const firstMessage = padCallOpening(vc?.greeting_script || "") || undefined;
-  let toolsWithCreate = mergeLookupSimproCustomerTool(
-    mergeCreateSimproJobTool(
-      stripConnectorTools(bag.tools),
-      createSimproJobUrl(env.supabaseUrl, customerId),
-    ),
-    lookupSimproCustomerUrl(env.supabaseUrl, customerId),
+  let toolsWithCreate = mergeSimproBookingTools(
+    stripConnectorTools(bag.tools),
+    env.supabaseUrl,
+    customerId,
   );
   if (capCreateServicem8 && servicem8Connected) {
     toolsWithCreate = mergeCreateServicem8JobTool(
@@ -405,19 +398,15 @@ export async function syncCustomerAgent(
       createXeroInvoiceUrl(env.supabaseUrl, customerId),
     );
   }
-  const toolsWithSave = mergeSaveMessageTool(
+  const toolsWithSms = mergeCoreReceptionistTools(
     toolsWithCreate,
-    saveMessageUrl(env.supabaseUrl, customerId),
-  );
-  const toolsWithTransfer = mergeTransferToStaffTool(
-    toolsWithSave,
-    transferToStaffUrl(env.supabaseUrl, customerId),
-    capTransferCalls,
-  );
-  const toolsWithSms = mergeSendSmsTool(
-    toolsWithTransfer,
-    sendSmsUrl(env.supabaseUrl, customerId),
-    vc?.cap_send_sms ?? true,
+    env.supabaseUrl,
+    customerId,
+    {
+      capSendSms: vc?.cap_send_sms ?? true,
+      capTransferCalls,
+      bridgeToNumber: vc?.bridge_to_number,
+    },
   );
 
   const patched = await patchElAgent(env, agentId, hangupAgentPatch({

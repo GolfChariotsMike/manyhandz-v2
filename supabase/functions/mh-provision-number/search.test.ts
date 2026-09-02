@@ -102,24 +102,25 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   const src = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("./index.ts", import.meta.url), "utf8"),
   );
-  assert.match(src, /first_message:\s*padCallOpening\(greeting\)/);
-  assert.match(src, /disable_first_message_interruptions:\s*true/);
-  assert.match(src, /turn_eagerness:\s*"patient"/);
-  assert.match(src, /greeting_script:\s*greeting/);
-  assert.doesNotMatch(src, /greeting_script:\s*padCallOpening/);
+  const provision = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("./provision.ts", import.meta.url), "utf8"),
+  );
+  assert.match(provision, /first_message:\s*padCallOpening\(greeting\)/);
+  assert.match(provision, /disable_first_message_interruptions:\s*true/);
+  assert.match(provision, /turn_eagerness:\s*"patient"/);
+  assert.match(provision, /greeting_script:\s*provisionGreeting/);
+  assert.doesNotMatch(provision, /greeting_script:\s*padCallOpening/);
   assert.doesNotMatch(src, /turn_eagerness:\s*"normal"/);
+  assert.doesNotMatch(provision, /turn_eagerness:\s*"normal"/);
   assert.match(src, /resolveMarket\(requestCountry, customer\.country\)/);
   assert.match(src, /searchPathsForMarket\(market/);
   assert.match(src, /twilioPurchaseFields/);
   assert.match(src, /smsUrl:\s*SMS_INBOUND_URL/);
-  assert.match(src, /saveMessageWebhookTool/);
-  assert.match(src, /transferToStaffWebhookTool/);
-  assert.match(src, /sendSmsWebhookTool/);
-  assert.match(src, /call the transfer_to_staff tool FIRST/);
-  assert.match(src, /Do not take a message until the webhook returns accepted:false/);
-  assert.match(src, /cap_send_sms:\s*true/);
-  assert.match(src, /cap_transfer_calls:\s*true/);
-  assert.match(src, /cap_hangup_on_goodbye:\s*true/);
-  assert.match(src, /Never overwrite an existing notify_sms/);
+  assert.match(src, /provisionElConversationConfig/);
+  assert.match(src, /provisionVoiceConfigInsert/);
+  assert.match(src, /provisionSystemPrompt/);
+  assert.match(src, /requestCustomerAgentSync/);
+  assert.doesNotMatch(src, /ask for their name early/);
+  assert.doesNotMatch(provision, /ask for their name early/);
   assert.doesNotMatch(src, /sms-webhook/);
 });

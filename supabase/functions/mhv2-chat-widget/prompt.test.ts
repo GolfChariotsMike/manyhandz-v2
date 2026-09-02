@@ -184,6 +184,17 @@ test("empty system_prompt uses chat compose; override is the live source without
   assert.match(chatChannelOverlay(), /WEBSITE CHAT/);
 });
 
+test("old provision stub is leftover so website chat uses the live compose", () => {
+  const stub = `You are an AI receptionist for Acme Plumbing.
+
+Rules:
+- Greet the caller and ask for their name early`;
+  const live = buildChatSystemPrompt({ ...base, systemPrompt: stub });
+  assert.match(live, /FIRST action after you have a mobile is lookup_simpro_customer/);
+  assert.doesNotMatch(live, /ask for their name early/);
+  assert.match(live, /You are Trinity, the AI assistant for Acme Plumbing/);
+});
+
 test("chat prompt source does not query a job board or attach transfer tools", async () => {
   const src = await readFile(new URL("./prompt.ts", import.meta.url), "utf8");
   assert.doesNotMatch(src, /call the transfer_to_staff tool FIRST/);

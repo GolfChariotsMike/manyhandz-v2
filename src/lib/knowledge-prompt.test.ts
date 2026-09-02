@@ -70,6 +70,17 @@ test("empty system_prompt loads the same composed live prompt the phone builder 
   assert.doesNotMatch(live, /lookup_jobs/);
 });
 
+test("old provision stub leftover loads the composed live prompt for a new account", () => {
+  const stub = `You are an AI receptionist for Acme Plumbing.
+
+Rules:
+- Greet the caller and ask for their name early`;
+  const live = liveAiPromptFromRows({ ...rows, systemPrompt: stub });
+  assert.match(live, /FIRST action this turn is lookup_simpro_customer/);
+  assert.doesNotMatch(live, /ask for their name early/);
+  assert.equal(live, composeSystemPrompt(phoneInput));
+});
+
 test("short generic AI Agent leftover composes instead of overwriting Charlie", () => {
   const leftover = `You are Charlie, the AI receptionist for AI Agent.
 

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { connectSimpro, parseConnectInput, type ConnectSimproEnv } from "./connect.ts";
 
@@ -104,4 +105,12 @@ test("connectSimpro OAuth path hits client_credentials then companies", async ()
   assert.equal(saved.length, 1);
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
   assert.equal(JSON.stringify(result).includes("oauth-token"), false);
+});
+
+test("simpro connect index triggers mh-sync-agent after a successful key save", async () => {
+  const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+  const trigger = await readFile(new URL("../_shared/sync-agent-request.ts", import.meta.url), "utf8");
+  assert.match(src, /requestCustomerAgentSync/);
+  assert.match(trigger, /mh-sync-agent/);
+  assert.doesNotMatch(src, /a77816d9-3b5f-4635-a77d-095e767a532e/);
 });

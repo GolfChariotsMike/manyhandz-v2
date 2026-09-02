@@ -2,6 +2,7 @@
  * Live mh-sync-agent prompt builder, ported into this repo.
  * Hang-up-on-goodbye and SimPRO create-job are the extra capability sections;
  * disclosure wording matches the live function so existing agents do not shift.
+ * Provision uses the same compose so a new signup is not a Glacier-only path.
  */
 import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
@@ -68,14 +69,40 @@ export function isStaleNameFirstCompose(raw: unknown): boolean {
 }
 
 /**
+ * Old mh-provision-number stub. It asked for name on the greeting and
+ * never mentioned lookup_simpro_customer. Sync used to treat it as an
+ * operator override, so new signups never got the Glacier booking path.
+ */
+export function isStaleProvisionStub(raw: unknown): boolean {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return false;
+  if (/ask for their name early/i.test(text)) return true;
+  if (
+    /You are an AI receptionist for /i.test(text)
+    && !/lookup_simpro_customer/i.test(text)
+    && !/CAPABILITIES & RULES:/i.test(text)
+  ) return true;
+  if (
+    /Take a message if you cannot fully help/i.test(text)
+    && !/CAPABILITIES & RULES:/i.test(text)
+    && !/lookup_simpro_customer/i.test(text)
+  ) return true;
+  return false;
+}
+
+/**
  * Provisioning stubs and persisted compose must not beat compose.
- * A leftover Glacier compose (~8617 chars) with old name-first wording
- * would otherwise freeze Charlie on “collect name + address” before lookup.
+ * The old mh-provision-number stub asked for name on the greeting and
+ * never mentioned lookup. A leftover Glacier compose (~8617 chars) with
+ * old name-first wording would otherwise freeze Charlie on
+ * “collect name + address” before lookup.
  */
 export function isGenericPromptLeftover(raw: unknown): boolean {
   const text = typeof raw === "string" ? raw.trim() : "";
   if (!text) return false;
-  if (isPersistedCompose(text) || isStaleNameFirstCompose(text)) return true;
+  if (isPersistedCompose(text) || isStaleNameFirstCompose(text) || isStaleProvisionStub(text)) {
+    return true;
+  }
   if (text.length > GENERIC_PROMPT_LEFTOVER_MAX) return false;
   if (/AI (?:receptionist|assistant) for AI Agent/i.test(text)) return true;
   return /^You are .+,\s*the AI receptionist for .+/i.test(text) && /ABOUT US:/.test(text);
