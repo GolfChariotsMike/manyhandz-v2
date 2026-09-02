@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
+import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
 import {
   DEFAULT_JWT_SECRET,
   adminSecretsFromEnv,
@@ -143,6 +144,15 @@ function post(path: string, body: unknown, headers?: Record<string, string>) {
   });
 }
 
+/** Same URL the dashboard posts: /functions/v1/mh-v2-auth (routeAction is mh-v2-auth). */
+function postAuthRoot(body: unknown, headers?: Record<string, string>) {
+  return new Request("https://example.supabase.co/functions/v1/mh-v2-auth", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
 function get(path: string, headers?: Record<string, string>) {
   return new Request(`https://example.supabase.co/functions/v1/mh-v2-auth/${path}`, {
     method: "GET",
@@ -159,7 +169,12 @@ describe("service role env — no management API token", () => {
       "sr-key",
     );
     assert.equal(jwtSecretFromEnv(() => undefined), DEFAULT_JWT_SECRET);
-    assert.deepEqual([...adminSecretsFromEnv((k) => k === "MH_ADMIN_PIN" ? ADMIN_PIN : undefined)], [ADMIN_PIN]);
+    const emptyEnv = adminSecretsFromEnv(() => undefined);
+    assert.equal(emptyEnv.has(DASHBOARD_ADMIN_PIN), true);
+    assert.equal(emptyEnv.size, 1);
+    const withEnvPin = adminSecretsFromEnv((k) => k === "MH_ADMIN_PIN" ? ADMIN_PIN : undefined);
+    assert.equal(withEnvPin.has(ADMIN_PIN), true);
+    assert.equal(withEnvPin.has(DASHBOARD_ADMIN_PIN), true);
   });
 
   it("index and handler never mention SUPABASE_MGMT_TOKEN or the management query API", () => {
@@ -179,6 +194,10 @@ describe("service role env — no management API token", () => {
     assert.match(index, /@supabase\/supabase-js/);
     assert.match(handler, /\.from\("mh_v2_customers"\)/);
     assert.match(handler, /\.from\("mh_magic_tokens"\)/);
+    assert.match(handler, /admin-dashboard-pin/);
+    const adminPage = readFileSync(join(HERE, "../../../src/pages/Admin.tsx"), "utf8");
+    assert.match(adminPage, /admin-dashboard-pin/);
+    assert.doesNotMatch(adminPage, /const ADMIN_PIN\s*=/);
   });
 });
 
@@ -356,5 +375,51 @@ describe("verify / me / admin-assume", () => {
     ));
     assert.equal(res.status, 404);
     assert.equal(res.body.error, "Not found");
+  });
+
+  it("admin-assume succeeds with the dashboard PIN when env secrets are empty", async () => {
+    const env = envFor(seed());
+    env.adminSecrets = adminSecretsFromEnv(() => undefined);
+    const res = await json(await handleRequest(
+      postAuthRoot({ action: "admin-assume", secret: DASHBOARD_ADMIN_PIN, customer_id: CUST }),
+      env,
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.token, "string");
+    assert.equal(res.body.customer.id, CUST);
+  });
+
+  it("admin-assume with a garbage secret is 404 Not found", async () => {
+    const env = envFor(seed());
+    env.adminSecrets = adminSecretsFromEnv(() => undefined);
+    const res = await json(await handleRequest(
+      postAuthRoot({ action: "admin-assume", secret: "garbage-not-a-pin", customer_id: CUST }),
+      env,
+    ));
+    assert.equal(res.status, 404);
+    assert.equal(res.body.error, "Not found");
+  });
+
+  it("admin-assume still succeeds with MH_ADMIN_PIN from env", async () => {
+    const env = envFor(seed());
+    env.adminSecrets = adminSecretsFromEnv((k) => k === "MH_ADMIN_PIN" ? ADMIN_PIN : undefined);
+    const res = await json(await handleRequest(
+      postAuthRoot({ action: "admin-assume", secret: ADMIN_PIN, customer_id: CUST }),
+      env,
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(typeof res.body.token, "string");
+    assert.equal(res.body.customer.id, CUST);
+  });
+
+  it("admin-assume with a valid secret and unknown customer is 400 Account not found", async () => {
+    const env = envFor(seed());
+    env.adminSecrets = adminSecretsFromEnv(() => undefined);
+    const res = await json(await handleRequest(
+      postAuthRoot({ action: "admin-assume", secret: DASHBOARD_ADMIN_PIN, customer_id: "missing-customer" }),
+      env,
+    ));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "Account not found");
   });
 });
