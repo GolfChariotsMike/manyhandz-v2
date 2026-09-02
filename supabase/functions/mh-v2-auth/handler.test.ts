@@ -249,7 +249,7 @@ describe("magic-link", () => {
     assert.equal(store.inserts.filter((i) => i.table === "mh_knowledge_base").length, 1);
     const token = store.inserts.find((i) => i.table === "mh_magic_tokens");
     assert.ok(token);
-    assert.deepEqual((token?.row.signup_data as { country: string }).country, "US");
+    assert.equal((token.row.signup_data as { country: string }).country, "US");
     assert.equal(emails[0].isNew, true);
   });
 
