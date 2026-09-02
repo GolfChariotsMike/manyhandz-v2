@@ -27,7 +27,10 @@ export type SaveMessageEnv = {
   authToken: string;
   fallbackFrom: string;
   fetch: typeof fetch;
-  loadVoice: (customerId: string) => Promise<{ notify_sms?: string | null } | null>;
+  loadVoice: (customerId: string) => Promise<{
+    notify_sms?: string | null;
+    notify_sms_enabled?: boolean | null;
+  } | null>;
   loadCustomer: (customerId: string) => Promise<{
     twilio_number?: string | null;
     business_name?: string | null;
@@ -64,9 +67,15 @@ export async function handleSaveMessage(
     env.loadVoice(parsed.customer_id),
     env.loadCustomer(parsed.customer_id),
   ]);
-  const notifyTo = String(voice?.notify_sms || "").trim();
+  const smsOn = voice?.notify_sms_enabled !== false;
+  const notifyTo = smsOn ? String(voice?.notify_sms || "").trim() : "";
   if (!notifyTo) {
-    return { success: false, error: "No owner notify number is set. Take the message verbally and say the team will call back." };
+    return {
+      success: false,
+      error: smsOn
+        ? "No owner notify number is set. Take the message verbally and say the team will call back."
+        : "Office SMS alerts are off. Take the message verbally and say the team will call back.",
+    };
   }
 
   const from = pickSmsFrom(customer?.twilio_number, env.fallbackFrom);

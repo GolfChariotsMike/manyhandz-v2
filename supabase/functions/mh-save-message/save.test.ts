@@ -4,6 +4,7 @@ import { handleSaveMessage, ownerNotifyBody, parseSaveMessageInput, type SaveMes
 
 function envFor(opts?: {
   notify?: string | null;
+  notifyEnabled?: boolean | null;
   twilio?: string | null;
 }): { env: SaveMessageEnv; bodies: string[] } {
   const bodies: string[] = [];
@@ -17,7 +18,10 @@ function envFor(opts?: {
         bodies.push(String(init?.body || ""));
         return Response.json({ sid: "SMowner" });
       }) as typeof fetch,
-      loadVoice: async () => ({ notify_sms: opts?.notify === undefined ? "+61433121933" : opts.notify }),
+      loadVoice: async () => ({
+        notify_sms: opts?.notify === undefined ? "+61433121933" : opts.notify,
+        notify_sms_enabled: opts?.notifyEnabled,
+      }),
       loadCustomer: async () => ({
         twilio_number: opts?.twilio === undefined ? "+61485000000" : opts.twilio,
         business_name: "Glacier Air",
@@ -51,6 +55,19 @@ test("owner notify SMS uses the customer From number, not a hardcoded shared lin
   assert.match(bodies[0], /To=%2B61433121933/);
   assert.match(bodies[0], /Alex/);
   assert.equal(JSON.stringify(result).includes("secret-token"), false);
+});
+
+test("notify_sms_enabled false skips Twilio and keeps the number unused", async () => {
+  const { env, bodies } = envFor({ notify: "+61433121933", notifyEnabled: false });
+  const result = await handleSaveMessage({
+    customer_id: "cust-1",
+    caller_name: "Alex",
+    callback_number: "+61411111111",
+    message: "Hi",
+  }, env);
+  assert.equal(result.success, false);
+  if (!result.success) assert.match(result.error, /alerts are off/i);
+  assert.equal(bodies.length, 0);
 });
 
 test("missing notify_sms fails clearly and does not call Twilio", async () => {

@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
       loadVoice: async (id) => {
         const { data } = await admin
           .from("mh_voice_config")
-          .select("notify_sms")
+          .select("notify_sms,notify_sms_enabled")
           .eq("customer_id", id)
           .maybeSingle();
         return data;

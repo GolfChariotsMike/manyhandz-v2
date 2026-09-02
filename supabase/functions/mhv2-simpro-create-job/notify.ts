@@ -10,7 +10,9 @@ export const LEAD_NOTIFY_FROM = "ManyHandz <noreply@manyhandz.ai>";
 export type LeadNotifyTargets = {
   email?: string | null;
   notify_email?: string | null;
+  notify_email_enabled?: boolean | null;
   notify_sms?: string | null;
+  notify_sms_enabled?: boolean | null;
   twilio_number?: string | null;
   business_name?: string | null;
 };
@@ -56,11 +58,20 @@ export function sanitizeNotifyError(text: string): string {
     .slice(0, 400);
 }
 
+export function notifyChannelOn(enabled?: boolean | null): boolean {
+  return enabled !== false;
+}
+
 export function pickNotifyEmail(targets: LeadNotifyTargets | null | undefined): string {
-  if (!targets) return "";
+  if (!targets || !notifyChannelOn(targets.notify_email_enabled)) return "";
   const preferred = String(targets.notify_email || "").trim();
   if (preferred) return preferred;
   return String(targets.email || "").trim();
+}
+
+export function pickNotifySms(targets: LeadNotifyTargets | null | undefined): string {
+  if (!targets || !notifyChannelOn(targets.notify_sms_enabled)) return "";
+  return String(targets.notify_sms || "").trim();
 }
 
 export function escapeNotifyHtml(value: string): string {
@@ -213,7 +224,7 @@ export async function notifySimproLeadCreated(
   try {
     const targets = await env.loadNotifyTargets(input.customer_id);
     const emailTo = pickNotifyEmail(targets);
-    const smsTo = String(targets?.notify_sms || "").trim();
+    const smsTo = pickNotifySms(targets);
     const smsFrom = pickSmsFrom(targets?.twilio_number, env.smsFallbackFrom);
     logNotify(
       env,

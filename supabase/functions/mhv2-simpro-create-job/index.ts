@@ -58,17 +58,20 @@ Deno.serve(async (req) => {
         loadNotifyTargets: async (customerId) => {
           const [{ data: customer }, { data: voice }] = await Promise.all([
             admin.from("mh_v2_customers")
-              .select("email,twilio_number,business_name")
+              .select("email,notify_email,notify_email_enabled,twilio_number,business_name")
               .eq("id", customerId)
               .maybeSingle(),
             admin.from("mh_voice_config")
-              .select("notify_sms")
+              .select("notify_sms,notify_sms_enabled")
               .eq("customer_id", customerId)
               .maybeSingle(),
           ]);
           return {
             email: customer?.email ?? null,
+            notify_email: customer?.notify_email ?? null,
+            notify_email_enabled: customer?.notify_email_enabled ?? null,
             notify_sms: voice?.notify_sms ?? null,
+            notify_sms_enabled: voice?.notify_sms_enabled ?? null,
             twilio_number: customer?.twilio_number ?? null,
             business_name: customer?.business_name ?? null,
           };

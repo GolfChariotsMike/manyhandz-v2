@@ -172,6 +172,18 @@ describe("profile body", () => {
       onboarding_complete: true,
     });
   });
+
+  it("parses notify_email without touching login email or requiring a name", () => {
+    assert.deepEqual(parseProfileBody({
+      notify_email: "  office@glacier.test  ",
+      notify_email_enabled: false,
+    }).patch, {
+      notify_email: "office@glacier.test",
+      notify_email_enabled: false,
+    });
+    assert.deepEqual(parseProfileBody({ notify_email: "   " }).patch, { notify_email: null });
+    assert.equal(parseProfileBody({ notify_email_enabled: "yes" }).error, "notify_email_enabled must be a boolean");
+  });
 });
 
 describe("knowledge body", () => {
@@ -247,6 +259,19 @@ describe("POST /profile", () => {
     assert.equal(store.customers[CUST].business_name, "Glacier Air");
   });
 
+  it("writes notify_email without changing login email", async () => {
+    const store = seed();
+    store.customers[CUST].email = "nick.studer711@gmail.com";
+    const res = await json(await handleRequest(
+      await authed("profile", { notify_email: "office@glacier.test", notify_email_enabled: false }),
+      envFor(store),
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(store.customers[CUST].notify_email, "office@glacier.test");
+    assert.equal(store.customers[CUST].notify_email_enabled, false);
+    assert.equal(store.customers[CUST].email, "nick.studer711@gmail.com");
+  });
+
   it("rejects empty business_name before touching the row", async () => {
     const store = seed();
     const res = await json(await handleRequest(
@@ -298,6 +323,16 @@ describe("POST /voice", () => {
     assert.equal(parseVoiceNotifyBody({}).error, "notify_sms required");
   });
 
+  it("keeps notify_sms when the enabled toggle is off", () => {
+    assert.deepEqual(parseVoiceNotifyBody({
+      notify_sms: "+61422962169",
+      notify_sms_enabled: false,
+    }).patch, {
+      notify_sms: "+61422962169",
+      notify_sms_enabled: false,
+    });
+  });
+
   it("creates mh_voice_config when missing and patches notify_sms when present", async () => {
     const store = seed();
     const created = await json(await handleRequest(
@@ -314,6 +349,18 @@ describe("POST /voice", () => {
     ));
     assert.equal(patched.status, 200);
     assert.equal(store.voice[CUST].notify_sms, "+15551234567");
+  });
+
+  it("patches notify_sms_enabled without clearing the number", async () => {
+    const store = seed();
+    store.voice[CUST] = { id: "vc-1", customer_id: CUST, notify_sms: "+61422962169" };
+    const patched = await json(await handleRequest(
+      await authed("voice", { notify_sms: "+61422962169", notify_sms_enabled: false }),
+      envFor(store),
+    ));
+    assert.equal(patched.status, 200);
+    assert.equal(store.voice[CUST].notify_sms, "+61422962169");
+    assert.equal(store.voice[CUST].notify_sms_enabled, false);
   });
 });
 

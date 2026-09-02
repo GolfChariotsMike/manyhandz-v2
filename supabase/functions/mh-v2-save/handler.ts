@@ -38,6 +38,8 @@ export type ProfilePatch = {
   website_url?: string | null;
   industry?: string | null;
   onboarding_complete?: boolean;
+  notify_email?: string | null;
+  notify_email_enabled?: boolean;
 };
 
 export type KnowledgeRow = {
@@ -52,6 +54,7 @@ export type KnowledgeRow = {
 
 export type VoiceNotifyPatch = {
   notify_sms: string | null;
+  notify_sms_enabled?: boolean;
 };
 
 export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): string {
@@ -169,6 +172,21 @@ export function parseProfileBody(body: unknown): { patch: ProfilePatch; error?: 
     }
     patch.onboarding_complete = src.onboarding_complete;
   }
+  if ("notify_email" in src) {
+    if (src.notify_email === null) {
+      patch.notify_email = null;
+    } else if (typeof src.notify_email === "string") {
+      patch.notify_email = src.notify_email.trim() || null;
+    } else {
+      return { patch: {}, error: "notify_email must be a string or null" };
+    }
+  }
+  if ("notify_email_enabled" in src) {
+    if (typeof src.notify_email_enabled !== "boolean") {
+      return { patch: {}, error: "notify_email_enabled must be a boolean" };
+    }
+    patch.notify_email_enabled = src.notify_email_enabled;
+  }
 
   if (Object.keys(patch).length === 0) {
     return { patch: {}, error: "nothing to update" };
@@ -184,14 +202,21 @@ export function parseVoiceNotifyBody(body: unknown): { patch: VoiceNotifyPatch; 
   if (!("notify_sms" in src)) {
     return { patch: { notify_sms: null }, error: "notify_sms required" };
   }
+  const patch: VoiceNotifyPatch = { notify_sms: null };
   if (src.notify_sms === null) {
-    return { patch: { notify_sms: null } };
-  }
-  if (typeof src.notify_sms !== "string") {
+    patch.notify_sms = null;
+  } else if (typeof src.notify_sms !== "string") {
     return { patch: { notify_sms: null }, error: "notify_sms must be a string or null" };
+  } else {
+    patch.notify_sms = src.notify_sms.trim() || null;
   }
-  const trimmed = src.notify_sms.trim();
-  return { patch: { notify_sms: trimmed || null } };
+  if ("notify_sms_enabled" in src) {
+    if (typeof src.notify_sms_enabled !== "boolean") {
+      return { patch: { notify_sms: null }, error: "notify_sms_enabled must be a boolean" };
+    }
+    patch.notify_sms_enabled = src.notify_sms_enabled;
+  }
+  return { patch };
 }
 
 export function parseKnowledgeBody(
@@ -316,10 +341,15 @@ export async function handleRequest(req: Request, env: SaveEnv): Promise<Respons
       .maybeSingle();
     if (existing.error) return jsonResponse({ error: existing.error.message || "Could not save notify SMS" }, 500);
 
+    const voicePatch: Record<string, unknown> = { notify_sms: patch.notify_sms };
+    if (patch.notify_sms_enabled !== undefined) {
+      voicePatch.notify_sms_enabled = patch.notify_sms_enabled;
+    }
+
     if (existing.data && typeof existing.data === "object" && (existing.data as { id?: unknown }).id) {
       const { data, error: dbError } = await env.admin
         .from("mh_voice_config")
-        .update({ notify_sms: patch.notify_sms })
+        .update(voicePatch)
         .eq("customer_id", customerId)
         .select()
         .maybeSingle();
@@ -331,7 +361,7 @@ export async function handleRequest(req: Request, env: SaveEnv): Promise<Respons
       .from("mh_voice_config")
       .insert({
         customer_id: customerId,
-        notify_sms: patch.notify_sms,
+        ...voicePatch,
         active: true,
       })
       .select()

@@ -62,6 +62,12 @@ test("updateProfile POSTs mh-v2-save/profile with mh_token and clears meCache", 
   });
   assert.equal(data.customer.business_name, "Glacier Air");
   assert.equal(meCache.peek(), null);
+
+  await updateProfile({ notify_email: "office@glacier.test", notify_email_enabled: false });
+  assert.deepEqual(calls[1].body, {
+    notify_email: "office@glacier.test",
+    notify_email_enabled: false,
+  });
 });
 
 test("updateProfile does not clear meCache when the save fails", async () => {
@@ -113,7 +119,7 @@ test("saveOnboardingKnowledge POSTs mh-v2-save/knowledge and surfaces errors", a
   );
 });
 
-test("saveVoiceNotifySms POSTs mh-v2-save/voice with notify_sms", async () => {
+test("saveVoiceNotifySms POSTs mh-v2-save/voice with notify_sms and optional enabled", async () => {
   (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
   const calls: { url: string; body: unknown }[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -131,6 +137,9 @@ test("saveVoiceNotifySms POSTs mh-v2-save/voice with notify_sms", async () => {
   assert.match(calls[0].url, /\/functions\/v1\/mh-v2-save\/voice$/);
   assert.deepEqual(calls[0].body, { notify_sms: "+61412345678" });
   assert.equal(row.voice.notify_sms, "+61412345678");
+
+  await saveVoiceNotifySms({ notify_sms: "+61412345678", notify_sms_enabled: false });
+  assert.deepEqual(calls[1].body, { notify_sms: "+61412345678", notify_sms_enabled: false });
 });
 
 test("requestMagicLink sends country so a US signup survives the email click", async () => {
