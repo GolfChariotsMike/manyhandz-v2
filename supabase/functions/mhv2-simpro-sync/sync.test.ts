@@ -80,6 +80,7 @@ test("API-key sync uses static Bearer and never hits oauth or jobs or KB", async
   assert.equal(verified[0].companyId, "0");
   assert.equal(calls.some((c) => c.includes("/oauth2/token")), false);
   assert.equal(calls.some((c) => c.includes("/jobs/")), false);
+  assert.equal(calls.some((c) => c.includes("/leads/")), false);
   assert.equal(JSON.stringify(result).includes("static-api-key"), false);
 });
 

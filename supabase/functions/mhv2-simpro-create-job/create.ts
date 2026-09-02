@@ -1,7 +1,13 @@
 /**
- * Create a real SimPRO job (find-or-create customer + site, then POST job).
+ * Create a real SimPRO lead (find-or-create customer + site, then POST lead).
  * Uses the same mh_crm_connections row and AES-GCM secret wrap as
  * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
+ *
+ * SimPRO Leads API (developer.simprogroup.com):
+ * POST /api/v1.0/companies/{companyID}/leads/
+ * Required: Customer (int), Site (int). Optional: LeadName, Description,
+ * Stage ("Open"|"Closed"). Status is a project-status ID — omit unless known.
+ * Do not send Job Type / DateIssued / Stage "Pending".
  */
 
 export const CRM_SALT = new TextEncoder().encode("manyhandz-crm-salt-v1");
@@ -37,6 +43,9 @@ export type CreateJobFailureCode =
 export type CreateJobResult =
   | {
     ok: true;
+    lead_number: string;
+    lead_id: string;
+    /** Alias of lead_number so older tool consumers still have a number to read. */
     job_number: string;
     customer_created: boolean;
     site_created: boolean;
@@ -127,14 +136,14 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const caller_phone = String(src.caller_phone || src.phone || src.callback_number || "").trim();
   const site_address = String(src.site_address || src.address || src.site || "").trim();
   const description = String(src.description || src.message || src.work || "").trim();
-  const job_name = String(src.job_name || src.title || "").trim();
+  const job_name = String(src.job_name || src.lead_name || src.title || "").trim();
   const cid = String(customerId || src.customer_id || "").trim();
   if (!cid || !caller_name || !caller_phone || !site_address || !description) {
     return {
       ok: false,
       code: "missing_fields",
       error:
-        "Need the caller's name, phone, site address, and a description of the work. Do not claim a job was created.",
+        "Need the caller's name, phone, site address, and a description of the work. Do not claim a lead was created.",
     };
   }
   return {
@@ -369,7 +378,7 @@ async function createSite(
 ): Promise<number> {
   const parsed = parseSiteAddress(siteAddress);
   const body: Record<string, unknown> = {
-    Name: parsed.name.slice(0, 80) || "Job site",
+    Name: parsed.name.slice(0, 80) || "Site",
     Address: {
       Address: parsed.address,
       City: parsed.city,
@@ -407,7 +416,7 @@ async function createSite(
   return id;
 }
 
-async function postJob(
+async function postLead(
   env: CreateJobEnv,
   conn: SimproConnection,
   token: string,
@@ -415,7 +424,6 @@ async function postJob(
   customerId: number,
   siteId: number,
 ): Promise<string> {
-  const issued = env.now().toISOString().slice(0, 10);
   const name = (input.job_name || input.description).slice(0, 80);
   const description = [
     input.description,
@@ -423,34 +431,32 @@ async function postJob(
     `Phone: ${input.caller_phone}`,
     `Site: ${input.site_address}`,
   ].join("\n");
-  const res = await simproJson(env, token, `${apiBase(conn)}/jobs/`, {
+  const res = await simproJson(env, token, `${apiBase(conn)}/leads/`, {
     method: "POST",
     body: {
-      Type: "Service",
       Customer: customerId,
       Site: siteId,
-      Name: name,
+      LeadName: name,
       Description: description,
-      DateIssued: issued,
-      Stage: "Pending",
+      Stage: "Open",
     },
   });
   if (!res.ok) {
     throw Object.assign(
-      new Error(`SimPRO could not create the job: ${sanitizeSimproError(res.text)}`),
+      new Error(`SimPRO could not create the lead: ${sanitizeSimproError(res.text)}`),
       { code: "simpro_error" as const },
     );
   }
-  const jobNumber = resourceId(res.data);
-  if (!jobNumber) {
-    throw Object.assign(new Error("SimPRO created a job but returned no job number"), { code: "simpro_error" as const });
+  const leadNumber = resourceId(res.data);
+  if (!leadNumber) {
+    throw Object.assign(new Error("SimPRO created a lead but returned no lead number"), { code: "simpro_error" as const });
   }
-  return jobNumber;
+  return leadNumber;
 }
 
 export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv): Promise<CreateJobResult> {
   if (!env.encryptionKey) {
-    return { ok: false, code: "auth_error", error: "SimPRO is not configured. Do not claim a job was created." };
+    return { ok: false, code: "auth_error", error: "SimPRO is not configured. Do not claim a lead was created." };
   }
 
   const conn = await env.loadConnection(input.customer_id);
@@ -458,7 +464,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     return {
       ok: false,
       code: "not_connected",
-      error: "SimPRO is not connected for this business. Do not claim a job was created. Take a message instead.",
+      error: "SimPRO is not connected for this business. Do not claim a lead was created. Take a message instead.",
     };
   }
 
@@ -467,6 +473,8 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     let customerCreated = false;
     let siteCreated = false;
 
+    // Mike/Nick: unknown callers get a new SimPRO customer + site, then a Lead.
+    // Existing last-9 phone match is reused; a new Lead is still always created.
     let simproCustomerId = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
     if (!simproCustomerId) {
       simproCustomerId = await createCustomer(env, conn, token, input.caller_name, input.caller_phone);
@@ -479,17 +487,17 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       siteCreated = true;
     }
 
-    const jobNumber = await postJob(env, conn, token, input, simproCustomerId, siteId);
+    const leadNumber = await postLead(env, conn, token, input, simproCustomerId, siteId);
 
     if (env.cacheJob) {
       await env.cacheJob({
         customer_id: input.customer_id,
         connection_id: conn.id,
         platform: "simpro",
-        external_id: jobNumber,
-        job_number: jobNumber,
+        external_id: leadNumber,
+        job_number: leadNumber,
         title: (input.job_name || input.description).slice(0, 120),
-        status: "Pending",
+        status: "Open",
         customer_name: input.caller_name,
         customer_phone: input.caller_phone,
         site_address: input.site_address,
@@ -499,10 +507,12 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
 
     return {
       ok: true,
-      job_number: jobNumber,
+      lead_number: leadNumber,
+      lead_id: leadNumber,
+      job_number: leadNumber,
       customer_created: customerCreated,
       site_created: siteCreated,
-      message: `Created SimPRO job ${jobNumber}. Tell the caller this job number.`,
+      message: `Created SimPRO lead ${leadNumber}. Tell the caller this lead number.`,
     };
   } catch (err) {
     const code = (err && typeof err === "object" && "code" in err)
@@ -512,7 +522,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     return {
       ok: false,
       code: code === "auth_error" ? "auth_error" : "simpro_error",
-      error: `${message} Do not claim a job was created.`,
+      error: `${message} Do not claim a lead was created.`,
     };
   }
 }

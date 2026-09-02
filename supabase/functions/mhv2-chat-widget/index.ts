@@ -1,7 +1,7 @@
 /**
  * ManyHandz V2 — Chat Widget
  * Same dashboard knowledge base, price list, and phone tools as the voice
- * agent (create_simpro_job find-or-create, save_message, send_sms).
+ * agent (create_simpro_job find-or-create + SimPRO lead, save_message, send_sms).
  * Does not attach staff transfer or dump SimPRO jobs into the prompt.
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";

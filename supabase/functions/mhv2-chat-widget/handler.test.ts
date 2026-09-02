@@ -217,7 +217,7 @@ test("caps off drop create_simpro_job and send_sms from the Claude payload", asy
   );
   const tools = claudeBodies[0].tools as Array<{ name: string }>;
   assert.deepEqual(tools.map((t) => t.name), ["save_message"]);
-  assert.match(String(claudeBodies[0].system), /Do not create jobs in SimPRO/);
+  assert.match(String(claudeBodies[0].system), /Do not create leads in SimPRO/);
 });
 
 test("tool_use create_simpro_job runs find-or-create and replies from the follow-up turn", async () => {
@@ -240,7 +240,7 @@ test("tool_use create_simpro_job runs find-or-create and replies from the follow
       },
       {
         stop_reason: "end_turn",
-        content: [{ type: "text", text: "Booked — job 4421." }],
+        content: [{ type: "text", text: "Booked — lead 4421." }],
       },
     ],
     executors: {
@@ -248,10 +248,12 @@ test("tool_use create_simpro_job runs find-or-create and replies from the follow
         created = input;
         return {
           ok: true,
+          lead_number: "4421",
+          lead_id: "4421",
           job_number: "4421",
           customer_created: true,
           site_created: true,
-          message: "Created SimPRO job 4421.",
+          message: "Created SimPRO lead 4421.",
         } satisfies CreateJobResult;
       },
       handleSaveMessage: async () => ({ success: true, notified: true }),
@@ -267,7 +269,7 @@ test("tool_use create_simpro_job runs find-or-create and replies from the follow
     env,
   );
   const { body } = await jsonOf(res);
-  assert.equal(body.reply, "Booked — job 4421.");
+  assert.equal(body.reply, "Booked — lead 4421.");
   assert.equal((created as { caller_name: string }).caller_name, "Sam");
 });
 

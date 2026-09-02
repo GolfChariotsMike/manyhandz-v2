@@ -89,8 +89,8 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     : "";
 
   const simproJobRule = capCreateSimproJob
-    ? `- SIMPRO JOBS: When a visitor wants work done, collect their name, mobile, the job site/address, and a short description. Then use the create_simpro_job tool. If the tool returns a job number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a job was created — take a message and say the team will set the job up. Never look up, list, or read out other customers' jobs.`
-    : `- SIMPRO JOBS: Do not create jobs in SimPRO. Take a message instead.`;
+    ? `- SIMPRO LEADS: When a visitor wants work done, collect their name, mobile, the site/address, and a short description. Then use the create_simpro_job tool. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const capabilitySection =
     `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${messageRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}\n${chatAiDisclosureRule(capDiscloseAi)}`;
@@ -112,10 +112,10 @@ YOUR ROLE:
 - Take messages when visitors want to speak to a staff member — use save_message
 - Never make up information not in your knowledge base
 - If unsure about anything, offer to take a message and have someone call back
-- Never look up, list, or read out other customers' jobs
+- Never look up, list, or read out other customers' leads or jobs
 
 VISITOR CONTACT:
-You do not have caller ID. Ask for a name and mobile when you need to create a job, send an SMS, or leave a message.
+You do not have caller ID. Ask for a name and mobile when you need to create a lead, send an SMS, or leave a message.
 
 CHAT HANDLING:
 - Keep replies short and friendly

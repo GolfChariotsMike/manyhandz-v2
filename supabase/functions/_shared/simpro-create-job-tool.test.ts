@@ -24,6 +24,25 @@ test("mergeCreateSimproJobTool replaces the webhook and keeps extras", () => {
   assert.equal(created.stale, undefined);
 });
 
+test("create_simpro_job tool copy is a lead and never sends system__* vars", () => {
+  const tools = mergeCreateSimproJobTool([], "https://example.test/mhv2-simpro-create-job?customer_id=cust-1");
+  const created = tools.find((t) => (t as { name?: string }).name === CREATE_SIMPRO_JOB_TOOL_NAME) as {
+    description: string;
+    api_schema: {
+      url: string;
+      request_body_schema: {
+        properties: { caller_phone: { dynamic_variable?: string } };
+      };
+    };
+  };
+  assert.match(created.description, /lead number/i);
+  assert.match(created.description, /never pretend a lead was created/i);
+  assert.doesNotMatch(created.description, /job number/i);
+  assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
+  assert.equal(JSON.stringify(created).includes("system__"), false);
+  assert.match(created.api_schema.url, /mhv2-simpro-create-job\?customer_id=cust-1/);
+});
+
 test("typing attaches to create_simpro_job and never to end_call", () => {
   const merged = mergeToolCallTyping(mergeEndCallTools(
     mergeCreateSimproJobTool([{ type: "webhook", name: "save_message" }], "https://example.test/create"),

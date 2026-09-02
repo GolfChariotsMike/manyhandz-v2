@@ -1,7 +1,8 @@
 /**
  * Claude tools for the website chat widget.
  * Same phone tools as the live agent except staff transfer / call connect:
- * create_simpro_job (find-or-create), save_message, send_sms.
+ * create_simpro_job (find-or-create customer/site, then POST a SimPRO lead),
+ * save_message, send_sms.
  */
 import {
   createSimproJob,
@@ -60,16 +61,16 @@ export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "Create a real SimPRO job (find-or-create customer and site, then create the job). Use when the visitor wants work done. Collect their name, mobile, the job site/address, and a short description first. There is no caller ID on chat — ask for their mobile. Tell them the job number only if the tool returns ok:true. If it fails or says SimPRO is not connected, take a message — never pretend a job was created. Never look up or list other customers' jobs.",
+      "Create a real SimPRO lead (find-or-create customer and site, then create the lead). Use when the visitor wants work done. Collect their name, mobile, the site/address, and a short description first. There is no caller ID on chat — ask for their mobile. Tell them the lead number only if the tool returns ok:true. If it fails or says SimPRO is not connected, take a message — never pretend a lead was created. Never look up or list other customers' leads.",
     input_schema: {
       type: "object",
       required: ["caller_name", "caller_phone", "site_address", "description"],
       properties: {
         caller_name: { type: "string", description: "Full name of the visitor" },
         caller_phone: { type: "string", description: "Visitor mobile — ask for it; there is no caller ID on chat" },
-        site_address: { type: "string", description: "Job site street address, suburb and postcode if they gave them" },
+        site_address: { type: "string", description: "Work site street address, suburb and postcode if they gave them" },
         description: { type: "string", description: "What work they need done" },
-        job_name: { type: "string", description: "Optional short job title" },
+        job_name: { type: "string", description: "Optional short lead title" },
       },
     },
   };

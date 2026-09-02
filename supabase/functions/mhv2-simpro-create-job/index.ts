@@ -1,5 +1,6 @@
 /**
- * mhv2-simpro-create-job — ElevenLabs webhook. POSTs a real SimPRO job.
+ * mhv2-simpro-create-job — ElevenLabs webhook. POSTs a real SimPRO lead.
+ * Function slug stays for the existing EL webhook URL (?customer_id=).
  * verify_jwt is false (same as mh-save-message / transfer). customer_id is
  * on the query string from mh-sync-agent / mh-provision-number.
  */
@@ -78,7 +79,7 @@ Deno.serve(async (req) => {
     return json({
       ok: false,
       code: "simpro_error",
-      error: `${message.slice(0, 200)} Do not claim a job was created.`,
+      error: `${message.slice(0, 200)} Do not claim a lead was created.`,
     });
   }
 });
