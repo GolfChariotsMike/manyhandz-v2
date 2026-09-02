@@ -1,15 +1,20 @@
 /**
  * Claude tools for the website chat widget.
  * Same phone tools as the live agent except staff transfer / call connect:
- * create_simpro_job (find-or-create customer/site, then POST a SimPRO lead),
+ * lookup_simpro_customer (phone/name → customer + sites, never creates),
+ * create_simpro_job (reuse lookup, or find-or-create only on a miss),
  * save_message, send_sms.
  */
 import {
   createSimproJob,
+  lookupSimproCustomer,
   parseCreateJobInput,
+  parseLookupCustomerInput,
   type CreateJobEnv,
   type CreateJobInput,
   type CreateJobResult,
+  type LookupCustomerInput,
+  type LookupCustomerResult,
 } from "../mhv2-simpro-create-job/create.ts";
 import {
   handleSaveMessage,
@@ -27,6 +32,7 @@ import {
 import type { SmsSendResult } from "../_shared/sms-send.ts";
 
 export const CREATE_SIMPRO_JOB_TOOL_NAME = "create_simpro_job";
+export const LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME = "lookup_simpro_customer";
 export const SAVE_MESSAGE_TOOL_NAME = "save_message";
 export const SEND_SMS_TOOL_NAME = "send_sms";
 
@@ -47,21 +53,40 @@ export type ChatToolCaps = {
 
 export type ChatToolExecutors = {
   createSimproJob: (input: CreateJobInput, env: CreateJobEnv) => Promise<CreateJobResult>;
+  lookupSimproCustomer?: (input: LookupCustomerInput, env: CreateJobEnv) => Promise<LookupCustomerResult>;
   handleSaveMessage: (parsed: SaveMessageParsed, env: SaveMessageEnv) => Promise<SaveMessageResult>;
   handleSendSms: (parsed: SendSmsParsed, env: SendSmsEnv) => Promise<SmsSendResult>;
 };
 
 export const defaultChatToolExecutors: ChatToolExecutors = {
   createSimproJob,
+  lookupSimproCustomer,
   handleSaveMessage,
   handleSendSms,
 };
+
+export function lookupSimproCustomerChatTool(): AnthropicTool {
+  return {
+    name: LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
+    description:
+      "BOOKING PATH ONLY — not for quotes, job status, or FAQs. Look up a SimPRO customer by the mobile they typed and/or a name or business name. Returns the customer and their sites — never creates a customer, site, contact, or lead, and never lists jobs. Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. Call this as soon as they want to book and you have a mobile. HIT: they are existing — never create a new customer. If one site, confirm it (or accept a different street as a new extra site on that same customer). If multiple sites, ask which site using the site names/addresses, then pass simpro_customer_id and site_id to create_simpro_job. MISS: ask if they have used the company before; if yes, retry with their name or business name; if no or still no match, collect details and call create_simpro_job.",
+    input_schema: {
+      type: "object",
+      properties: {
+        caller_phone: { type: "string", description: "Visitor mobile they already typed — there is no caller ID on chat" },
+        caller_name: { type: "string", description: "Person or business name — use when they said they are existing and the mobile missed" },
+        company_name: { type: "string", description: "Business name if they gave one separately" },
+        simpro_customer_id: { type: "number", description: "SimPRO customer ID when they picked among several name matches" },
+      },
+    },
+  };
+}
 
 export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (find-or-create customer and site, then create the lead). Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description — skip any already given. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the visitor is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
+      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (reuse lookup_simpro_customer, or find-or-create only when lookup missed). BOOKING PATH ONLY. Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. Call lookup_simpro_customer first. If that mobile matches an existing customer, skip name and full site address and collect only a short description (pass site_id when they chose a site; site_address only if they volunteer a different street). New customers: collect name, mobile, site/address, and description — skip any already given. If they said they have used the company before and lookup missed, pass existing_customer true plus their name or business name. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the visitor is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails, need_site_choice, or says SimPRO is not connected, use save_message or ask which site — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
     input_schema: {
       type: "object",
       required: ["caller_phone", "description"],
@@ -73,6 +98,9 @@ export function createSimproJobChatTool(): AnthropicTool {
         job_name: { type: "string", description: "Optional short lead title" },
         site_contact_name: { type: "string", description: "Person who is the site contact. Individuals: same as caller_name. Companies: the person at the site (e.g. Jane). Required for company bookings unless already in caller_name." },
         site_contact_phone: { type: "string", description: "Site contact phone. Falls back to caller_phone." },
+        simpro_customer_id: { type: "number", description: "SimPRO customer ID from lookup_simpro_customer. Never create a new customer when set." },
+        site_id: { type: "number", description: "SimPRO site ID after they pick which site." },
+        existing_customer: { type: "boolean", description: "True when they said they have used the company before and the mobile missed." },
       },
     },
   };
@@ -114,7 +142,10 @@ export function sendSmsChatTool(): AnthropicTool {
 /** Phone-parity tools for chat. Never includes staff transfer or a job-board lookup. */
 export function chatTools(caps: ChatToolCaps): AnthropicTool[] {
   const tools: AnthropicTool[] = [saveMessageChatTool()];
-  if (caps.capCreateSimproJob) tools.push(createSimproJobChatTool());
+  if (caps.capCreateSimproJob) {
+    tools.push(lookupSimproCustomerChatTool());
+    tools.push(createSimproJobChatTool());
+  }
   if (caps.capSendSms) tools.push(sendSmsChatTool());
   return tools;
 }
@@ -139,6 +170,14 @@ export async function executeChatTool(
 ): Promise<string> {
   const exec = ctx.executors || defaultChatToolExecutors;
   try {
+    if (name === LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME) {
+      const parsed = parseLookupCustomerInput(input, ctx.customerId);
+      if ("ok" in parsed && parsed.ok === false) return JSON.stringify(parsed);
+      const lookup = exec.lookupSimproCustomer || lookupSimproCustomer;
+      const result = await lookup(parsed, ctx.simproEnv);
+      return JSON.stringify(result);
+    }
+
     if (name === CREATE_SIMPRO_JOB_TOOL_NAME) {
       const parsed = parseCreateJobInput(input, ctx.customerId);
       if ("ok" in parsed && parsed.ok === false) return JSON.stringify(parsed);

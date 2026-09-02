@@ -5,12 +5,16 @@ import {
   contactMatchesPerson,
   createSimproJob,
   customerDisplayName,
+  customerNameMatches,
   decryptSecret,
   encryptSecret,
+  formatSimproSite,
   getAccessToken,
   idFromLocation,
   inferCompanyName,
+  lookupSimproCustomer,
   parseCreateJobInput,
+  parseLookupCustomerInput,
   parseSiteAddress,
   personNameFromSpoken,
   resolveSiteContactPerson,
@@ -225,6 +229,17 @@ test("parseCreateJobInput requires phone and description; name and site optional
   }, CUST);
   assert.equal("ok" in companyPerson, false);
   assert.equal((companyPerson as { site_contact_phone?: string }).site_contact_phone, "+61411122333");
+  const withIds = parseCreateJobInput({
+    caller_phone: "+61411122333",
+    description: "Split system not cooling",
+    simpro_customer_id: "9",
+    site_id: 3,
+    existing_customer: "yes",
+  }, CUST);
+  assert.equal("ok" in withIds, false);
+  assert.equal((withIds as { simpro_customer_id?: number }).simpro_customer_id, 9);
+  assert.equal((withIds as { site_id?: number }).site_id, 3);
+  assert.equal((withIds as { existing_customer?: boolean }).existing_customer, true);
   const companyOnly = parseCreateJobInput({
     ...input,
     caller_name: "Woolies Pty Ltd",
@@ -736,6 +751,297 @@ test("createSimproJob existing customer with no site and no address asks for the
   assert.equal(posted.some((c) => c.includes("POST")), false);
 });
 
+test("lookupSimproCustomer phone hit returns customer + sites and creates nothing", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("/customers/") && method === "GET" && url.includes("Phone=")) {
+        assert.match(url, /411122333/);
+        return Response.json([{
+          ID: 9,
+          Phone: "0411122333",
+          GivenName: "Sam",
+          FamilyName: "Glacier",
+        }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([
+          { ID: 3, Name: "12 Frost St", Address: { Address: "12 Frost St", City: "Malaga", State: "WA", PostalCode: "6090" } },
+          { ID: 66, Name: "88 Ice Ave", Address: { Address: "88 Ice Ave", City: "Malaga" } },
+        ]);
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      if (url.includes("/jobs/")) return new Response("must not list jobs", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const parsed = parseLookupCustomerInput({ caller_phone: "+61411122333" }, CUST);
+  assert.equal("ok" in parsed, false);
+  const result = await lookupSimproCustomer(parsed as { customer_id: string; caller_phone: string }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected phone hit");
+  assert.equal(result.match, "phone");
+  assert.equal(result.customer.id, 9);
+  assert.equal(result.customer.name, "Sam Glacier");
+  assert.equal(result.need_site_choice, true);
+  assert.equal(result.sites.length, 2);
+  assert.equal(result.sites[0].id, 3);
+  assert.match(result.sites[0].address, /12 Frost St/);
+  assert.match(result.message, /which site/i);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+  assert.equal(posted.some((c) => c.includes("/jobs/")), false);
+  assert.equal(posted.some((c) => c.includes("/leads/")), false);
+});
+
+test("lookupSimproCustomer name search finds a company without a phone match", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("Phone=")) return Response.json([]);
+      if (url.includes("CompanyName=") && /Woolies/i.test(url)) {
+        return Response.json([{ ID: 501, CompanyName: "Woolies Pty Ltd", Phone: "0899990000" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{ ID: 70, Name: "Warehouse", Address: { Address: "1 Store Rd", City: "Malaga" } }]);
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61400000000",
+    caller_name: "Woolies",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected name hit");
+  assert.equal(result.match, "name");
+  assert.equal(result.customer.id, 501);
+  assert.equal(result.customer.isCompany, true);
+  assert.equal(result.need_site_choice, false);
+  assert.equal(result.sites[0].id, 70);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+});
+
+test("lookupSimproCustomer miss creates nothing", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      posted.push(`${init?.method || "GET"} ${String(inputUrl)}`);
+      if ((init?.method || "GET") === "POST") return new Response("must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61411122333",
+    caller_name: "Nobody Here",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.found, false);
+  assert.match(result.message, /used the company before/i);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+});
+
+test("customerNameMatches and formatSimproSite help the picker", () => {
+  assert.equal(customerNameMatches({ CompanyName: "Woolies Pty Ltd" }, "Woolies"), true);
+  assert.equal(customerNameMatches({ GivenName: "Sam", FamilyName: "Glacier" }, "Sam Glacier"), true);
+  assert.equal(customerNameMatches({ GivenName: "Ada", FamilyName: "Lovelace" }, "Sam Glacier"), false);
+  const site = formatSimproSite({
+    ID: 3,
+    Name: "12 Frost St",
+    Address: { Address: "12 Frost St", City: "Malaga", State: "WA", PostalCode: "6090" },
+  });
+  assert.deepEqual(site, {
+    id: 3,
+    name: "12 Frost St",
+    address: "12 Frost St, Malaga, WA, 6090",
+  });
+});
+
+test("createSimproJob multiple sites and no pick asks which site", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("/customers/") && method === "GET" && !url.includes("/sites") && !url.includes("/contacts/")) {
+        return Response.json([{ ID: 9, Phone: "0411122333", GivenName: "Sam", FamilyName: "Glacier" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([
+          { ID: 3, Name: "12 Frost St", Address: { Address: "12 Frost St", City: "Malaga" } },
+          { ID: 66, Name: "88 Ice Ave", Address: { Address: "88 Ice Ave", City: "Malaga" } },
+        ]);
+      }
+      if (method === "POST") return new Response("must not create until they pick a site", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "",
+    caller_phone: "+61411122333",
+    site_address: "",
+    description: "Split system not cooling",
+  }, env);
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error("expected need_site_choice");
+  assert.equal(result.code, "need_site_choice");
+  assert.equal(result.simpro_customer_id, 9);
+  assert.equal(result.sites?.length, 2);
+  assert.match(result.error, /site_id 3/);
+  assert.match(result.error, /which site/i);
+  assert.equal(posted.some((c) => c.includes("POST")), false);
+});
+
+test("createSimproJob uses site_id on an existing customer and never creates a duplicate", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (url.includes("/customers/9") && method === "GET" && !url.includes("/sites") && !url.includes("/contacts/")) {
+        return Response.json({ ID: 9, GivenName: "Sam", FamilyName: "Glacier", Phone: "0411122333" });
+      }
+      if (url.includes("/customers/") && method === "GET" && !url.includes("/sites") && !url.includes("/contacts/")) {
+        return Response.json([{ ID: 9, Phone: "0411122333", GivenName: "Sam", FamilyName: "Glacier" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([
+          { ID: 3, Name: "12 Frost St" },
+          { ID: 66, Name: "88 Ice Ave" },
+        ]);
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        assert.equal(body.Customer, 9);
+        assert.equal(body.Site, 66);
+        assert.equal(body.Stage, "Open");
+        return Response.json({ ID: 9902 }, { status: 201 });
+      }
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        return new Response("must not create a duplicate customer", { status: 500 });
+      }
+      if (url.includes("/jobs/")) return new Response("must not touch /jobs/", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "",
+    caller_phone: "+61411122333",
+    site_address: "",
+    description: "Split system not cooling",
+    simpro_customer_id: 9,
+    site_id: 66,
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "9902");
+  assert.equal(result.customer_created, false);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/")), false);
+});
+
+test("createSimproJob existing_customer name search does not create a duplicate", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("Phone=")) return Response.json([]);
+      if (url.includes("CompanyName=") && /Woolies/i.test(url)) {
+        return Response.json([{ ID: 501, CompanyName: "Woolies Pty Ltd" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{ ID: 70, Name: "Warehouse" }]);
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        const body = JSON.parse(String(init?.body || "{}"));
+        assert.equal(body.Customer, 501);
+        assert.equal(body.Site, 70);
+        return Response.json({ ID: 8804 }, { status: 201 });
+      }
+      if (url.includes("/customers/companies/") && method === "POST") {
+        return new Response("must not create a duplicate company", { status: 500 });
+      }
+      if (url.includes("/jobs/")) return new Response("must not touch /jobs/", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Jane from Woolies",
+    caller_phone: "+61400000000",
+    site_address: "",
+    description: "Cool room down",
+    existing_customer: true,
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "8804");
+  assert.equal(result.customer_created, false);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/")), false);
+});
+
+test("createSimproJob logs the real SimPRO error on a 200 ok:false", async () => {
+  const conn = await connected();
+  const { env, logs } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      if (url.includes("/customers/") && method === "GET") {
+        return Response.json([{ ID: 9, Phone: "0411122333" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{ ID: 3, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return new Response(
+          JSON.stringify({ errors: [{ message: "Site is required" }] }) + " Bearer leaked-token-value",
+          { status: 422 },
+        );
+      }
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob(input, env);
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error("expected failure");
+  assert.equal(result.code, "simpro_error");
+  assert.match(result.error, /Site is required|could not create the lead/i);
+  assert.equal(logs.some((l) => /simpro_error/i.test(l) && /Site is required|could not create the lead/i.test(l)), true);
+  assert.equal(logs.join("\n").includes("leaked-token-value"), false);
+});
+
 test("createSimproJob existing customer with a new address creates a site then lead", async () => {
   const conn = await connected();
   const posted: string[] = [];
@@ -924,6 +1230,9 @@ test("create source POSTs /leads/ and never /jobs/", async () => {
   assert.doesNotMatch(src, /DateIssued:/);
   assert.doesNotMatch(src, /Stage:\s*"Pending"/);
   assert.doesNotMatch(src, /system__/);
+  assert.match(src, /lookupSimproCustomer/);
+  assert.match(src, /searchCustomersByName/);
+  assert.match(src, /need_site_choice/);
 });
 
 test("individual Ada-style lead uses the created contact as SiteContact, not Georgia", async () => {

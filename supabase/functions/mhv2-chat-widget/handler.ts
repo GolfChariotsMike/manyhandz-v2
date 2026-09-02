@@ -21,7 +21,7 @@ import {
   type ChatToolContext,
   type ChatToolExecutors,
 } from "./tools.ts";
-import type { CreateJobEnv, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
+import type { CreateJobEnv, LookupCustomerResult, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
 import { leadNotifyHooks } from "../mhv2-simpro-create-job/notify.ts";
 import type { SaveMessageEnv } from "../mh-save-message/save.ts";
 import type { SendSmsEnv } from "../mh-send-sms/send.ts";
@@ -145,6 +145,41 @@ export function faqsFromKb(raw: unknown): { q: string; a: string }[] {
 
 export function customInstructionsFromKb(raw: unknown): string {
   return typeof raw === "string" ? raw : "";
+}
+
+/** Attach lookup ids onto a create payload. False = wait for a site pick. */
+export function attachLookupToCreateInput(
+  createInput: Record<string, unknown>,
+  looked: LookupCustomerResult,
+  collectedSite?: string,
+): boolean {
+  if (!looked.ok || !looked.found) return true;
+  if ("need_customer_choice" in looked && looked.need_customer_choice) return false;
+  if (!("customer" in looked)) return true;
+  createInput.simpro_customer_id = looked.customer.id;
+  if (!createInput.caller_name && looked.customer.name) {
+    createInput.caller_name = looked.customer.name;
+  }
+  if (looked.sites.length === 1) {
+    createInput.site_id = looked.sites[0].id;
+    return true;
+  }
+  if (looked.sites.length > 1) {
+    const needle = String(collectedSite || "").trim().toLowerCase();
+    const match = needle
+      ? looked.sites.find((site) =>
+        site.name.toLowerCase().includes(needle) ||
+        site.address.toLowerCase().includes(needle) ||
+        needle.includes(site.name.toLowerCase())
+      )
+      : undefined;
+    if (match) {
+      createInput.site_id = match.id;
+      return true;
+    }
+    return false;
+  }
+  return true;
 }
 
 export function parseToolResult(raw: string): Record<string, unknown> | null {
@@ -366,12 +401,29 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     const shouldForceCreate = capCreateSimproJob && !createOk && canCreateLead(slots) &&
       (bookingConfirm || claimsLeadSuccess(finalReply));
     if (shouldForceCreate) {
-      const forced = parseToolResult(
-        await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, createJobInputFromSlots(slots), ctx),
-      );
-      if (forced?.ok === true) {
-        createOk = true;
-        createLeadNumber = String(forced.lead_number || forced.job_number || "");
+      const createInput: Record<string, unknown> = { ...createJobInputFromSlots(slots) };
+      const lookupFn = ctx.executors?.lookupSimproCustomer;
+      let skipForce = false;
+      if (lookupFn && slots.phone) {
+        try {
+          const looked = await lookupFn({
+            customer_id: customerId,
+            caller_phone: slots.phone,
+            ...(slots.name ? { caller_name: slots.name } : {}),
+          }, ctx.simproEnv);
+          skipForce = !attachLookupToCreateInput(createInput, looked, slots.site);
+        } catch {
+          skipForce = false;
+        }
+      }
+      if (!skipForce) {
+        const forced = parseToolResult(
+          await executeChatTool(CREATE_SIMPRO_JOB_TOOL_NAME, createInput, ctx),
+        );
+        if (forced?.ok === true) {
+          createOk = true;
+          createLeadNumber = String(forced.lead_number || forced.job_number || "");
+        }
       }
     }
 

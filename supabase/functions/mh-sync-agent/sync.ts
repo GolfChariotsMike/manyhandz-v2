@@ -12,6 +12,10 @@ import {
   type ToolSoundRow,
 } from "../_shared/tool-call-typing.ts";
 import { createSimproJobUrl, mergeCreateSimproJobTool } from "../_shared/simpro-create-job-tool.ts";
+import {
+  lookupSimproCustomerUrl,
+  mergeLookupSimproCustomerTool,
+} from "../_shared/simpro-lookup-customer-tool.ts";
 import { mergeSaveMessageTool, saveMessageUrl } from "../_shared/save-message-tool.ts";
 import { mergeSendSmsTool, sendSmsUrl } from "../_shared/send-sms-tool.ts";
 import {
@@ -341,9 +345,12 @@ export async function syncCustomerAgent(
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);
   const firstMessage = padCallOpening(vc?.greeting_script || "") || undefined;
-  let toolsWithCreate = mergeCreateSimproJobTool(
-    stripConnectorTools(bag.tools),
-    createSimproJobUrl(env.supabaseUrl, customerId),
+  let toolsWithCreate = mergeLookupSimproCustomerTool(
+    mergeCreateSimproJobTool(
+      stripConnectorTools(bag.tools),
+      createSimproJobUrl(env.supabaseUrl, customerId),
+    ),
+    lookupSimproCustomerUrl(env.supabaseUrl, customerId),
   );
   if (capCreateServicem8 && servicem8Connected) {
     toolsWithCreate = mergeCreateServicem8JobTool(

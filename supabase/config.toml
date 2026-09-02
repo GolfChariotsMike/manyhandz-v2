@@ -35,6 +35,9 @@ verify_jwt = false
 [functions.mhv2-simpro-create-job]
 verify_jwt = false
 
+[functions.mhv2-simpro-lookup-customer]
+verify_jwt = false
+
 [functions.mhv2-simpro-sync]
 verify_jwt = false
 
