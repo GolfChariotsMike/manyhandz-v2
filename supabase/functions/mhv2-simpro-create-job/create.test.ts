@@ -677,17 +677,18 @@ test("notify prefers notify_email then login email; failures do not fail the lea
   assert.equal(sms.length, 0);
   assert.equal(logs.some((l) => l.includes("notify email failed")), true);
   assert.equal(logs.some((l) => l.includes("notify sms failed")), true);
-  assert.equal(logs.join("\n").includes("leaked-token-value"), false);
-  assert.equal(logs.join("\n").includes("nope"), false);
-  assert.equal(logs.join("\n").includes("re_live_secret"), false);
+  const joined = logs.join("\n");
+  assert.equal(joined.includes("leaked-token-value"), false);
+  assert.equal(joined.includes("nope"), false);
+  assert.equal(joined.includes("re_live_secret"), false);
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
 });
 
 test("notify helpers redact secrets and use the ManyHandz noreply From", async () => {
-  const cleaned = sanitizeNotifyError("Bearer abc.secret client_secret=hunter2 access_token=tok re_abc123 SK0123456789abcdef");
+  const cleaned = sanitizeNotifyError("Bearer abc.secret client_secret=hunter2 access_token=tok re_live_secret SK0123456789abcdef");
   assert.equal(cleaned.includes("abc.secret"), false);
   assert.equal(cleaned.includes("hunter2"), false);
-  assert.equal(cleaned.includes("re_abc123"), false);
+  assert.equal(cleaned.includes("re_live_secret"), false);
   assert.match(cleaned, /Bearer \[redacted\]/);
   assert.equal(LEAD_NOTIFY_FROM, "ManyHandz <noreply@manyhandz.ai>");
   assert.match(leadNotifySmsBody(input, "18421", "Glacier Air"), /Glacier Air/);

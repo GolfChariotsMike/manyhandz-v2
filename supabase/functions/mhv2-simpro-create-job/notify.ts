@@ -51,7 +51,7 @@ export function sanitizeNotifyError(text: string): string {
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/client_secret[=:]\s*[^&\s"]+/gi, "client_secret=[redacted]")
     .replace(/access_token[=:]\s*[^&\s"]+/gi, "access_token=[redacted]")
-    .replace(/\bre_[A-Za-z0-9]+\b/g, "re_[redacted]")
+    .replace(/\bre_[A-Za-z0-9_]+\b/g, "re_[redacted]")
     .replace(/\bSK[a-f0-9]{16,}\b/gi, "SK[redacted]")
     .slice(0, 400);
 }
