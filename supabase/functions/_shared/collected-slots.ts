@@ -36,6 +36,10 @@ const FAKE_SUCCESS =
 const FAILED_CREATE_SUCCESS =
   /\bsaved\b|\blodged\b|\bbooked\b|team will be in touch|team will contact|i(?:'ve| have) booked|service request|we(?:'ll| will) confirm/i;
 
+/** Chat has no transfer_to_staff — do not volunteer a human/handoff after a failed create. */
+const FAILED_CREATE_TRANSFER =
+  /let me get someone|someone to help you with that|\btransfer(?:ring)?(?:\s+you|\s+to\b)?|\bput you through\b|\bconnect you with\b/i;
+
 const NAME_BLOCKLIST =
   /^(yes|yeah|yep|yup|ok|okay|thanks|thank you|please|hi|hello|hey|good morning|good afternoon|good evening|split system|no worries|no thank you)$/i;
 
@@ -98,10 +102,10 @@ export function claimsLeadSuccess(text: string): boolean {
   return FAKE_SUCCESS.test(String(text || ""));
 }
 
-/** After create_simpro_job ok:false this turn — catch any success close. */
+/** After create_simpro_job ok:false this turn — catch any success close or transfer/handoff. */
 export function claimsLeadSuccessAfterFailedCreate(text: string): boolean {
   const raw = String(text || "");
-  return claimsLeadSuccess(raw) || FAILED_CREATE_SUCCESS.test(raw);
+  return claimsLeadSuccess(raw) || FAILED_CREATE_SUCCESS.test(raw) || FAILED_CREATE_TRANSFER.test(raw);
 }
 
 export function canCreateLead(slots: CollectedSlots): boolean {

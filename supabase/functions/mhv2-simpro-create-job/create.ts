@@ -4,11 +4,11 @@
  * creates anyone. New customers POST individuals/companies with Address and
  * ?createSite=true so SimPRO auto-creates the first site — do not POST a
  * second site unless the work address is a different property. Extra sites on
- * an existing customer POST the typed nested routes
- * /customers/individuals/{id}/sites/ or /customers/companies/{id}/sites/
- * with Name + Address only (never a Customer field). Untyped
- * /customers/{id}/sites/ is not a valid SimPRO route (Invalid route). Never
- * POST /sites/ with Customer — SimPRO rejects that as Invalid column. IDs come from
+ * an existing customer POST company-wide /sites/ with Name + Address and
+ * Customers: [customerId] integers first (then CustomerIDs, then
+ * Customers: [{ID}]). Never send scalar Customer. Glacier 422s [{ID}]
+ * (`/Customers` must be an integer). Nested individuals/companies/.../sites/
+ * stay as later fallbacks. IDs come from
  * JSON `ID` or Location (201 + empty body is a known SimPRO pattern). Uses
  * the same mh_crm_connections row and AES-GCM secret wrap as
  * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
@@ -1106,14 +1106,15 @@ function siteNameAndAddress(siteAddress: string): { Name: string; Address: Recor
   };
 }
 
-/** Company-wide POST /sites/ bodies. Customers is an array — never a
- * scalar `Customer` column (`Invalid column /Customer`). */
+/** Company-wide POST /sites/ bodies. Customers is an integer array first —
+ * Glacier 422s `[{ID}]` (`/Customers` Must be an integer). Never a scalar
+ * `Customer` column (`Invalid column /Customer`). */
 function extraSiteLinkBodies(siteAddress: string, customerId: number): Array<Record<string, unknown>> {
   const base = siteNameAndAddress(siteAddress);
   return [
-    { ...base, Customers: [{ ID: customerId }] },
     { ...base, Customers: [customerId] },
     { ...base, CustomerIDs: [customerId] },
+    { ...base, Customers: [{ ID: customerId }] },
   ];
 }
 
@@ -1124,10 +1125,31 @@ function extraSiteUnlinkedBodies(siteAddress: string): Array<Record<string, unkn
 
 function siteLinkPatchBodies(customerId: number): Array<Record<string, unknown>> {
   return [
-    { Customers: [{ ID: customerId }] },
     { Customers: [customerId] },
     { CustomerIDs: [customerId] },
+    { Customers: [{ ID: customerId }] },
   ];
+}
+
+function describeExtraSiteBody(body: Record<string, unknown>): string {
+  if (Array.isArray(body.Customers)) {
+    const first = body.Customers[0];
+    if (typeof first === "number") return `Customers:[${first}]`;
+    if (first && typeof first === "object") {
+      const id = (first as { ID?: unknown }).ID;
+      return `Customers:[{ID:${id}}]`;
+    }
+    return "Customers";
+  }
+  if (Array.isArray(body.CustomerIDs)) return `CustomerIDs:[${body.CustomerIDs[0]}]`;
+  if (body.Name || body.Address) return "Name+Address";
+  return "unknown";
+}
+
+function isCustomersIntegerBody(body: Record<string, unknown>): boolean {
+  return Array.isArray(body.Customers) &&
+    body.Customers.length > 0 &&
+    body.Customers.every((value) => typeof value === "number");
 }
 
 function customerSitesPatchBodies(siteId: number): Array<Record<string, unknown>> {
@@ -1233,9 +1255,10 @@ async function linkOrphanSite(
 }
 
 /** Extra site on an existing customer. POST company-wide /sites/ with
- * Name + Address + Customers[] (MindCloud / public OpenAPI). Never send
- * `Customer: id` (Invalid column). Nested individuals/companies/.../sites/
- * stay as later fallbacks (Invalid route on Glacier). */
+ * Name + Address + Customers:[id] integers first. Never send
+ * `Customer: id` (Invalid column). A linked 201 must not be followed by
+ * unlinked Name+Address POSTs (orphan sites). Nested
+ * individuals/companies/.../sites/ stay as later fallbacks. */
 async function createSite(
   env: CreateJobEnv,
   conn: SimproConnection,
@@ -1248,15 +1271,39 @@ async function createSite(
   await simproOptions(env, token, sitesUrl);
   let lastText = "";
   let orphanId: number | null = null;
+  let linked201 = false;
+  let customersInteger201 = false;
 
   for (const body of extraSiteLinkBodies(siteAddress, customerId)) {
     assertNoCustomerScalar(body);
     const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
-    logSiteAttempt(env, "POST", sitesUrl, res);
     lastText = res.text || lastText;
-    if (res.status !== 201) continue;
+    if (res.status !== 201) {
+      logSiteAttempt(env, "POST", sitesUrl, res);
+      continue;
+    }
+    const via = describeExtraSiteBody(body);
+    logCreate(env, `POST ${sitesUrl} status=201 via ${via}`);
+    linked201 = true;
+    if (isCustomersIntegerBody(body)) customersInteger201 = true;
     const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
     if (id) return id;
+    // A 201 already created a site — do not POST another linked body.
+    break;
+  }
+
+  if (linked201) {
+    const recovered = pickSiteId(
+      await listCustomerSites(env, conn, token, customerId),
+      siteAddress,
+      false,
+    );
+    if (recovered) return recovered;
+    throw simproFail(
+      customersInteger201
+        ? `SimPRO accepted Customers integer site create (201) but returned no ID`
+        : `SimPRO created a site (201) but returned no ID`,
+    );
   }
 
   for (const body of extraSiteUnlinkedBodies(siteAddress)) {
@@ -1345,7 +1392,55 @@ async function findMatchingContactId(
   return id || null;
 }
 
-/** Find or POST the site-contact person. Never pick an unrelated existing contact. */
+/** Nested customer contacts reject `Phone` (Invalid column). CellPhone /
+ * WorkPhone only — never Phone. */
+function contactCreateBody(name: string, phone: string): Record<string, unknown> {
+  const names = splitPersonName(name);
+  return {
+    GivenName: names.givenName,
+    FamilyName: names.familyName,
+    CellPhone: phone,
+    WorkPhone: phone,
+  };
+}
+
+type LeadSiteContact = {
+  contactId: number;
+  includeCustomerContact: boolean;
+  omitSiteContact: boolean;
+};
+
+/** Individuals: the customer is the site contact. Companies: still need a
+ * contact; if create failed, try the lead without SiteContact. */
+function resolveLeadSiteContact(
+  createdContactId: number | null,
+  customerId: number,
+  isCompany: boolean,
+): LeadSiteContact {
+  if (createdContactId) {
+    return {
+      contactId: createdContactId,
+      includeCustomerContact: !isCompany,
+      omitSiteContact: false,
+    };
+  }
+  if (!isCompany) {
+    return {
+      contactId: customerId,
+      includeCustomerContact: true,
+      omitSiteContact: false,
+    };
+  }
+  return {
+    contactId: 0,
+    includeCustomerContact: false,
+    omitSiteContact: true,
+  };
+}
+
+/** Find or POST the site-contact person. Never pick an unrelated existing contact.
+ * Nested contacts reject Phone — send CellPhone/WorkPhone only. Returns null
+ * when create fails so the caller can still POST the Open lead. */
 async function ensureSiteContact(
   env: CreateJobEnv,
   conn: SimproConnection,
@@ -1353,17 +1448,11 @@ async function ensureSiteContact(
   customerId: number,
   name: string,
   phone: string,
-): Promise<number> {
+): Promise<number | null> {
   const existing = await findMatchingContactId(env, conn, token, customerId, name, phone);
   if (existing) return existing;
 
-  const names = splitPersonName(name);
-  const body = {
-    GivenName: names.givenName,
-    FamilyName: names.familyName,
-    Phone: phone,
-    CellPhone: phone,
-  };
+  const body = contactCreateBody(name, phone);
   const res = await simproJson(
     env,
     token,
@@ -1371,13 +1460,15 @@ async function ensureSiteContact(
     { method: "POST", body },
   );
   if (!res.ok) {
-    throw simproFail(`Could not create SimPRO site contact: ${sanitizeSimproError(res.text)}`);
+    logCreate(env, `Could not create SimPRO site contact: ${sanitizeSimproError(res.text)}`);
+    return null;
   }
   const id = Number(createdId(res));
   if (id) return id;
   const recovered = await findMatchingContactId(env, conn, token, customerId, name, phone);
   if (recovered) return recovered;
-  throw simproFail("SimPRO created a contact but returned no ID");
+  logCreate(env, "SimPRO created a contact but returned no ID");
+  return null;
 }
 
 async function postLead(
@@ -1387,10 +1478,9 @@ async function postLead(
   input: CreateJobInput,
   customerId: number,
   siteId: number,
-  contactId: number,
-  includeCustomerContact: boolean,
+  contact: LeadSiteContact,
 ): Promise<string> {
-  if (!contactId) {
+  if (!contact.omitSiteContact && !contact.contactId) {
     throw simproFail("Could not create or find a SimPRO site contact");
   }
   const name = (input.job_name || input.description).slice(0, 80);
@@ -1406,8 +1496,10 @@ async function postLead(
     body: {
       Customer: customerId,
       Site: siteId,
-      SiteContact: contactId,
-      ...(includeCustomerContact ? { CustomerContact: contactId } : {}),
+      ...(contact.omitSiteContact ? {} : { SiteContact: contact.contactId }),
+      ...(contact.includeCustomerContact && !contact.omitSiteContact
+        ? { CustomerContact: contact.contactId }
+        : {}),
       LeadName: name,
       Description: description,
       Stage: "Open",
@@ -1559,13 +1651,18 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       site_contact_name: siteContactName || callerName || found?.name || "Customer",
       site_contact_phone: input.site_contact_phone || input.caller_phone,
     };
-    const contactId = await ensureSiteContact(
+    const createdContactId = await ensureSiteContact(
       env,
       conn,
       token,
       simproCustomerId,
       resolved.site_contact_name || resolved.caller_name,
       resolved.site_contact_phone || resolved.caller_phone,
+    );
+    const leadContact = resolveLeadSiteContact(
+      createdContactId,
+      simproCustomerId,
+      isCompanyCustomer,
     );
     let leadNumber: string;
     try {
@@ -1576,8 +1673,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
         resolved,
         simproCustomerId,
         siteId,
-        contactId,
-        !isCompanyCustomer,
+        leadContact,
       );
     } catch (err) {
       const retrySite = await findSiteId(env, conn, token, simproCustomerId, input.site_address, true);
@@ -1590,8 +1686,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
         resolved,
         simproCustomerId,
         siteId,
-        contactId,
-        !isCompanyCustomer,
+        leadContact,
       );
     }
 
