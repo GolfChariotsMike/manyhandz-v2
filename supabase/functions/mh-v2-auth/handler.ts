@@ -8,6 +8,7 @@
  * only create path. Unknown login emails return no_account 404.
  */
 
+import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
 import { newCustomerRow, normalizeMarket, signupData } from "./country.ts";
 import { NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
 
@@ -59,6 +60,7 @@ export function adminSecretsFromEnv(getEnv: (key: string) => string | undefined)
     const v = getEnv(key);
     if (v) s.add(v);
   }
+  s.add(DASHBOARD_ADMIN_PIN);
   return s;
 }
 

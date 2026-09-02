@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio, Mail } from "lucide-react";
+import { DASHBOARD_ADMIN_PIN as ADMIN_PIN } from "../../supabase/functions/_shared/admin-dashboard-pin.ts";
 import { setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
-const ADMIN_PIN = "Mike1985";
 
 type Customer = {
   id: string;
