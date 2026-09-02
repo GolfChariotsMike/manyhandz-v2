@@ -2157,8 +2157,8 @@ test("lookupSimproCustomer 4708 nested empty + Customer scalar miss still finds 
   assert.doesNotMatch(result.message, /Site 1/);
   assert.doesNotMatch(result.message, /site_id \d+/);
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
-  assert.equal(posted.some((c) => c.includes("Customers.ID=4708") || c.includes("Customers=4708")), true);
-  assert.equal(posted.some((c) => /GET .*\/sites\/\?.*Customer(\.ID)?=4708/.test(c) && !c.includes("Customers")), true);
+  assert.equal(posted.some((c) => c.startsWith("GET") && isCustomersFilterUrl(c.slice(4).trim())), true);
+  assert.equal(posted.some((c) => c.startsWith("GET") && isCustomerScalarFilterUrl(c.slice(4).trim())), true);
 });
 
 test("lookupSimproCustomer 4708 hydrates Sites from individual/company retrieve when list filters miss", async () => {
