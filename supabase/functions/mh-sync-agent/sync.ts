@@ -33,7 +33,11 @@ import {
   mergeCreateXeroInvoiceTool,
   stripConnectorTools,
 } from "../_shared/connector-tools.ts";
-import { buildSystemPrompt, type PriceItem } from "./prompt.ts";
+import {
+  liveSystemPromptFromSource,
+  operatorPromptOverride,
+  type PriceItem,
+} from "./prompt.ts";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +101,32 @@ async function rest<T>(env: SyncEnv, path: string): Promise<T> {
 function firstRow<T>(rows: T[] | T | null | undefined): T | null {
   if (Array.isArray(rows)) return rows[0] ?? null;
   return rows ?? null;
+}
+
+/** Persist the composed live prompt so Knowledge Base is not empty next visit. */
+export async function persistVoiceSystemPrompt(
+  env: SyncEnv,
+  customerId: string,
+  systemPrompt: string,
+): Promise<boolean> {
+  try {
+    const res = await env.fetch(
+      `${env.supabaseUrl}/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${env.serviceKey}`,
+          apikey: env.serviceKey,
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({ system_prompt: systemPrompt }),
+      },
+    );
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 function agentPromptBag(agent: Record<string, unknown> | null): {
@@ -241,6 +271,7 @@ type VoiceRow = {
   ai_name?: string | null;
   greeting_script?: string | null;
   closing_message?: string | null;
+  system_prompt?: string | null;
   el_agent_id?: string | null;
   cap_confirm_bookings?: boolean | null;
   cap_quote_prices?: boolean | null;
@@ -286,7 +317,7 @@ export async function syncCustomerAgent(
     ),
     rest<VoiceRow[] | VoiceRow>(
       env,
-      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job,cap_create_servicem8_job,cap_create_xero_invoice,bridge_to_number`,
+      `/rest/v1/mh_voice_config?customer_id=eq.${encodeURIComponent(customerId)}&select=ai_name,greeting_script,closing_message,system_prompt,el_agent_id,cap_confirm_bookings,cap_quote_prices,cap_transfer_calls,cap_send_sms,cap_disclose_ai,cap_hangup_on_goodbye,cap_create_simpro_job,cap_create_servicem8_job,cap_create_xero_invoice,bridge_to_number`,
     ),
     rest<PriceItem[] | PriceItem>(
       env,
@@ -318,29 +349,32 @@ export async function syncCustomerAgent(
   if (!agentId) return { ok: false, error: "No EL agent found for this customer" };
 
   const hangupEnabled = vc?.cap_hangup_on_goodbye ?? true;
-  const systemPrompt = buildSystemPrompt({
-    aiName: vc?.ai_name || "Your AI Receptionist",
-    businessName: customer?.business_name || "our business",
-    about: kb?.about || "",
-    services: Array.isArray(kb?.services) ? kb.services : [],
-    faqs: Array.isArray(kb?.faqs) ? kb.faqs : [],
+  const systemPrompt = liveSystemPromptFromSource({
+    aiName: vc?.ai_name,
+    businessName: customer?.business_name,
+    about: kb?.about,
+    services: kb?.services,
+    faqs: kb?.faqs,
     hours: kb?.hours || null,
-    tone: kb?.tone || "friendly",
+    tone: kb?.tone,
     priceList,
-    capConfirmBookings: vc?.cap_confirm_bookings ?? false,
-    capQuotePrices: vc?.cap_quote_prices ?? false,
-    capTransferCalls,
-    capSendSms: vc?.cap_send_sms ?? true,
-    capDiscloseAi: vc?.cap_disclose_ai ?? false,
+    capConfirmBookings: vc?.cap_confirm_bookings,
+    capQuotePrices: vc?.cap_quote_prices,
+    capTransferCalls: vc?.cap_transfer_calls,
+    capSendSms: vc?.cap_send_sms,
+    capDiscloseAi: vc?.cap_disclose_ai,
     capHangupOnGoodbye: hangupEnabled,
-    capCreateSimproJob: vc?.cap_create_simpro_job ?? true,
+    capCreateSimproJob: vc?.cap_create_simpro_job,
     capCreateServicem8Job: capCreateServicem8,
-    servicem8Connected,
-    calendarConnected,
     capCreateXeroInvoice: capCreateXero,
-    xeroConnected,
-    closingMessage: vc?.closing_message || null,
+    bridgeToNumber: vc?.bridge_to_number,
+    closingMessage: vc?.closing_message,
+    platforms,
+    systemPrompt: vc?.system_prompt,
   });
+  if (!operatorPromptOverride(vc?.system_prompt) && systemPrompt) {
+    await persistVoiceSystemPrompt(env, customerId, systemPrompt);
+  }
 
   const existing = await getElAgent(env, agentId);
   const bag = agentPromptBag(existing);

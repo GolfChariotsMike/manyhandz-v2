@@ -5,7 +5,12 @@
  */
 import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
 import { formatCollectedSlots, type CollectedSlots } from "../_shared/collected-slots.ts";
-import { formatHours, formatPriceList, type PriceItem } from "../mh-sync-agent/prompt.ts";
+import {
+  formatHours,
+  formatPriceList,
+  operatorPromptOverride,
+  type PriceItem,
+} from "../mh-sync-agent/prompt.ts";
 
 export type { PriceItem };
 
@@ -25,6 +30,8 @@ export type ChatPromptInput = {
   capDiscloseAi: boolean;
   capCreateSimproJob: boolean;
   collectedSlots?: CollectedSlots;
+  /** Same mh_voice_config.system_prompt the phone agent uses. */
+  systemPrompt?: string | null;
 };
 
 export function chatAiDisclosureRule(enabled: boolean): string {
@@ -40,7 +47,22 @@ export function customInstructionsBlock(raw: unknown): string {
   return text ? `\nEXTRA INSTRUCTIONS:\n${text}\n` : "";
 }
 
-export function buildChatSystemPrompt(data: ChatPromptInput): string {
+/**
+ * When the operator saved the live phone prompt, chat still uses that text
+ * plus this overlay so website chat stays without transfer / hang-up / caller ID.
+ */
+export function chatChannelOverlay(collectedSlots?: CollectedSlots): string {
+  const slots = formatCollectedSlots(collectedSlots || {});
+  return `WEBSITE CHAT:
+- The rules in this section override any phone-only instructions above.
+- There is no call transfer or call connect. Ignore transfer_to_staff and end_call. If the visitor asks for a person or a callback, use the save_message tool.
+- You do not have caller ID. If they have already typed a mobile in this chat, use that number — never ask again and never claim you have no number. Only ask for a mobile if they have not given one yet. On the booking path, look that mobile up before creating.
+- Do not hang up or use the end_call tool.
+${slots}`.trim();
+}
+
+/** Assembled website-chat prompt from KB + caps. Ignores systemPrompt. */
+export function composeChatSystemPrompt(data: ChatPromptInput): string {
   const {
     aiName,
     businessName,
@@ -126,4 +148,17 @@ You do not have caller ID. If they have already typed a mobile in this chat, use
 CHAT HANDLING:
 - Keep replies short and friendly
 - Don't read out long lists — summarise and offer specifics if asked`.trim();
+}
+
+/**
+ * Live website-chat prompt. Same system_prompt override as the phone agent
+ * when set; otherwise the chat compose (no transfer). Never concatenates
+ * compose onto a saved prompt.
+ */
+export function buildChatSystemPrompt(data: ChatPromptInput): string {
+  const override = operatorPromptOverride(data.systemPrompt);
+  if (override) {
+    return `${override}\n\n${chatChannelOverlay(data.collectedSlots)}`.trim();
+  }
+  return composeChatSystemPrompt(data);
 }

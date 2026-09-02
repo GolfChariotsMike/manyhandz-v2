@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { aiDisclosureRule, buildSystemPrompt, formatPriceList } from "./prompt.ts";
+import {
+  aiDisclosureRule,
+  buildSystemPrompt,
+  composeSystemPrompt,
+  formatPriceList,
+  liveSystemPromptFromSource,
+  operatorPromptOverride,
+} from "./prompt.ts";
 
 const base = {
   aiName: "Trinity",
@@ -125,4 +132,50 @@ test("disclosure and pricing sections still match the live builder", () => {
   assert.match(aiDisclosureRule(true), /AI receptionist/);
   assert.match(formatPriceList(base.priceList), /Callout: \$120 flat/);
   assert.match(off, /You are Trinity, the AI receptionist for Acme Plumbing/);
+});
+
+test("empty system_prompt includes the composed live prompt with SimPRO rules", () => {
+  const composed = composeSystemPrompt(base);
+  assert.equal(buildSystemPrompt(base), composed);
+  assert.equal(buildSystemPrompt({ ...base, systemPrompt: "   " }), composed);
+  assert.equal(operatorPromptOverride(""), "");
+  assert.match(composed, /lookup_simpro_customer/);
+  assert.match(composed, /SITE CONTACT/);
+  assert.match(composed, /who'?s the site contact at the site/);
+  assert.doesNotMatch(composed, /lookup_jobs/);
+  const fromSource = liveSystemPromptFromSource({
+    aiName: base.aiName,
+    businessName: base.businessName,
+    about: base.about,
+    services: base.services,
+    faqs: base.faqs,
+    hours: base.hours,
+    tone: base.tone,
+    priceList: base.priceList,
+    capConfirmBookings: base.capConfirmBookings,
+    capQuotePrices: base.capQuotePrices,
+    capTransferCalls: base.capTransferCalls,
+    capSendSms: base.capSendSms,
+    capDiscloseAi: base.capDiscloseAi,
+    capHangupOnGoodbye: base.capHangupOnGoodbye,
+    capCreateSimproJob: base.capCreateSimproJob,
+    closingMessage: base.closingMessage,
+    systemPrompt: "",
+  });
+  assert.equal(fromSource, composed);
+});
+
+test("operator system_prompt overrides compose and is not concatenated onto it", () => {
+  const override = "Always mention Malaga. Be extra brief.";
+  const live = buildSystemPrompt({ ...base, systemPrompt: `  ${override}  ` });
+  assert.equal(live, override);
+  assert.doesNotMatch(live, /You are Trinity/);
+  assert.doesNotMatch(live, /SIMPRO LEADS/);
+  const again = buildSystemPrompt({ ...base, systemPrompt: live });
+  assert.equal(again, override);
+  assert.equal(again.includes(override + override), false);
+  assert.equal(liveSystemPromptFromSource({
+    ...base,
+    systemPrompt: override,
+  }), override);
 });

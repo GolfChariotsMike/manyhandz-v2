@@ -1,6 +1,21 @@
-import { useState, useEffect, useRef } from "react";
-import { getMe, getKnowledgeBase, updateKnowledgeBase, getVoiceConfig } from "../lib/api";
-import { Save } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Check, Loader, Save } from "lucide-react";
+import {
+  getMe,
+  getKnowledgeBase,
+  updateKnowledgeBase,
+  getVoiceConfig,
+  getPriceList,
+  getActiveConnectionPlatforms,
+} from "../lib/api";
+import {
+  composedAiPromptFromRows,
+  knowledgeVoiceSaveBody,
+  liveAiPromptFromRows,
+  nextDisplayedPrompt,
+  parseHoursForPrompt,
+  type PriceItem,
+} from "../lib/knowledge-prompt";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -13,26 +28,75 @@ export default function KnowledgeBase() {
   const [saved, setSaved] = useState(false);
   const [hoursText, setHoursText] = useState("");
   const [hoursError, setHoursError] = useState(false);
+  const [businessName, setBusinessName] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [priceList, setPriceList] = useState<PriceItem[]>([]);
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [promptReady, setPromptReady] = useState(false);
   const serviceInputRef = useRef<HTMLInputElement>(null);
+  const lastComposedRef = useRef("");
+
+  const promptRows = useCallback((systemPrompt: string) => ({
+    businessName,
+    about: kb?.about,
+    services: kb?.services,
+    faqs: kb?.faqs,
+    hours: parseHoursForPrompt(hoursText, kb?.hours || null),
+    tone: kb?.tone,
+    priceList,
+    voice: voiceConfig,
+    platforms,
+    systemPrompt,
+  }), [businessName, kb, hoursText, priceList, voiceConfig, platforms]);
 
   useEffect(() => {
     (async () => {
       const { customer } = await getMe();
-      const [rows, vcRows] = await Promise.all([
-        getKnowledgeBase(customer.id),
-        getVoiceConfig(customer.id),
+      const cid = customer?.id;
+      if (!cid) return;
+      setCustomerId(cid);
+      setBusinessName(customer?.business_name || "");
+      const [rows, vcRows, prices, plats] = await Promise.all([
+        getKnowledgeBase(cid),
+        getVoiceConfig(cid),
+        getPriceList(cid),
+        getActiveConnectionPlatforms(cid),
       ]);
-      if (Array.isArray(rows) && rows.length > 0) {
-        const row = rows[0];
+      const row = Array.isArray(rows) && rows.length > 0 ? rows[0] : null;
+      const vc = Array.isArray(vcRows) && vcRows.length > 0 ? vcRows[0] : null;
+      const list = Array.isArray(prices) ? prices : [];
+      if (row) {
         setKb(row);
         setHoursText(row.hours && Object.keys(row.hours).length > 0 ? JSON.stringify(row.hours, null, 2) : "");
       }
-      if (Array.isArray(vcRows) && vcRows.length > 0) {
-        setVoiceConfig(vcRows[0]);
-        setAiPrompt(vcRows[0].system_prompt || "");
-      }
+      if (vc) setVoiceConfig(vc);
+      setPriceList(list);
+      setPlatforms(plats);
+      const sourceRows = {
+        businessName: customer?.business_name || "",
+        about: row?.about,
+        services: row?.services,
+        faqs: row?.faqs,
+        hours: row?.hours || null,
+        tone: row?.tone,
+        priceList: list,
+        voice: vc,
+        platforms: plats,
+        systemPrompt: vc?.system_prompt || "",
+      };
+      const composed = composedAiPromptFromRows(sourceRows);
+      setAiPrompt(liveAiPromptFromRows(sourceRows) || composed);
+      lastComposedRef.current = composed;
+      setPromptReady(true);
     })();
   }, []);
+
+  useEffect(() => {
+    if (!promptReady || !kb) return;
+    const composed = composedAiPromptFromRows(promptRows(""));
+    setAiPrompt((cur) => nextDisplayedPrompt(cur, composed, lastComposedRef.current));
+    lastComposedRef.current = composed;
+  }, [promptReady, kb, promptRows]);
 
   const save = async () => {
     if (!kb) return;
@@ -56,6 +120,14 @@ export default function KnowledgeBase() {
       hours = {};
     }
 
+    const composed = composedAiPromptFromRows({
+      ...promptRows(""),
+      services,
+      hours,
+    });
+    const voiceBody = knowledgeVoiceSaveBody(aiPrompt, composed);
+    setAiPrompt(voiceBody.system_prompt);
+
     await Promise.all([
       updateKnowledgeBase(kb.id, {
         services, faqs: kb.faqs, hours,
@@ -64,13 +136,12 @@ export default function KnowledgeBase() {
       voiceConfig?.id ? fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${voiceConfig.id}`, {
         method: "PATCH",
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ system_prompt: aiPrompt }),
+        body: JSON.stringify(voiceBody),
       }) : Promise.resolve(),
-      // Sync agent prompt via canonical sync function (includes KB + pricing)
       fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
         method: "POST",
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: (await getMe()).customer?.id }),
+        body: JSON.stringify({ customer_id: customerId || (await getMe()).customer?.id }),
       }).catch(() => {}),
     ]);
     setSaving(false);
@@ -188,15 +259,17 @@ export default function KnowledgeBase() {
           <div className="flex items-start justify-between mb-3">
             <div>
               <h3 className="font-semibold">AI Prompt</h3>
-              <p className="text-xs text-white/40 mt-0.5">The system prompt your AI uses on every call. Controls personality, rules, and behaviour.</p>
+              <p className="text-xs text-white/40 mt-0.5">
+                The live system prompt Charlie uses on phone calls and website chat — including SimPRO booking, lookup, site-contact, and honesty rules when that capability is on.
+              </p>
             </div>
-            <span className="text-xs px-2 py-1 bg-green-500/10 text-green-400 rounded-full ml-4 flex-shrink-0">Voice AI</span>
+            <span className="text-xs px-2 py-1 bg-green-500/10 text-green-400 rounded-full ml-4 flex-shrink-0">Phone + Chat</span>
           </div>
           <textarea
-            rows={10}
+            rows={20}
             value={aiPrompt}
             onChange={e => setAiPrompt(e.target.value)}
-            placeholder={`You are a helpful AI assistant for [Business Name]. Your job is to answer calls professionally, help callers with their enquiries, and take messages when needed.\n\nRules:\n- Always greet the caller warmly\n- Ask for their name early in the conversation\n- Take a message if you can't help\n- Never make up information you don't know`}
+            placeholder="Loading the live prompt…"
             className="font-mono text-sm"
           />
         </div>
@@ -204,6 +277,3 @@ export default function KnowledgeBase() {
     </div>
   );
 }
-
-function Check(props: any) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>; }
-function Loader(props: any) { return <svg xmlns="http://www.w3.org/2000/svg" width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={props.className}><line x1="12" y1="2" x2="12" y2="6" /><line x1="12" y1="18" x2="12" y2="22" /><line x1="4.93" y1="4.93" x2="7.76" y2="7.76" /><line x1="16.24" y1="16.24" x2="19.07" y2="19.07" /><line x1="2" y1="12" x2="6" y2="12" /><line x1="18" y1="12" x2="22" y2="12" /><line x1="4.93" y1="19.07" x2="7.76" y2="16.24" /><line x1="16.24" y1="7.76" x2="19.07" y2="4.93" /></svg>; }

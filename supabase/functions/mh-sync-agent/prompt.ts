@@ -5,6 +5,7 @@
  */
 import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
+import { staffTransferEnabled } from "../_shared/transfer-to-staff-tool.ts";
 
 export type PriceItem = {
   job_name?: string;
@@ -38,7 +39,84 @@ export type PromptInput = {
   capCreateXeroInvoice?: boolean;
   xeroConnected?: boolean;
   closingMessage?: string | null;
+  /** Operator-edited live prompt from mh_voice_config.system_prompt. */
+  systemPrompt?: string | null;
 };
+
+/** Trimmed operator prompt, or "" so callers can compose instead. */
+export function operatorPromptOverride(raw: unknown): string {
+  return typeof raw === "string" ? raw.trim() : "";
+}
+
+export function servicesFromUnknown(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((s) => String(s ?? "").trim()).filter(Boolean);
+}
+
+export function faqsFromUnknown(raw: unknown): { q: string; a: string }[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((f): f is { q?: unknown; a?: unknown } => !!f && typeof f === "object")
+    .map((f) => ({ q: String(f.q || ""), a: String(f.a || "") }))
+    .filter((f) => f.q || f.a);
+}
+
+export type VoicePromptSource = {
+  aiName?: string | null;
+  businessName?: string | null;
+  about?: string | null;
+  services?: unknown;
+  faqs?: unknown;
+  hours?: Record<string, string> | null;
+  tone?: string | null;
+  priceList?: PriceItem[] | null;
+  capConfirmBookings?: boolean | null;
+  capQuotePrices?: boolean | null;
+  capTransferCalls?: boolean | null;
+  capSendSms?: boolean | null;
+  capDiscloseAi?: boolean | null;
+  capHangupOnGoodbye?: boolean | null;
+  capCreateSimproJob?: boolean | null;
+  capCreateServicem8Job?: boolean | null;
+  capCreateXeroInvoice?: boolean | null;
+  bridgeToNumber?: string | null;
+  closingMessage?: string | null;
+  platforms?: Iterable<string> | null;
+  systemPrompt?: string | null;
+};
+
+/** Same mapping Knowledge Base save and mh-sync-agent use. */
+export function promptInputFromSource(src: VoicePromptSource): PromptInput {
+  const platforms = new Set([...(src.platforms || [])].map((p) => String(p || "")));
+  return {
+    aiName: (src.aiName || "").trim() || "Your AI Receptionist",
+    businessName: (src.businessName || "").trim() || "our business",
+    about: src.about || "",
+    services: servicesFromUnknown(src.services),
+    faqs: faqsFromUnknown(src.faqs),
+    hours: src.hours || null,
+    tone: src.tone || "friendly",
+    priceList: Array.isArray(src.priceList) ? src.priceList : [],
+    capConfirmBookings: src.capConfirmBookings ?? false,
+    capQuotePrices: src.capQuotePrices ?? false,
+    capTransferCalls: staffTransferEnabled(src.capTransferCalls, src.bridgeToNumber),
+    capSendSms: src.capSendSms ?? true,
+    capDiscloseAi: src.capDiscloseAi ?? false,
+    capHangupOnGoodbye: src.capHangupOnGoodbye ?? true,
+    capCreateSimproJob: src.capCreateSimproJob ?? true,
+    capCreateServicem8Job: src.capCreateServicem8Job ?? false,
+    servicem8Connected: platforms.has("servicem8"),
+    calendarConnected: platforms.has("google_calendar") || platforms.has("microsoft_calendar"),
+    capCreateXeroInvoice: src.capCreateXeroInvoice ?? false,
+    xeroConnected: platforms.has("xero"),
+    closingMessage: src.closingMessage || null,
+    systemPrompt: src.systemPrompt,
+  };
+}
+
+export function liveSystemPromptFromSource(src: VoicePromptSource): string {
+  return buildSystemPrompt(promptInputFromSource(src));
+}
 
 export function formatHours(hours: Record<string, string> | null): string {
   if (!hours) return "Hours not specified.";
@@ -78,7 +156,8 @@ export function aiDisclosureRule(enabled: boolean): string {
   return `- AI DISCLOSURE: Do not volunteer that you are an AI unless the caller asks. Speak as the business receptionist.`;
 }
 
-export function buildSystemPrompt(data: PromptInput): string {
+/** Assembled phone prompt from KB + caps. Ignores systemPrompt. */
+export function composeSystemPrompt(data: PromptInput): string {
   const {
     aiName, businessName, about, services, faqs, hours, tone, priceList,
     capConfirmBookings, capQuotePrices, capTransferCalls, capSendSms,
@@ -177,4 +256,12 @@ CALL HANDLING:
 - Keep responses concise — this is a phone call, not a chat
 - Don't read out long lists — summarise and offer specifics if asked
 ${callHandlingEnd}`.trim();
+}
+
+/**
+ * Live phone prompt. If the operator saved system_prompt, that text is what
+ * runs — do not concatenate it onto a fresh compose (that doubles on every save).
+ */
+export function buildSystemPrompt(data: PromptInput): string {
+  return operatorPromptOverride(data.systemPrompt) || composeSystemPrompt(data);
 }
