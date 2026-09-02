@@ -7,6 +7,7 @@ import {
   asksNameOrAddress,
   canCreateLead,
   claimsLeadSuccess,
+  claimsLeadSuccessAfterFailedCreate,
   collectSlots,
   createJobInputFromSlots,
   honestLeadFailureReply,
@@ -355,6 +356,7 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     let iterations = 0;
     let createLeadNumber = "";
     let createOk = false;
+    let createFailedThisTurn = false;
     let lookupRan = false;
     let lastLookup: LookupCustomerResult | null = null;
     const forceLookup = capCreateSimproJob && shouldForceLookup(slots, bookingConfirm);
@@ -416,7 +418,10 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
           if (tool.name === CREATE_SIMPRO_JOB_TOOL_NAME) {
             if (parsed?.ok === true) {
               createOk = true;
+              createFailedThisTurn = false;
               createLeadNumber = String(parsed.lead_number || parsed.job_number || "");
+            } else {
+              createFailedThisTurn = true;
             }
           }
           toolResults.push({ type: "tool_result", tool_use_id: tool.id, content: result });
@@ -482,7 +487,10 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
         );
         if (forced?.ok === true) {
           createOk = true;
+          createFailedThisTurn = false;
           createLeadNumber = String(forced.lead_number || forced.job_number || "");
+        } else if (forced) {
+          createFailedThisTurn = true;
         }
       }
     }
@@ -491,7 +499,12 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       if (!finalReply.includes(createLeadNumber) || claimsLeadSuccess(finalReply)) {
         finalReply = honestLeadSuccessReply(createLeadNumber);
       }
-    } else if (claimsLeadSuccess(finalReply) && capCreateSimproJob) {
+    } else if (
+      capCreateSimproJob &&
+      (createFailedThisTurn
+        ? claimsLeadSuccessAfterFailedCreate(finalReply)
+        : claimsLeadSuccess(finalReply))
+    ) {
       finalReply = honestLeadFailureReply();
     }
 

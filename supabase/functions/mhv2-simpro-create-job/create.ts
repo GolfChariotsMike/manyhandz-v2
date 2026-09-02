@@ -1084,7 +1084,8 @@ async function findSiteId(
   return pickSiteId(await listCustomerSites(env, conn, token, customerId), address, reuseFirst);
 }
 
-/** Typed nested site create only. Untyped /customers/{id}/sites/ is Invalid route. */
+/** Typed nested site create — later fallbacks only. Untyped
+ * /customers/{id}/sites/ is Invalid route and is never used. */
 function customerSiteCreateUrls(
   conn: SimproConnection,
   customerId: number,
@@ -1097,22 +1098,144 @@ function customerSiteCreateUrls(
   return [individual, company];
 }
 
-function siteCreateBodies(siteAddress: string): Array<Record<string, unknown>> {
+function siteNameAndAddress(siteAddress: string): { Name: string; Address: Record<string, string> } {
   const parsed = parseSiteAddress(siteAddress);
-  const address = simproAddressBody(siteAddress);
+  return {
+    Name: parsed.name.slice(0, 80) || "Site",
+    Address: simproAddressBody(siteAddress),
+  };
+}
+
+/** Company-wide POST /sites/ bodies. Customers is an array — never a
+ * scalar `Customer` column (`Invalid column /Customer`). */
+function extraSiteLinkBodies(siteAddress: string, customerId: number): Array<Record<string, unknown>> {
+  const base = siteNameAndAddress(siteAddress);
   return [
-    {
-      Name: parsed.name.slice(0, 80) || "Site",
-      Address: address,
-    },
-    { Address: address },
+    { ...base, Customers: [{ ID: customerId }] },
+    { ...base, Customers: [customerId] },
+    { ...base, CustomerIDs: [customerId] },
   ];
 }
 
-/** Extra site on an existing customer. POST typed individuals/companies
- * nested sites with Name + Address. Never POST untyped
- * /customers/{id}/sites/ (Invalid route) and never POST /sites/ with
- * Customer (`{"errors":[{"path":"/Customer","message":"Invalid column."}]}`). */
+function extraSiteUnlinkedBodies(siteAddress: string): Array<Record<string, unknown>> {
+  const base = siteNameAndAddress(siteAddress);
+  return [{ ...base }, { Address: base.Address }];
+}
+
+function siteLinkPatchBodies(customerId: number): Array<Record<string, unknown>> {
+  return [
+    { Customers: [{ ID: customerId }] },
+    { Customers: [customerId] },
+    { CustomerIDs: [customerId] },
+  ];
+}
+
+function customerSitesPatchBodies(siteId: number): Array<Record<string, unknown>> {
+  return [
+    { Sites: [{ ID: siteId }] },
+    { Sites: [siteId] },
+  ];
+}
+
+function assertNoCustomerScalar(body: Record<string, unknown>): void {
+  if (Object.prototype.hasOwnProperty.call(body, "Customer")) {
+    throw simproFail("Refusing to POST /sites/ with scalar Customer (Invalid column)");
+  }
+}
+
+async function simproOptions(env: CreateJobEnv, token: string, url: string): Promise<void> {
+  try {
+    const res = await env.fetch(url, {
+      method: "OPTIONS",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/json",
+      },
+    });
+    const allow = res.headers.get("Allow") || res.headers.get("allow") || "";
+    logCreate(env, `OPTIONS ${url} status=${res.status} Allow=${allow || "(none)"}`);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    logCreate(env, `OPTIONS ${url} failed ${sanitizeSimproError(message)}`);
+  }
+}
+
+function logSiteAttempt(env: CreateJobEnv, method: string, url: string, res: SimproHttp): void {
+  const detail = res.ok ? "ok" : sanitizeSimproError(res.text);
+  logCreate(env, `${method} ${url} status=${res.status} ${detail}`);
+}
+
+async function recoverCreatedSiteId(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  siteAddress: string,
+  res: SimproHttp,
+): Promise<number | null> {
+  const id = Number(createdId(res));
+  if (id) return id;
+  return pickSiteId(await listCustomerSites(env, conn, token, customerId), siteAddress, false);
+}
+
+async function patchSiteCustomers(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  siteId: number,
+  customerId: number,
+): Promise<boolean> {
+  const url = `${apiBase(conn)}/sites/${siteId}`;
+  await simproOptions(env, token, url);
+  for (const body of siteLinkPatchBodies(customerId)) {
+    assertNoCustomerScalar(body);
+    const res = await simproJson(env, token, url, { method: "PATCH", body });
+    logSiteAttempt(env, "PATCH", url, res);
+    if (res.ok) return true;
+  }
+  return false;
+}
+
+async function patchCustomerSites(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  customerId: number,
+  siteId: number,
+  isCompany?: boolean,
+): Promise<boolean> {
+  const base = apiBase(conn);
+  const urls = isCompany === true
+    ? [`${base}/customers/companies/${customerId}`, `${base}/customers/individuals/${customerId}`]
+    : [`${base}/customers/individuals/${customerId}`, `${base}/customers/companies/${customerId}`];
+  for (const url of urls) {
+    await simproOptions(env, token, url);
+    for (const body of customerSitesPatchBodies(siteId)) {
+      const res = await simproJson(env, token, url, { method: "PATCH", body });
+      logSiteAttempt(env, "PATCH", url, res);
+      if (res.ok) return true;
+    }
+  }
+  return false;
+}
+
+async function linkOrphanSite(
+  env: CreateJobEnv,
+  conn: SimproConnection,
+  token: string,
+  siteId: number,
+  customerId: number,
+  isCompany?: boolean,
+): Promise<void> {
+  const siteLinked = await patchSiteCustomers(env, conn, token, siteId, customerId);
+  if (siteLinked) return;
+  await patchCustomerSites(env, conn, token, customerId, siteId, isCompany);
+}
+
+/** Extra site on an existing customer. POST company-wide /sites/ with
+ * Name + Address + Customers[] (MindCloud / public OpenAPI). Never send
+ * `Customer: id` (Invalid column). Nested individuals/companies/.../sites/
+ * stay as later fallbacks (Invalid route on Glacier). */
 async function createSite(
   env: CreateJobEnv,
   conn: SimproConnection,
@@ -1121,18 +1244,52 @@ async function createSite(
   siteAddress: string,
   isCompany?: boolean,
 ): Promise<number> {
+  const sitesUrl = `${apiBase(conn)}/sites/`;
+  await simproOptions(env, token, sitesUrl);
   let lastText = "";
+  let orphanId: number | null = null;
+
+  for (const body of extraSiteLinkBodies(siteAddress, customerId)) {
+    assertNoCustomerScalar(body);
+    const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
+    logSiteAttempt(env, "POST", sitesUrl, res);
+    lastText = res.text || lastText;
+    if (!res.ok) continue;
+    const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
+    if (id) return id;
+  }
+
+  for (const body of extraSiteUnlinkedBodies(siteAddress)) {
+    assertNoCustomerScalar(body);
+    const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
+    logSiteAttempt(env, "POST", sitesUrl, res);
+    lastText = res.text || lastText;
+    if (!res.ok) continue;
+    const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
+    if (!id) continue;
+    orphanId = id;
+    await linkOrphanSite(env, conn, token, id, customerId, isCompany);
+    return id;
+  }
+
   for (const url of customerSiteCreateUrls(conn, customerId, isCompany)) {
-    for (const body of siteCreateBodies(siteAddress)) {
+    await simproOptions(env, token, url);
+    for (const body of extraSiteUnlinkedBodies(siteAddress)) {
+      assertNoCustomerScalar(body);
       const res = await simproJson(env, token, url, { method: "POST", body });
+      logSiteAttempt(env, "POST", url, res);
       lastText = res.text || lastText;
       if (!res.ok) continue;
-      const id = Number(createdId(res));
+      const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
       if (id) return id;
-      const recovered = pickSiteId(await listCustomerSites(env, conn, token, customerId), siteAddress, false);
-      if (recovered) return recovered;
     }
   }
+
+  if (orphanId) {
+    await linkOrphanSite(env, conn, token, orphanId, customerId, isCompany);
+    return orphanId;
+  }
+
   throw simproFail(`Could not create SimPRO site: ${sanitizeSimproError(lastText)}`);
 }
 

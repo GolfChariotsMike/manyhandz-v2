@@ -30,7 +30,11 @@ const CONFIRM_INLINE =
   /yes please|book (?:it|me|us|that)|go ahead|please (?:book|do it)|that(?:'s| is) fine|let'?s book/i;
 
 const FAKE_SUCCESS =
-  /team has been notified|lead (?:was |has been )?(?:created|lodged)|booking (?:is |has been )?(?:lodged|confirmed|made)|i(?:'ve| have) (?:passed|lodged|created|notified|booked)|done!?[\s\S]{0,80}(?:notified|booked|lodged|passed)|the team (?:has been|will be) notified|someone will be in touch to confirm/i;
+  /team has been notified|lead (?:was |has been )?(?:created|lodged)|booking (?:is |has been )?(?:lodged|confirmed|made|saved)|i(?:'ve| have) (?:passed|lodged|created|notified|booked|saved)|done!?[\s\S]{0,80}(?:notified|booked|lodged|passed|saved)|the team (?:has been|will be) notified|someone will be in touch(?: to confirm)?|the team will be in touch|the team will contact|team will contact|service request(?: has been)? saved|i(?:'ve| have) saved your service request|we(?:'ll| will) confirm/i;
+
+/** Broader close after create_simpro_job returned ok:false this turn. */
+const FAILED_CREATE_SUCCESS =
+  /\bsaved\b|\blodged\b|\bbooked\b|team will be in touch|team will contact|i(?:'ve| have) booked|service request|we(?:'ll| will) confirm/i;
 
 const NAME_BLOCKLIST =
   /^(yes|yeah|yep|yup|ok|okay|thanks|thank you|please|hi|hello|hey|good morning|good afternoon|good evening|split system|no worries|no thank you)$/i;
@@ -92,6 +96,12 @@ export function looksLikeBookingConfirm(text: string): boolean {
 
 export function claimsLeadSuccess(text: string): boolean {
   return FAKE_SUCCESS.test(String(text || ""));
+}
+
+/** After create_simpro_job ok:false this turn — catch any success close. */
+export function claimsLeadSuccessAfterFailedCreate(text: string): boolean {
+  const raw = String(text || "");
+  return claimsLeadSuccess(raw) || FAILED_CREATE_SUCCESS.test(raw);
 }
 
 export function canCreateLead(slots: CollectedSlots): boolean {

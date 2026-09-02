@@ -522,6 +522,57 @@ test("text-only yes-please close still POSTs create_simpro_job with collected sl
   );
 });
 
+test("failed create_simpro_job rewrites I've saved your service request", async () => {
+  const { env } = envFor({
+    claude: [
+      {
+        stop_reason: "tool_use",
+        content: [{
+          type: "tool_use",
+          id: "tu-c",
+          name: "create_simpro_job",
+          input: {
+            caller_name: "Micycle Kerr",
+            caller_phone: "+61433121933",
+            site_address: "37 Dericote Way Greenwood",
+            description: "3 split services",
+            simpro_customer_id: 4708,
+          },
+        }],
+      },
+      {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "I've saved your service request. The team will be in touch…" }],
+      },
+    ],
+    executors: {
+      createSimproJob: async () => ({
+        ok: false,
+        code: "simpro_error",
+        error: "Could not create SimPRO site: Invalid route. Do not claim a lead was created.",
+      }),
+      handleSaveMessage: async () => ({ success: true, notified: false }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embed_key: EMBED,
+        session_key: SESSION,
+        message: "3 wall splits at 37 Dericote Way Greenwood",
+      }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.match(String(body.reply), /have not notified the team/);
+  assert.doesNotMatch(String(body.reply), /saved your service request/i);
+  assert.doesNotMatch(String(body.reply), /team will be in touch/i);
+});
+
 test("fake notify close is rewritten when the lead tool cannot run", async () => {
   let created = false;
   const { env } = envFor({
