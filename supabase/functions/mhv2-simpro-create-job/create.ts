@@ -4,8 +4,11 @@
  * creates anyone. New customers POST individuals/companies with Address and
  * ?createSite=true so SimPRO auto-creates the first site — do not POST a
  * second site unless the work address is a different property. Extra sites on
- * an existing customer POST /customers/{id}/sites/ with Address (never
- * POST /sites/ with Customer — SimPRO rejects that as Invalid column). IDs come from
+ * an existing customer POST the typed nested routes
+ * /customers/individuals/{id}/sites/ or /customers/companies/{id}/sites/
+ * with Name + Address only (never a Customer field). Untyped
+ * /customers/{id}/sites/ is not a valid SimPRO route (Invalid route). Never
+ * POST /sites/ with Customer — SimPRO rejects that as Invalid column. IDs come from
  * JSON `ID` or Location (201 + empty body is a known SimPRO pattern). Uses
  * the same mh_crm_connections row and AES-GCM secret wrap as
  * mhv2-simpro-connect / mhv2-simpro-sync. Does not log secrets.
@@ -1081,13 +1084,17 @@ async function findSiteId(
   return pickSiteId(await listCustomerSites(env, conn, token, customerId), address, reuseFirst);
 }
 
-function customerSiteCreateUrls(conn: SimproConnection, customerId: number): string[] {
+/** Typed nested site create only. Untyped /customers/{id}/sites/ is Invalid route. */
+function customerSiteCreateUrls(
+  conn: SimproConnection,
+  customerId: number,
+  isCompany?: boolean,
+): string[] {
   const base = apiBase(conn);
-  return [
-    `${base}/customers/${customerId}/sites/`,
-    `${base}/customers/individuals/${customerId}/sites/`,
-    `${base}/customers/companies/${customerId}/sites/`,
-  ];
+  const individual = `${base}/customers/individuals/${customerId}/sites/`;
+  const company = `${base}/customers/companies/${customerId}/sites/`;
+  if (isCompany === true) return [company, individual];
+  return [individual, company];
 }
 
 function siteCreateBodies(siteAddress: string): Array<Record<string, unknown>> {
@@ -1102,24 +1109,28 @@ function siteCreateBodies(siteAddress: string): Array<Record<string, unknown>> {
   ];
 }
 
-/** Extra site on an existing customer. POST under the customer — Address
- * (and Name). Never POST /sites/ with Customer: SimPRO returns
- * `{"errors":[{"path":"/Customer","message":"Invalid column."}]}`. */
+/** Extra site on an existing customer. POST typed individuals/companies
+ * nested sites with Name + Address. Never POST untyped
+ * /customers/{id}/sites/ (Invalid route) and never POST /sites/ with
+ * Customer (`{"errors":[{"path":"/Customer","message":"Invalid column."}]}`). */
 async function createSite(
   env: CreateJobEnv,
   conn: SimproConnection,
   token: string,
   customerId: number,
   siteAddress: string,
+  isCompany?: boolean,
 ): Promise<number> {
   let lastText = "";
-  for (const url of customerSiteCreateUrls(conn, customerId)) {
+  for (const url of customerSiteCreateUrls(conn, customerId, isCompany)) {
     for (const body of siteCreateBodies(siteAddress)) {
       const res = await simproJson(env, token, url, { method: "POST", body });
       lastText = res.text || lastText;
       if (!res.ok) continue;
       const id = Number(createdId(res));
       if (id) return id;
+      const recovered = pickSiteId(await listCustomerSites(env, conn, token, customerId), siteAddress, false);
+      if (recovered) return recovered;
     }
   }
   throw simproFail(`Could not create SimPRO site: ${sanitizeSimproError(lastText)}`);
@@ -1261,6 +1272,7 @@ async function resolveSiteForLead(
   siteAddress: string,
   customerCreated: boolean,
   explicitSiteId?: number,
+  isCompany?: boolean,
 ): Promise<{ siteId: number; siteCreated: boolean } | { choice: CreateJobResult }> {
   const sites = await listCustomerSites(env, conn, token, customerId);
 
@@ -1281,7 +1293,7 @@ async function resolveSiteForLead(
 
   if (!siteId && siteAddress) {
     try {
-      siteId = await createSite(env, conn, token, customerId, siteAddress);
+      siteId = await createSite(env, conn, token, customerId, siteAddress, isCompany);
       siteCreated = true;
     } catch (err) {
       siteId = pickSiteId(sites, siteAddress, true);
@@ -1378,6 +1390,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       input.site_address,
       customerCreated,
       input.site_id,
+      isCompanyCustomer,
     );
     if ("choice" in resolvedSite) return resolvedSite.choice;
     let siteId = resolvedSite.siteId;

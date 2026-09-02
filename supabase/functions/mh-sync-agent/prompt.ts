@@ -240,7 +240,7 @@ export function composeSystemPrompt(data: PromptInput): string {
     : `- TRANSFERS: Do not transfer calls. Take a message and tell the caller someone will call them back.`;
 
   const smsRule = capSendSms
-    ? `- SMS: You can send the caller a text message with links or information if helpful. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified.`
+    ? `- SMS: You can send the caller a text message with links or information if helpful. Never use send_sms to notify the office — create_simpro_job notifies the office only when it returns ok:true. Do not use save_message to text the office after a failed lead create.`
     : "";
 
   const simproJobRule = createJobOn

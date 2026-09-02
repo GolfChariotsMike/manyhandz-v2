@@ -83,6 +83,35 @@ test("missing notify_sms fails clearly and does not call Twilio", async () => {
   assert.equal(bodies.length, 0);
 });
 
+test("skip_office_notify after a failed lead create does not SMS the office", async () => {
+  const { env, bodies } = envFor();
+  const result = await handleSaveMessage({
+    customer_id: "cust-1",
+    caller_name: "Micycle Kerr",
+    callback_number: "+61433121933",
+    message: "3 split services — lead create failed",
+    skip_office_notify: true,
+  }, env);
+  assert.deepEqual(result, { success: true, notified: false });
+  assert.equal(bodies.length, 0);
+});
+
+test("notify_office false from the webhook skips Twilio", async () => {
+  const { env, bodies } = envFor();
+  const parsed = parseSaveMessageInput({
+    caller_name: "Micycle Kerr",
+    callback_number: "+61433121933",
+    message: "3 split services",
+    notify_office: false,
+  }, "cust-1");
+  assert.equal("success" in parsed, false);
+  if ("success" in parsed) return;
+  assert.equal(parsed.skip_office_notify, true);
+  const result = await handleSaveMessage(parsed, env);
+  assert.deepEqual(result, { success: true, notified: false });
+  assert.equal(bodies.length, 0);
+});
+
 test("ownerNotifyBody stays short and includes the caller", () => {
   const text = ownerNotifyBody({
     customer_id: "c",

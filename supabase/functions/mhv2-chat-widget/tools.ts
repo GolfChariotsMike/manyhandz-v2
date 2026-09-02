@@ -86,7 +86,7 @@ export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "You MUST call this after lookup_simpro_customer has returned, once you have their mobile and the work description, and again immediately when they confirm / say yes please. Do not ask name or address until lookup returns. Create a real SimPRO lead (reuse lookup_simpro_customer, or find-or-create only when lookup missed). BOOKING PATH ONLY. Chat has no caller ID — collect a mobile first if they have not already typed one; never drop a number already in this thread. FIRST action after you have a mobile is lookup_simpro_customer. HIT: skip name and full site address and collect only a short description (pass simpro_customer_id and site_id when they chose a street; site_address if they said a street/suburb to match, or a different street as a new extra site). Never ask the visitor for a site ID. MISS: if they are already a customer, pass existing_customer true plus their name or business name and look up again. Only after they say they are not a customer, or lookup still misses, collect name, site address, and description. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the visitor is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. Tell them the lead number only if ok:true. If it fails, need_site_choice, or says SimPRO is not connected, use save_message or ask which street — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
+      "You MUST call this after lookup_simpro_customer has returned, once you have their mobile and the work description, and again immediately when they confirm / say yes please. Do not ask name or address until lookup returns. Create a real SimPRO lead (reuse lookup_simpro_customer, or find-or-create only when lookup missed). BOOKING PATH ONLY. Chat has no caller ID — collect a mobile first if they have not already typed one; never drop a number already in this thread. FIRST action after you have a mobile is lookup_simpro_customer. HIT: skip name and full site address and collect only a short description (pass simpro_customer_id and site_id when they chose a street; site_address if they said a street/suburb to match, or a different street as a new extra site). Never ask the visitor for a site ID. MISS: if they are already a customer, pass existing_customer true plus their name or business name and look up again. Only after they say they are not a customer, or lookup still misses, collect name, site address, and description. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the visitor is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies only on ok:true. Do not use save_message as the only close. Tell them the lead number only if ok:true. If it fails, need_site_choice, or says SimPRO is not connected, retry or ask which street — never pretend a lead was created or that the team was notified, and do not call save_message to text the office. Never look up other customers' leads.",
     input_schema: {
       type: "object",
       required: ["caller_phone", "description"],
@@ -110,7 +110,7 @@ export function saveMessageChatTool(): AnthropicTool {
   return {
     name: SAVE_MESSAGE_TOOL_NAME,
     description:
-      "Save a message from the website visitor and notify the owner. Use the name and mobile already in this chat; only ask if they have not given them. If the tool fails, do not claim the owner was texted.",
+      "Save a callback or staff-message from the website visitor. Use the name and mobile already in this chat; only ask if they have not given them. Do not use this to text the office after a failed create_simpro_job — booking alerts only fire on create_simpro_job ok:true. If the tool fails, do not claim the owner was texted.",
     input_schema: {
       type: "object",
       required: ["caller_name", "callback_number", "message"],
@@ -154,6 +154,11 @@ export function chatToolNames(tools: AnthropicTool[]): string[] {
   return tools.map((t) => t.name);
 }
 
+export type ChatBookingLeadState = {
+  attempted: boolean;
+  ok: boolean;
+};
+
 export type ChatToolContext = {
   customerId: string;
   country?: string | null;
@@ -161,6 +166,8 @@ export type ChatToolContext = {
   simproEnv: CreateJobEnv;
   saveMessageEnv: SaveMessageEnv;
   sendSmsEnv: SendSmsEnv;
+  /** Same-turn create_simpro_job — skip save_message office SMS after a failed lead. */
+  bookingLead?: ChatBookingLeadState;
 };
 
 export async function executeChatTool(
@@ -180,14 +187,27 @@ export async function executeChatTool(
 
     if (name === CREATE_SIMPRO_JOB_TOOL_NAME) {
       const parsed = parseCreateJobInput(input, ctx.customerId);
-      if ("ok" in parsed && parsed.ok === false) return JSON.stringify(parsed);
+      if ("ok" in parsed && parsed.ok === false) {
+        if (ctx.bookingLead) {
+          ctx.bookingLead.attempted = true;
+          ctx.bookingLead.ok = false;
+        }
+        return JSON.stringify(parsed);
+      }
       const result = await exec.createSimproJob(parsed, ctx.simproEnv);
+      if (ctx.bookingLead) {
+        ctx.bookingLead.attempted = true;
+        ctx.bookingLead.ok = result.ok === true;
+      }
       return JSON.stringify(result);
     }
 
     if (name === SAVE_MESSAGE_TOOL_NAME) {
       const parsed = parseSaveMessageInput(input, ctx.customerId);
       if ("success" in parsed && parsed.success === false) return JSON.stringify(parsed);
+      if (ctx.bookingLead?.attempted && !ctx.bookingLead.ok) {
+        parsed.skip_office_notify = true;
+      }
       const result = await exec.handleSaveMessage(parsed, ctx.saveMessageEnv);
       return JSON.stringify(result);
     }

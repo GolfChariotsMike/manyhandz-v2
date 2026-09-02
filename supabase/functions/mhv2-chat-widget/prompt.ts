@@ -113,7 +113,7 @@ export function composeChatSystemPrompt(data: ChatPromptInput): string {
     `- MESSAGES: If the visitor asks for a person or a callback, use the save_message tool. There is no call transfer or call connect on the website chat. Collect their name and a mobile only if they have not already given them.`;
 
   const smsRule = capSendSms
-    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile only if they have not already typed one. Never use send_sms to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.`
+    ? `- SMS: You can send the visitor a text message with links or information if helpful. Ask for their mobile only if they have not already typed one. Never use send_sms to notify the office — create_simpro_job notifies the office only when it returns ok:true. Do not use save_message to text the office after a failed lead create. If the tool fails, do not claim a text was sent.`
     : "";
 
   const simproJobRule = capCreateSimproJob

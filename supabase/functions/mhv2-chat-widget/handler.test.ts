@@ -361,6 +361,78 @@ test("tool_use save_message and send_sms hit the phone handlers", async () => {
   assert.deepEqual(calls, ["save", "sms"]);
 });
 
+test("save_message after a failed create_simpro_job does not office-SMS", async () => {
+  const saved: Array<{ skip_office_notify?: boolean }> = [];
+  const { env } = envFor({
+    claude: [
+      {
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-c",
+            name: "create_simpro_job",
+            input: {
+              caller_name: "Micycle Kerr",
+              caller_phone: "+61433121933",
+              site_address: "37 Dericote Way Greenwood",
+              description: "3 split services",
+              simpro_customer_id: 4708,
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "tool_use",
+        content: [
+          {
+            type: "tool_use",
+            id: "tu-s",
+            name: "save_message",
+            input: {
+              caller_name: "Micycle Kerr",
+              callback_number: "+61433121933",
+              message: "3 split services — booking failed",
+            },
+          },
+        ],
+      },
+      {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "I have not notified the team yet." }],
+      },
+    ],
+    executors: {
+      createSimproJob: async () => ({
+        ok: false,
+        code: "simpro_error",
+        error: "Could not create SimPRO site: Invalid route. Do not claim a lead was created.",
+      }),
+      handleSaveMessage: async (parsed) => {
+        saved.push(parsed);
+        return { success: true, notified: parsed.skip_office_notify ? false : true };
+      },
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embed_key: EMBED,
+        session_key: SESSION,
+        message: "Yes please book 37 Dericote for 3 split services",
+      }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.equal(body.reply, "I have not notified the team yet.");
+  assert.equal(saved.length, 1);
+  assert.equal(saved[0].skip_office_notify, true);
+});
+
 test("helpers keep history and KB arrays safe", () => {
   assert.deepEqual(asChatHistory([{ role: "user", content: "hi" }, { role: "system", content: "x" }]), [
     { role: "user", content: "hi" },

@@ -21,7 +21,7 @@ export function sendSmsWebhookTool(functionUrl: string): Record<string, unknown>
     type: "webhook",
     name: SEND_SMS_TOOL_NAME,
     description:
-      "Send the caller a short text with a link or info when helpful. Use the caller ID when texting the current caller. Keep the body brief. Never use this to notify the office — create_simpro_job (or save_message if the lead tool fails) is how the office is notified. If the tool fails, do not claim a text was sent.",
+      "Send the caller a short text with a link or info when helpful. Use the caller ID when texting the current caller. Keep the body brief. Never use this to notify the office — create_simpro_job notifies the office only when it returns ok:true. Do not use save_message to text the office after a failed lead create. If the tool fails, do not claim a text was sent.",
     response_timeout_secs: 20,
     api_schema: {
       kind: "webhook",

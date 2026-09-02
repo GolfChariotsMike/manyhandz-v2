@@ -49,6 +49,7 @@ test("mergeSaveMessageTool attaches the webhook and replaces a stale copy", () =
   assert.equal(callback.is_system_provided, false);
   assert.equal(callback.description, undefined);
   assert.equal(JSON.stringify(tool).includes("system__"), false);
+  assert.match(JSON.stringify(tool), /do not use this to text the office after a failed create_simpro_job/i);
   assert.equal(merged.some((t) => (t as { name?: string }).name === "send_sms"), true);
 });
 

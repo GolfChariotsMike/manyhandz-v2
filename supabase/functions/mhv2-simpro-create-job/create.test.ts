@@ -1330,7 +1330,7 @@ test("createSimproJob existing customer with a new address creates a site then l
       }
       if (url.includes("/sites/") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
-        assert.match(url, /\/customers\/9\/sites\//);
+        assert.match(url, /\/customers\/individuals\/9\/sites\//);
         assert.equal(body.Customer, undefined);
         assert.match(String(body.Name || body.Address?.Address || ""), /88 Ice/);
         return Response.json({ ID: 66 }, { status: 201 });
@@ -1342,7 +1342,7 @@ test("createSimproJob existing customer with a new address creates a site then l
         assert.equal(body.SiteContact, 900);
         return Response.json({ ID: 7703 }, { status: 201 });
       }
-      if (url.includes("/customers/individuals/") && method === "POST") {
+      if (url.includes("/customers/individuals/") && method === "POST" && !url.includes("/sites")) {
         return new Response("must not create a second customer", { status: 500 });
       }
       if (url.includes("/jobs/")) {
@@ -1360,8 +1360,9 @@ test("createSimproJob existing customer with a new address creates a site then l
   assert.equal(result.customer_created, false);
   assert.equal(result.site_created, true);
   assert.equal(result.lead_number, "7703");
-  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/")), false);
-  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/9\/sites\//.test(c)), true);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/") && !c.includes("/sites")), false);
+  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/individuals\/9\/sites\//.test(c)), true);
+  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/9\/sites\//.test(c)), false);
   assert.equal(posted.some((c) => c.includes("POST") && /\/sites\//.test(c) && !c.includes("/customers/")), false);
   assert.equal(posted.some((c) => c.includes("POST") && c.includes("/leads/")), true);
   assert.equal(posted.some((c) => c.includes("/jobs/")), false);
@@ -1426,7 +1427,7 @@ test("createSimproJob existing customer with no site still creates site then a n
       }
       if (url.includes("/sites/") && method === "POST") {
         const body = JSON.parse(String(init?.body || "{}"));
-        assert.match(url, /\/customers\/9\/sites\//);
+        assert.match(url, /\/customers\/individuals\/9\/sites\//);
         assert.equal(body.Customer, undefined);
         assert.ok(body.Address);
         return Response.json({ ID: 55 }, { status: 201 });
@@ -1438,7 +1439,7 @@ test("createSimproJob existing customer with no site still creates site then a n
         assert.equal(body.SiteContact, 900);
         return Response.json({ ID: 7702 }, { status: 201 });
       }
-      if (url.includes("/customers/individuals/") && method === "POST") {
+      if (url.includes("/customers/individuals/") && method === "POST" && !url.includes("/sites")) {
         return new Response("must not create a second customer", { status: 500 });
       }
       if (url.includes("/jobs/")) {
@@ -1453,8 +1454,9 @@ test("createSimproJob existing customer with no site still creates site then a n
   assert.equal(result.customer_created, false);
   assert.equal(result.site_created, true);
   assert.equal(result.lead_number, "7702");
-  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/")), false);
-  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/9\/sites\//.test(c)), true);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/") && !c.includes("/sites")), false);
+  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/individuals\/9\/sites\//.test(c)), true);
+  assert.equal(posted.some((c) => c.includes("POST") && /\/customers\/9\/sites\//.test(c)), false);
   assert.equal(posted.some((c) => c.includes("POST") && /\/sites\//.test(c) && !c.includes("/customers/")), false);
   assert.equal(posted.some((c) => c.includes("POST") && c.includes("/leads/")), true);
 });
@@ -1463,8 +1465,16 @@ const INVALID_COLUMN_CUSTOMER = JSON.stringify({
   errors: [{ path: "/Customer", message: "Invalid column.", value: 4708 }],
 });
 
+const INVALID_ROUTE = JSON.stringify({
+  errors: [{ path: null, message: "Invalid route.", value: null }],
+});
+
 function isCompanyWideSitesUrl(url: string): boolean {
   return /\/sites\/?(\?|$)/.test(url) && !url.includes("/customers/");
+}
+
+function isUntypedCustomerSitesUrl(url: string): boolean {
+  return /\/customers\/\d+\/sites\//.test(url) && !url.includes("/individuals/") && !url.includes("/companies/");
 }
 
 test("createSimproJob extra site on 4708 POSTs customer-nested Address then Open lead", async () => {
@@ -1497,8 +1507,12 @@ test("createSimproJob extra site on 4708 POSTs customer-nested Address then Open
       if (isCompanyWideSitesUrl(url) && method === "POST") {
         return new Response(INVALID_COLUMN_CUSTOMER, { status: 400 });
       }
-      if (url.includes("/customers/4708/sites/") && method === "POST") {
+      if (isUntypedCustomerSitesUrl(url) && method === "POST") {
+        return new Response(INVALID_ROUTE, { status: 400 });
+      }
+      if (url.includes("/customers/individuals/4708/sites/") && method === "POST") {
         assert.equal(body.Customer, undefined);
+        assert.ok(body.Name);
         assert.ok(body.Address);
         assert.match(String(body.Address.Address || ""), /37 Dericote Way/);
         assert.equal(body.Address.City, "Greenwood");
@@ -1511,7 +1525,7 @@ test("createSimproJob extra site on 4708 POSTs customer-nested Address then Open
         assert.equal(body.Stage, "Open");
         return Response.json({ ID: 9908 }, { status: 201 });
       }
-      if (url.includes("/customers/individuals/") && method === "POST") {
+      if (url.includes("/customers/individuals/") && method === "POST" && !url.includes("/sites")) {
         return new Response("must not create a second customer", { status: 500 });
       }
       if (url.includes("/jobs/")) return new Response("must not touch /jobs/", { status: 500 });
@@ -1533,11 +1547,12 @@ test("createSimproJob extra site on 4708 POSTs customer-nested Address then Open
   assert.equal(result.customer_created, false);
   assert.equal(result.site_created, true);
   assert.equal(result.lead_number, "9908");
-  const sitePost = posted.find((c) => c.method === "POST" && String(c.url).includes("/customers/4708/sites/"));
-  assert.ok(sitePost, "must POST extra site under the customer");
+  const sitePost = posted.find((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/4708/sites/"));
+  assert.ok(sitePost, "must POST extra site on individuals/{id}/sites/");
   assert.equal((sitePost.body as { Customer?: unknown }).Customer, undefined);
+  assert.equal(posted.some((c) => c.method === "POST" && isUntypedCustomerSitesUrl(String(c.url))), false);
   assert.equal(posted.some((c) => c.method === "POST" && isCompanyWideSitesUrl(String(c.url))), false);
-  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/")), false);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/") && !String(c.url).includes("/sites")), false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
   assert.equal(posted.some((c) => String(c.url).includes("/jobs/")), false);
   assert.equal(emails.length, 1);
@@ -1577,9 +1592,11 @@ test("createSimproJob extra site succeeds when company-wide /sites/ rejects Cust
         }
         return new Response("must not POST company-wide /sites/ for extra-site", { status: 500 });
       }
+      if (isUntypedCustomerSitesUrl(url) && method === "POST") {
+        return new Response(INVALID_ROUTE, { status: 400 });
+      }
       if (
-        (url.includes("/customers/4708/sites/") ||
-          url.includes("/customers/individuals/4708/sites/") ||
+        (url.includes("/customers/individuals/4708/sites/") ||
           url.includes("/customers/companies/4708/sites/")) &&
         method === "POST"
       ) {
@@ -1594,7 +1611,7 @@ test("createSimproJob extra site succeeds when company-wide /sites/ rejects Cust
         assert.equal(body.Stage, "Open");
         return Response.json({ ID: 9909 }, { status: 201 });
       }
-      if (url.includes("/customers/individuals/") && method === "POST") {
+      if (url.includes("/customers/individuals/") && method === "POST" && !url.includes("/sites")) {
         return new Response("must not create a second customer", { status: 500 });
       }
       if (url.includes("/jobs/")) return new Response("must not touch /jobs/", { status: 500 });
@@ -1616,8 +1633,84 @@ test("createSimproJob extra site succeeds when company-wide /sites/ rejects Cust
   assert.equal(result.site_created, true);
   assert.equal(result.lead_number, "9909");
   assert.equal(companyWideCustomerRejected, false, "must not POST /sites/ with Customer");
-  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/") && String(c.url).includes("/sites/")), true);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/4708/sites/")), true);
+  assert.equal(posted.some((c) => c.method === "POST" && isUntypedCustomerSitesUrl(String(c.url))), false);
   assert.equal(posted.some((c) => c.method === "POST" && isCompanyWideSitesUrl(String(c.url))), false);
+  assert.equal(emails.length, 1);
+  assert.equal(sms.length, 1);
+});
+
+test("createSimproJob extra site: Invalid route on untyped /customers/{id}/sites/ then individuals/{id}/sites/", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env, emails, sms } = envFor({
+    connection: conn,
+    notify: {
+      email: "office@glacier.test",
+      notify_sms: "+61422962169",
+      twilio_number: "+61485000000",
+      business_name: "Glacier Air",
+    },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (url.includes("/customers/4708") && method === "GET" && !url.includes("/sites") && !url.includes("/contacts")) {
+        return Response.json({
+          ID: 4708,
+          GivenName: "Micycle",
+          FamilyName: "Kerr",
+          Phone: "0433121933",
+        });
+      }
+      if (url.includes("/sites") && method === "GET") return Response.json([]);
+      if (isUntypedCustomerSitesUrl(url) && method === "POST") {
+        return new Response(INVALID_ROUTE, { status: 404 });
+      }
+      if (isCompanyWideSitesUrl(url) && method === "POST") {
+        return new Response(INVALID_COLUMN_CUSTOMER, { status: 400 });
+      }
+      if (url.includes("/customers/individuals/4708/sites/") && method === "POST") {
+        assert.equal(body.Customer, undefined);
+        assert.ok(body.Name);
+        assert.ok(body.Address);
+        assert.match(String(body.Address.Address || ""), /37 Dericote Way/);
+        return Response.json({ ID: 8810 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        assert.equal(body.Customer, 4708);
+        assert.equal(body.Site, 8810);
+        assert.equal(body.Stage, "Open");
+        return Response.json({ ID: 9910 }, { status: 201 });
+      }
+      if (url.includes("/customers/individuals/") && method === "POST" && !url.includes("/sites")) {
+        return new Response("must not create a second customer", { status: 500 });
+      }
+      if (url.includes("/jobs/")) return new Response("must not touch /jobs/", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Micycle Kerr",
+    caller_phone: "+61433121933",
+    site_address: "37 Dericote Way Greenwood",
+    description: "3 split services",
+    simpro_customer_id: 4708,
+    existing_customer: true,
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.ok, true);
+  assert.equal(result.customer_created, false);
+  assert.equal(result.site_created, true);
+  assert.equal(result.lead_number, "9910");
+  assert.equal(posted.some((c) => c.method === "POST" && isUntypedCustomerSitesUrl(String(c.url))), false, "must not POST untyped /customers/{id}/sites/");
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/4708/sites/")), true);
+  assert.equal(posted.some((c) => c.method === "POST" && isCompanyWideSitesUrl(String(c.url))), false);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
+  assert.equal(posted.some((c) => String(c.url).includes("/jobs/")), false);
   assert.equal(emails.length, 1);
   assert.equal(sms.length, 1);
 });
@@ -1720,7 +1813,9 @@ test("create source POSTs /leads/ and never /jobs/", async () => {
   assert.match(src, /lookupSimproCustomer/);
   assert.match(src, /searchCustomersByName/);
   assert.match(src, /need_site_choice/);
-  assert.match(src, /customers\/\$\{customerId\}\/sites\//);
+  assert.match(src, /customers\/individuals\/\$\{customerId\}\/sites\//);
+  assert.match(src, /customers\/companies\/\$\{customerId\}\/sites\//);
+  assert.doesNotMatch(src, /\$\{base\}\/customers\/\$\{customerId\}\/sites\//);
   assert.doesNotMatch(src, /\$\{apiBase\(conn\)\}\/sites\/`, \{ method: "POST"/);
 });
 
