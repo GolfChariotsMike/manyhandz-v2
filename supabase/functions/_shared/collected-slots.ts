@@ -98,6 +98,17 @@ export function canCreateLead(slots: CollectedSlots): boolean {
   return Boolean(slots.phone && slots.description);
 }
 
+/** Mobile in hand on a booking path — lookup this turn, before name/address. */
+export function shouldForceLookup(slots: CollectedSlots, bookingConfirm: boolean): boolean {
+  return Boolean(slots.phone && (slots.description || bookingConfirm));
+}
+
+export function asksNameOrAddress(text: string): boolean {
+  return /what'?s your (?:full )?name|full name\?|where'?s the|street address or suburb|where (?:is|are) (?:the )?(?:unit|air|site|property|air ?con)/i.test(
+    String(text || ""),
+  );
+}
+
 function jobDescriptionFromUser(text: string, country?: string | null): string | undefined {
   if (!SERVICE_HINT.test(text)) return undefined;
   if (looksLikePersonName(text)) return undefined;
@@ -138,6 +149,11 @@ export function formatCollectedSlots(slots: CollectedSlots): string {
   if (slots.phone) lines.push(`  Mobile: ${slots.phone}`);
   if (slots.site) lines.push(`  Site/suburb: ${slots.site}`);
   if (slots.description) lines.push(`  Job: ${slots.description}`);
+  if (slots.phone) {
+    lines.push(
+      "  LOOKUP NOW: call lookup_simpro_customer with this mobile THIS TURN — do not ask name or address until it returns. Do not treat chat as a new customer.",
+    );
+  }
   if (!lines.length) return "";
   return `\nALREADY COLLECTED IN THIS CHAT (do not ask again — use these on lookup_simpro_customer / create_simpro_job):\n${lines.join("\n")}\n`;
 }

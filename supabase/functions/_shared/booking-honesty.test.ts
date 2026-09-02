@@ -4,8 +4,13 @@ import {
   alreadyCollectedRule,
   bookingConfirmMustCreateRule,
   bookingPathOnlyRule,
+  existingCustomerQuestion,
+  lookupFirstBeforeNameRule,
+  lookupHitSpokenReply,
+  lookupMissSpokenReply,
   neverFakeLeadCloseRule,
   simproHonestyAddon,
+  simproLeadsBookingRule,
   siteContactRule,
   siteSpeakRule,
 } from "./booking-honesty.ts";
@@ -47,4 +52,40 @@ test("chat already-collected rule keeps a typed mobile; voice uses caller ID", (
   assert.match(voice, /do not ask for those again/i);
   assert.match(voice, /caller ID/);
   assert.doesNotMatch(voice, /not a reason to drop a number/);
+});
+
+test("booking copy forbids asking name/address before lookup", () => {
+  const voice = simproLeadsBookingRule("voice", "Glacier Air");
+  const chat = simproLeadsBookingRule("chat", "Glacier Air");
+  for (const text of [voice, chat, lookupFirstBeforeNameRule("voice"), lookupFirstBeforeNameRule("chat")]) {
+    assert.match(text, /lookup_simpro_customer/);
+    assert.match(text, /Do not ask name or address until/i);
+    assert.doesNotMatch(text, /New customers:\s*collect name/);
+    assert.doesNotMatch(text, /existing customers can skip name\/address/);
+    assert.doesNotMatch(text, /system__/);
+    assert.doesNotMatch(text, /lookup_jobs/);
+  }
+  assert.match(voice, /FIRST action this turn is lookup_simpro_customer/);
+  assert.match(voice, /Do not ask name or address on the greeting/);
+  assert.match(voice, /do not ask for the mobile/i);
+  assert.match(chat, /Collect a mobile first|collect a mobile first/);
+  assert.match(chat, /FIRST action after you have a mobile is lookup_simpro_customer/);
+});
+
+test("miss-path uses the existing-customer question", () => {
+  assert.equal(existingCustomerQuestion("Glacier Air"), "Are you already a Glacier Air customer?");
+  assert.equal(existingCustomerQuestion("Acme Plumbing"), "Are you already a Acme Plumbing customer?");
+  const voice = simproLeadsBookingRule("voice", "Glacier Air");
+  const chat = simproLeadsBookingRule("chat", "Acme Plumbing");
+  assert.match(voice, /Are you already a Glacier Air customer\?/);
+  assert.match(chat, /Are you already a Acme Plumbing customer\?/);
+  assert.doesNotMatch(voice, /Have you used Glacier Air before/);
+  assert.doesNotMatch(chat, /Have you used Acme Plumbing before/);
+  assert.match(voice, /THEN collect name, site address/);
+  assert.match(chat, /THEN collect name, site address/);
+  assert.match(lookupMissSpokenReply("Glacier Air"), /Are you already a Glacier Air customer\?/);
+  assert.match(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /Micycle Kerr/);
+  assert.match(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /12 Frost St, Malaga/);
+  assert.doesNotMatch(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /What'?s your (full )?name/);
+  assert.match(lookupHitSpokenReply("Micycle Kerr", ["37 Derictoe", "67 Mars"]), /37 Derictoe or 67 Mars/);
 });

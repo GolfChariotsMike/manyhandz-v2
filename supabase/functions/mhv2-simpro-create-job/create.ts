@@ -1572,7 +1572,7 @@ export async function lookupSimproCustomer(
         ok: true,
         found: false,
         message:
-          "No SimPRO customer matched that mobile or name. Ask if they have used the company before. If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, collect name, site/address, and description and call create_simpro_job. Do not create a customer from this lookup.",
+          "No SimPRO customer matched that mobile or name. Ask if they are already a customer of this business (use the business name). If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, THEN collect name, site address, and description and call create_simpro_job. Do not create a customer from this lookup.",
       };
     }
 

@@ -672,3 +672,38 @@ test("saved system_prompt is what ElevenLabs gets and is not concatenated onto c
   assert.equal(prompt.includes(composed), false);
   assert.equal(restPatches.some((p) => p.url.includes("/rest/v1/mh_voice_config")), false);
 });
+
+test("persisted name-first compose does not freeze Charlie — sync uses compose", async () => {
+  const stale = `You are Charlie, the AI receptionist for Glacier Air.
+
+ABOUT US:
+We are Glacier Air.
+
+CAPABILITIES & RULES:
+- SIMPRO LEADS: New customers: collect name, site/address, and a short description.
+
+YOUR ROLE:
+- Answer calls warm and friendly`.repeat(6);
+  const { env, patches } = makeEnv({
+    customers: [{ business_name: "Glacier Air", el_agent_id: "agent-cust" }],
+    voice: [{
+      ai_name: "Charlie",
+      greeting_script: "Hi, Thanks for calling Glacier Air. How can I help?",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      cap_create_simpro_job: true,
+      system_prompt: stale,
+    }],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const prompt = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { prompt: string } } };
+  }).conversation_config.agent.prompt.prompt;
+  assert.match(prompt, /FIRST action this turn is lookup_simpro_customer/);
+  assert.match(prompt, /Are you already a Glacier Air customer\?/);
+  assert.doesNotMatch(prompt, /New customers:\s*collect name, site\/address/);
+  assert.equal(prompt.includes("New customers: collect name, site/address"), false);
+});

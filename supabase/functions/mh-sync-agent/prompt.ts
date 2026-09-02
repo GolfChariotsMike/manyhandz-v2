@@ -3,7 +3,7 @@
  * Hang-up-on-goodbye and SimPRO create-job are the extra capability sections;
  * disclosure wording matches the live function so existing agents do not shift.
  */
-import { simproHonestyAddon } from "../_shared/booking-honesty.ts";
+import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
 import { staffTransferEnabled } from "../_shared/transfer-to-staff-tool.ts";
 
@@ -45,11 +45,38 @@ export type PromptInput = {
 
 const GENERIC_PROMPT_LEFTOVER_MAX = 800;
 
-/** Provisioning stubs like “AI receptionist for AI Agent” must not beat compose. */
+/** Our builder output — any length, including Glacier’s ~8617-char persisted compose. */
+export function isPersistedCompose(raw: unknown): boolean {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return false;
+  return (
+    /ABOUT US:/.test(text) &&
+    /CAPABILITIES & RULES:/.test(text) &&
+    /^You are .+,\s*the AI (?:receptionist|assistant) for .+/im.test(text)
+  );
+}
+
+/** Old name-first booking copy that would fire before lookup. */
+export function isStaleNameFirstCompose(raw: unknown): boolean {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text) return false;
+  const asksNameBeforeLookup = /New customers:\s*collect name/i.test(text)
+    && !/Do not ask name or address until that tool returns/i.test(text);
+  const missingLookupFirst = /SIMPRO LEADS/.test(text)
+    && !/FIRST action this turn is lookup_simpro_customer/i.test(text);
+  return asksNameBeforeLookup || missingLookupFirst;
+}
+
+/**
+ * Provisioning stubs and persisted compose must not beat compose.
+ * A leftover Glacier compose (~8617 chars) with old name-first wording
+ * would otherwise freeze Charlie on “collect name + address” before lookup.
+ */
 export function isGenericPromptLeftover(raw: unknown): boolean {
   const text = typeof raw === "string" ? raw.trim() : "";
-  if (!text || text.length > GENERIC_PROMPT_LEFTOVER_MAX) return false;
-  if (/lookup_simpro_customer|create_simpro_job|SIMPRO LEADS/i.test(text)) return false;
+  if (!text) return false;
+  if (isPersistedCompose(text) || isStaleNameFirstCompose(text)) return true;
+  if (text.length > GENERIC_PROMPT_LEFTOVER_MAX) return false;
   if (/AI (?:receptionist|assistant) for AI Agent/i.test(text)) return true;
   return /^You are .+,\s*the AI receptionist for .+/i.test(text) && /ABOUT US:/.test(text);
 }
@@ -201,7 +228,7 @@ export function composeSystemPrompt(data: PromptInput): string {
       ? `- BOOKINGS: You can confirm bookings. Use check_calendar_availability then book_calendar_event. Speak success only if the tool returns ok:true. If it fails or says not_connected, take a message — never pretend a booking was made.${createJobOn ? " If they want work done, you MUST still call create_simpro_job once you have the work description — do not only book a calendar slot." : ""}`
       : `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with callers.${createJobOn ? " If they want work done, you MUST still call create_simpro_job once you have the work description." : ""}`)
     : (createJobOn
-      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants work done or a technician booked, that is a SimPRO lead — you MUST call create_simpro_job once you have the work description (existing customers can skip name/address). Do not only take a verbal message. Do not use send_sms to notify the office.`
+      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants work done or a technician booked, that is a SimPRO lead — FIRST action this turn is lookup_simpro_customer (do not ask name or address until it returns), then create_simpro_job once you have the work description. Do not only take a verbal message. Do not use send_sms to notify the office.`
       : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a caller wants to book, collect their name, preferred date/time, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`);
 
   const pricingRule = capQuotePrices
@@ -217,7 +244,7 @@ export function composeSystemPrompt(data: PromptInput): string {
     : "";
 
   const simproJobRule = createJobOn
-    ? `- SIMPRO LEADS: Use this path ONLY when the caller wants work done or a technician booked (create a lead). Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. Phone comes from caller ID; do not ask for it. Call lookup_simpro_customer first (phone is auto-filled) — it never creates anyone. HIT: they are existing — NEVER create a new customer. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If a few sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). Existing customers: collect only a short description of the work. Do not interrogate name or full site address for existing customers. MISS: ask "Have you used ${businessName} before?" (existing / used the company before). If yes, ask for their name or business name and call lookup_simpro_customer with that name; HIT → same as above. If still no SimPRO match, or they have not used the company before, go to create. New customers: collect name, site/address, and a short description (skip any already given on this call). Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies. Collecting details without invoking the tool is a failure. The function creates customer + site + site contact + Open lead together — never leave an orphan customer. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — use save_message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.\n${simproHonestyAddon("voice")}`
+    ? simproLeadsBookingRule("voice", businessName)
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const servicem8JobRule = capCreateServicem8Job && servicem8Connected
@@ -268,12 +295,14 @@ You already have the caller's phone number from caller ID. Never ask for their c
 CALL HANDLING:
 - Keep responses concise — this is a phone call, not a chat
 - Don't read out long lists — summarise and offer specifics if asked
+- Do not ask name or address on the greeting — the opening is already set
 ${callHandlingEnd}`.trim();
 }
 
 /**
- * Live phone prompt. If the operator saved system_prompt, that text is what
- * runs — do not concatenate it onto a fresh compose (that doubles on every save).
+ * Live phone prompt. Short operator edits override compose. A persisted
+ * compose (or leftover stub) is treated as empty so Charlie cannot freeze
+ * on stale name-first booking copy. Never concatenate onto compose.
  */
 export function buildSystemPrompt(data: PromptInput): string {
   return operatorPromptOverride(data.systemPrompt) || composeSystemPrompt(data);

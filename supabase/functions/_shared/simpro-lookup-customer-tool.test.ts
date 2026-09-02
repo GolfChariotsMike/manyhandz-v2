@@ -46,7 +46,9 @@ test("lookup_simpro_customer never creates, never lists jobs, never sends system
   assert.match(created.description, /BOOKING PATH ONLY/i);
   assert.match(created.description, /never creates/i);
   assert.match(created.description, /never lists jobs/i);
-  assert.match(created.description, /used the company before/i);
+  assert.match(created.description, /already a customer/i);
+  assert.match(created.description, /FIRST action this turn is this tool/i);
+  assert.match(created.description, /Do not ask name or address until this tool returns/i);
   assert.match(created.description, /which street/i);
   assert.match(created.description, /37 Derictoe or 67 Mars/);
   assert.match(created.description, /never site IDs/i);

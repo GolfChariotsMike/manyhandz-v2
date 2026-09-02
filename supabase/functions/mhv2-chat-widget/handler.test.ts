@@ -380,6 +380,7 @@ const micycleHistory = [
 
 test("text-only yes-please close still POSTs create_simpro_job with collected slots", async () => {
   let created: Record<string, unknown> | null = null;
+  let lookedUp = false;
   const { env, claudeBodies } = envFor({
     data: defaultData({
       session: { id: "sess-1", messages: micycleHistory },
@@ -389,6 +390,18 @@ test("text-only yes-please close still POSTs create_simpro_job with collected sl
       content: [{ type: "text", text: "Done! The team has been notified" }],
     }],
     executors: {
+      lookupSimproCustomer: async () => {
+        lookedUp = true;
+        return {
+          ok: true,
+          found: true,
+          match: "phone",
+          customer: { id: 4708, name: "Micycle Kerr", isCompany: false },
+          sites: [{ id: 12, name: "Malaga", address: "Malaga" }],
+          need_site_choice: false,
+          message: "hit",
+        };
+      },
       createSimproJob: async (input) => {
         created = input as unknown as Record<string, unknown>;
         return {
@@ -396,8 +409,8 @@ test("text-only yes-please close still POSTs create_simpro_job with collected sl
           lead_number: "4421",
           lead_id: "4421",
           job_number: "4421",
-          customer_created: true,
-          site_created: true,
+          customer_created: false,
+          site_created: false,
           message: "Created SimPRO lead 4421.",
         } satisfies CreateJobResult;
       },
@@ -415,9 +428,12 @@ test("text-only yes-please close still POSTs create_simpro_job with collected sl
   );
   const { body } = await jsonOf(res);
   assert.ok(created, "create_simpro_job must run on a booking confirm");
+  assert.equal(lookedUp, true, "lookup must run before force-create when a mobile is present");
   assert.equal(created.caller_name, "Micycle Kerr");
   assert.equal(created.caller_phone, "+61433121933");
   assert.equal(created.site_address, "Malaga");
+  assert.equal(created.simpro_customer_id, 4708);
+  assert.equal(created.site_id, 12);
   assert.match(String(created.description), /split system clean/i);
   assert.match(String(created.description), /\$1,155/);
   assert.match(String(body.reply), /4421/);
@@ -425,11 +441,12 @@ test("text-only yes-please close still POSTs create_simpro_job with collected sl
 
   const system = String(claudeBodies[0].system);
   assert.match(system, /ALREADY COLLECTED IN THIS CHAT/);
+  assert.match(system, /LOOKUP NOW/);
   assert.match(system, /Micycle Kerr/);
   assert.match(system, /\+61433121933/);
   assert.equal(
     (claudeBodies[0].tool_choice as { name?: string } | undefined)?.name,
-    "create_simpro_job",
+    "lookup_simpro_customer",
   );
 });
 
@@ -530,6 +547,109 @@ test("attachLookupToCreateInput reuses the customer and waits for a site pick", 
     message: "which",
   }, "88 Ice"), true);
   assert.equal(picked.site_id, 66);
+});
+
+test("after a mobile on a booking path, chat looks up before asking name or address", async () => {
+  let lookedUp: Record<string, unknown> | null = null;
+  let created = false;
+  const { env, claudeBodies } = envFor({
+    data: defaultData({
+      customer: { business_name: "Glacier Air", twilio_number: "+61485000000", country: "AU" },
+      session: {
+        id: "sess-1",
+        messages: [
+          { role: "user", content: "hi I need to book a aircon service" },
+          { role: "assistant", content: "Hi! I can help you book that in. Let me get your details: What's your mobile number?" },
+        ],
+      },
+    }),
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Thanks! What's your full name?" }],
+    }],
+    executors: {
+      lookupSimproCustomer: async (input) => {
+        lookedUp = input as unknown as Record<string, unknown>;
+        return {
+          ok: true,
+          found: true,
+          match: "phone",
+          customer: { id: 4708, name: "Micycle Kerr", isCompany: false },
+          sites: [{ id: 88, name: "12 Frost St", address: "12 Frost St, Malaga" }],
+          need_site_choice: false,
+          message: "hit",
+        };
+      },
+      createSimproJob: async () => {
+        created = true;
+        return { ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" };
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "0433121933" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.ok(lookedUp, "lookup_simpro_customer must run once a mobile is in hand");
+  assert.equal(lookedUp.caller_phone, "+61433121933");
+  assert.equal(created, false);
+  assert.match(String(body.reply), /Micycle Kerr/);
+  assert.match(String(body.reply), /12 Frost St/);
+  assert.doesNotMatch(String(body.reply), /What'?s your full name/);
+  assert.doesNotMatch(String(body.reply), /Street address or suburb/);
+  assert.equal(
+    (claudeBodies[0].tool_choice as { name?: string } | undefined)?.name,
+    "lookup_simpro_customer",
+  );
+});
+
+test("lookup miss on chat asks the existing-customer question, not name first", async () => {
+  const { env } = envFor({
+    data: defaultData({
+      customer: { business_name: "Glacier Air", twilio_number: "+61485000000", country: "AU" },
+      session: {
+        id: "sess-1",
+        messages: [
+          { role: "user", content: "hi I need to book a aircon service" },
+          { role: "assistant", content: "What's your mobile number?" },
+        ],
+      },
+    }),
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "What's your full name?" }],
+    }],
+    executors: {
+      lookupSimproCustomer: async () => ({
+        ok: true,
+        found: false,
+        message: "No SimPRO customer matched.",
+      }),
+      createSimproJob: async () => {
+        throw new Error("must not create on a miss");
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "0433121933" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.match(String(body.reply), /Are you already a Glacier Air customer\?/);
+  assert.doesNotMatch(String(body.reply), /What'?s your full name/);
 });
 
 test("yes-please does not force-create when lookup needs a site pick", async () => {
