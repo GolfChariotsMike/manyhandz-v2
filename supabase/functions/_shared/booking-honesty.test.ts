@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   alreadyCollectedRule,
   bookingConfirmMustCreateRule,
+  bookingPathOnlyRule,
   neverFakeLeadCloseRule,
   simproHonestyAddon,
   siteContactRule,
@@ -22,7 +23,10 @@ test("honesty addon forbids fake notify and save_message-only close", () => {
   assert.match(siteContactRule(), /Jane from Woolies/);
   assert.match(siteContactRule(), /never ask for a separate site contact/i);
   assert.match(siteContactRule(), /Do not ask whether they are a company or an individual/);
+  assert.match(bookingPathOnlyRule(), /BOOKING PATH ONLY/);
+  assert.match(bookingPathOnlyRule(), /lookup_simpro_customer/);
   assert.match(chat, /site contact/i);
+  assert.match(chat, /BOOKING PATH ONLY/);
   assert.match(voice, /site contact/i);
   assert.doesNotMatch(chat, /system__/);
   assert.doesNotMatch(voice, /system__/);

@@ -8,6 +8,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   createSimproJob,
   parseCreateJobInput,
+  sanitizeSimproError,
   type CachedJobRow,
   type SimproConnection,
 } from "./create.ts";
@@ -102,14 +103,17 @@ Deno.serve(async (req) => {
     });
 
     // Always 200 so the agent reads ok/error instead of a generic webhook failure.
+    if (!result.ok) {
+      console.error("[simpro-create-job]", result.code, sanitizeSimproError(result.error));
+    }
     return json(result);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    console.error("[simpro-create-job] failed");
+    console.error("[simpro-create-job] failed", sanitizeSimproError(message));
     return json({
       ok: false,
       code: "simpro_error",
-      error: `${message.slice(0, 200)} Do not claim a lead was created.`,
+      error: `${sanitizeSimproError(message).slice(0, 200)} Do not claim a lead was created.`,
     });
   }
 });

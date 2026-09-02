@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   VISITOR_ERROR,
   asChatHistory,
+  attachLookupToCreateInput,
   faqsFromKb,
   handleRequest,
   servicesFromKb,
@@ -198,7 +199,12 @@ test("chat turn injects KB + price list and phone tools, never a job dump or tra
   assert.doesNotMatch(system, /Pending job #/);
 
   const tools = payload.tools as Array<{ name: string }>;
-  assert.deepEqual(tools.map((t) => t.name), ["save_message", "create_simpro_job", "send_sms"]);
+  assert.deepEqual(tools.map((t) => t.name), [
+    "save_message",
+    "lookup_simpro_customer",
+    "create_simpro_job",
+    "send_sms",
+  ]);
 });
 
 test("caps off drop create_simpro_job and send_sms from the Claude payload", async () => {
@@ -447,6 +453,103 @@ test("chat history keeps more than 10 turns so earlier details survive", async (
   const sent = claudeBodies[0].messages as Array<{ content: string }>;
   assert.equal(sent[0].content, "I need a split system clean in Malaga");
   assert.ok(sent.length >= 13);
+});
+
+test("attachLookupToCreateInput reuses the customer and waits for a site pick", () => {
+  const one: Record<string, unknown> = { caller_phone: "+61411122333", description: "AC" };
+  assert.equal(attachLookupToCreateInput(one, {
+    ok: true,
+    found: true,
+    match: "phone",
+    customer: { id: 9, name: "Sam Glacier", isCompany: false },
+    sites: [{ id: 3, name: "12 Frost St", address: "12 Frost St, Malaga" }],
+    need_site_choice: false,
+    message: "ok",
+  }), true);
+  assert.equal(one.simpro_customer_id, 9);
+  assert.equal(one.site_id, 3);
+
+  const many: Record<string, unknown> = { caller_phone: "+61411122333", description: "AC" };
+  assert.equal(attachLookupToCreateInput(many, {
+    ok: true,
+    found: true,
+    match: "phone",
+    customer: { id: 9, name: "Sam Glacier", isCompany: false },
+    sites: [
+      { id: 3, name: "12 Frost St", address: "12 Frost St, Malaga" },
+      { id: 66, name: "88 Ice Ave", address: "88 Ice Ave, Malaga" },
+    ],
+    need_site_choice: true,
+    message: "which",
+  }), false);
+  assert.equal(many.simpro_customer_id, 9);
+  assert.equal(many.site_id, undefined);
+
+  const picked: Record<string, unknown> = { caller_phone: "+61411122333", description: "AC" };
+  assert.equal(attachLookupToCreateInput(picked, {
+    ok: true,
+    found: true,
+    match: "phone",
+    customer: { id: 9, name: "Sam Glacier", isCompany: false },
+    sites: [
+      { id: 3, name: "12 Frost St", address: "12 Frost St, Malaga" },
+      { id: 66, name: "88 Ice Ave", address: "88 Ice Ave, Malaga" },
+    ],
+    need_site_choice: true,
+    message: "which",
+  }, "88 Ice"), true);
+  assert.equal(picked.site_id, 66);
+});
+
+test("yes-please does not force-create when lookup needs a site pick", async () => {
+  let created = false;
+  const { env } = envFor({
+    data: defaultData({
+      session: {
+        id: "sess-1",
+        messages: [
+          { role: "user", content: "I need a split system clean" },
+          { role: "assistant", content: "Sure — what's your mobile?" },
+          { role: "user", content: "0433 121 933" },
+        ],
+      },
+    }),
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Which site should I book?" }],
+    }],
+    executors: {
+      lookupSimproCustomer: async () => ({
+        ok: true,
+        found: true,
+        match: "phone",
+        customer: { id: 9, name: "Micycle Kerr", isCompany: false },
+        sites: [
+          { id: 3, name: "37 Derictoe Way", address: "37 Derictoe Way, Greenwood" },
+          { id: 66, name: "88 Ice Ave", address: "88 Ice Ave, Malaga" },
+        ],
+        need_site_choice: true,
+        message: "Ask which site.",
+      }),
+      createSimproJob: async () => {
+        created = true;
+        return { ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" };
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "yes please" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.equal(created, false);
+  assert.match(String(body.reply), /Which site/);
 });
 
 test("handler and index never dump mh_crm_jobs into the prompt or attach transfer", async () => {

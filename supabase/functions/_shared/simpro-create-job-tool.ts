@@ -21,7 +21,7 @@ export function createSimproJobWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "You MUST call this once you have the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead. Phone comes from caller ID — do not ask for it. Briefly check if they have used the company before (caller ID is often enough). Existing: pass description (and site_address only if they volunteer a different address or have multiple sites) — do not interrogate name or address. New: collect name, site/address, and description — skip any already given on this call. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the caller is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Speak the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
+      "You MUST call this once you have the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (reuse lookup_simpro_customer, or find-or-create only when lookup missed). BOOKING PATH ONLY — not for quotes, job status, transfer, or FAQs. Phone comes from caller ID — do not ask for it. Call lookup_simpro_customer first. Existing: pass description and site_id when they chose a site (site_address only if they volunteer a different street as a new extra site) — do not interrogate name or address. If they said they have used the company before and lookup missed, pass existing_customer true plus their name or business name. New: collect name, site/address, and description — skip any already given on this call. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the caller is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Speak the lead number only if ok:true. If it fails, need_site_choice, or says SimPRO is not connected, use save_message or ask which site — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
     response_timeout_secs: 45,
     api_schema: {
       kind: "webhook",
@@ -64,6 +64,21 @@ export function createSimproJobWebhookTool(functionUrl: string): Record<string, 
           site_contact_phone: {
             type: "string",
             description: "Site contact phone. Falls back to caller_phone / caller ID.",
+            is_system_provided: false,
+          },
+          simpro_customer_id: {
+            type: "number",
+            description: "SimPRO customer ID from lookup_simpro_customer. Never create a new customer when set.",
+            is_system_provided: false,
+          },
+          site_id: {
+            type: "number",
+            description: "SimPRO site ID after they pick which site, or the single site from lookup.",
+            is_system_provided: false,
+          },
+          existing_customer: {
+            type: "boolean",
+            description: "True when they said they have used the company before and lookup should search by name if the phone missed.",
             is_system_provided: false,
           },
         },

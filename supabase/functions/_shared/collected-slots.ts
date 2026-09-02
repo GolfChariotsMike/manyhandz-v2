@@ -139,7 +139,7 @@ export function formatCollectedSlots(slots: CollectedSlots): string {
   if (slots.site) lines.push(`  Site/suburb: ${slots.site}`);
   if (slots.description) lines.push(`  Job: ${slots.description}`);
   if (!lines.length) return "";
-  return `\nALREADY COLLECTED IN THIS CHAT (do not ask again — use these on create_simpro_job):\n${lines.join("\n")}\n`;
+  return `\nALREADY COLLECTED IN THIS CHAT (do not ask again — use these on lookup_simpro_customer / create_simpro_job):\n${lines.join("\n")}\n`;
 }
 
 export function honestLeadFailureReply(): string {

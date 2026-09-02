@@ -77,6 +77,11 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /Jane from Woolies/);
   assert.match(on, /never ask for a separate site contact/i);
   assert.match(on, /Do not ask whether they are a company or an individual/);
+  assert.match(on, /lookup_simpro_customer/);
+  assert.match(on, /Have you used Acme Plumbing before/);
+  assert.match(on, /which site/);
+  assert.match(on, /BOOKING PATH ONLY/);
+  assert.match(on, /NEVER create a new customer/);
   assert.doesNotMatch(on, /always collect their mobile first/);
   assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildChatSystemPrompt({ ...base, capCreateSimproJob: false });

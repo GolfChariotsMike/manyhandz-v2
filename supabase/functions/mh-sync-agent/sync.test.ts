@@ -207,11 +207,13 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   const save = agent.prompt.tools.find((t) => t.name === "save_message");
   const transfer = agent.prompt.tools.find((t) => t.name === "transfer_to_staff");
   const createJob = agent.prompt.tools.find((t) => t.name === "create_simpro_job");
+  const lookupCustomer = agent.prompt.tools.find((t) => t.name === "lookup_simpro_customer");
   const sendSms = agent.prompt.tools.find((t) => t.name === "send_sms");
   const endCall = agent.prompt.tools.find((t) => t.name === "end_call");
   assert.ok(save);
   assert.ok(transfer);
   assert.ok(createJob);
+  assert.ok(lookupCustomer);
   assert.ok(sendSms);
   assert.ok(endCall);
   assert.equal(save.tool_call_sound, "typing");
@@ -228,6 +230,10 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
   assert.match(JSON.stringify(createJob), /lead number/i);
   assert.equal(JSON.stringify(createJob).includes("system__"), false);
+  assert.match(JSON.stringify(lookupCustomer), /mhv2-simpro-lookup-customer\?customer_id=cust-1/);
+  assert.match(JSON.stringify(lookupCustomer), /never creates/i);
+  assert.equal(JSON.stringify(lookupCustomer).includes("system__"), false);
+  assert.match(JSON.stringify(lookupCustomer), /"caller_id"/);
   assert.equal(JSON.stringify(save).includes("system__"), false);
   assert.equal(JSON.stringify(sendSms).includes("system__"), false);
   assert.match(JSON.stringify(save), /"caller_id"/);
@@ -252,6 +258,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     assert.equal(extraSave?.tool_call_sound, "typing");
     assert.equal(extraEnd?.tool_call_sound, undefined);
     assert.equal(extraTools.some((t) => t.name === "create_simpro_job"), false);
+    assert.equal(extraTools.some((t) => t.name === "lookup_simpro_customer"), false);
     assert.equal(extraTools.some((t) => t.name === "send_sms"), false);
     assert.equal(extraTools.some((t) => t.name === "transfer_to_staff"), false);
   }
@@ -580,6 +587,7 @@ test("connector tools stay off when caps are on but nothing is connected", async
   }).conversation_config.agent.prompt.tools;
   const names = tools.map((t) => t.name);
   assert.equal(names.includes("create_simpro_job"), true);
+  assert.equal(names.includes("lookup_simpro_customer"), true);
   assert.equal(names.includes("create_servicem8_job"), false);
   assert.equal(names.includes("book_calendar_event"), false);
   assert.equal(names.includes("create_xero_invoice"), false);

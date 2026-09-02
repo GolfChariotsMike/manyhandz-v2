@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   CREATE_SIMPRO_JOB_TOOL_NAME,
+  LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
   SAVE_MESSAGE_TOOL_NAME,
   SEND_SMS_TOOL_NAME,
   chatToolNames,
@@ -44,13 +45,19 @@ function stubCtx(executors: ChatToolExecutors): ChatToolContext {
   return { customerId: CUST, country: "AU", executors, simproEnv, saveMessageEnv, sendSmsEnv };
 }
 
-test("chat tools are save_message + create_simpro_job + send_sms when caps are on", () => {
+test("chat tools are save_message + lookup + create_simpro_job + send_sms when caps are on", () => {
   const tools = chatTools({ capCreateSimproJob: true, capSendSms: true });
   assert.deepEqual(chatToolNames(tools), [
     SAVE_MESSAGE_TOOL_NAME,
+    LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
     CREATE_SIMPRO_JOB_TOOL_NAME,
     SEND_SMS_TOOL_NAME,
   ]);
+  const lookup = tools.find((t) => t.name === LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME);
+  assert.ok(lookup);
+  assert.match(lookup.description, /BOOKING PATH ONLY/i);
+  assert.match(lookup.description, /never creates/i);
+  assert.match(lookup.description, /which site/i);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
   assert.match(create.description, /MUST call this once you have their mobile/i);
@@ -84,6 +91,44 @@ test("caps strip send_sms and create_simpro_job; transfer and lookup never appea
   assert.doesNotMatch(all, /create_quote/);
   assert.doesNotMatch(all, /get_schedule/);
   assert.doesNotMatch(all, /create_job"/);
+});
+
+test("executeChatTool lookup_simpro_customer never creates and returns sites", async () => {
+  let seen: unknown = null;
+  const ctx = stubCtx({
+    createSimproJob: async () => {
+      throw new Error("lookup must not create");
+    },
+    lookupSimproCustomer: async (input) => {
+      seen = input;
+      return {
+        ok: true,
+        found: true,
+        match: "phone",
+        customer: { id: 9, name: "Sam Glacier", isCompany: false },
+        sites: [
+          { id: 3, name: "12 Frost St", address: "12 Frost St, Malaga" },
+          { id: 66, name: "88 Ice Ave", address: "88 Ice Ave, Malaga" },
+        ],
+        need_site_choice: true,
+        message: "Ask which site.",
+      };
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  const raw = await executeChatTool(LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME, {
+    caller_phone: "+61411122333",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, true);
+  assert.equal(result.found, true);
+  assert.equal(result.need_site_choice, true);
+  assert.equal(result.sites[1].id, 66);
+  assert.deepEqual(seen, {
+    customer_id: CUST,
+    caller_phone: "+61411122333",
+  });
 });
 
 test("executeChatTool runs phone find-or-create create_simpro_job", async () => {
