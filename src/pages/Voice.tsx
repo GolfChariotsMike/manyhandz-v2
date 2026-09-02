@@ -140,7 +140,7 @@ function CapabilitiesSection({ config, customerId, anon, url }: { config: any, c
     { key: "cap_quote_prices",     label: "Quote prices",    desc: "Agent can quote prices from the knowledge base.", default: false },
     { key: "cap_transfer_calls",   label: "Transfer calls",  desc: "Agent can transfer callers through to staff.", default: true },
     { key: "cap_send_sms",         label: "Send SMS",        desc: "Agent can send text messages to callers with links or info.", default: true },
-    { key: "cap_create_simpro_job", label: "Create SimPRO jobs", desc: "When SimPRO is connected, the agent can create a real job from the call and read back the job number.", default: true },
+    { key: "cap_create_simpro_job", label: "Create SimPRO leads", desc: "When SimPRO is connected, the agent can create a real lead from the call or website chat and read back the lead number.", default: true },
     { key: "cap_create_servicem8_job", label: "Create ServiceM8 jobs", desc: "When ServiceM8 is connected, the agent can create a real job from the call and read back the job UUID.", default: false },
     { key: "cap_create_xero_invoice", label: "Create Xero draft invoices", desc: "When Xero is connected, the agent can raise a draft sales invoice. The office still approves it.", default: false },
     { key: "cap_disclose_ai",      label: "Say you're AI",   desc: "On the first reply after the greeting, answer the caller and mention you are an AI assistant. Off = do not volunteer it.", default: false },

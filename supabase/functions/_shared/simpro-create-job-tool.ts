@@ -1,7 +1,10 @@
 /**
- * ElevenLabs webhook tool that POSTs a SimPRO job via mhv2-simpro-create-job.
+ * ElevenLabs webhook tool that POSTs a SimPRO lead via mhv2-simpro-create-job.
  * Always attached (like save_message / transfer). The function explains if
  * SimPRO is not connected — do not claim success on failure.
+ *
+ * Bind caller_phone to caller_id (sent by mh-voice-router). Never send
+ * system__* ElevenLabs dynamic variables — EL rejects those names.
  *
  * Typing is applied by mergeToolCallTyping. Never put this shape on end_call.
  */
@@ -18,7 +21,7 @@ export function createSimproJobWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "Create a real SimPRO job ready to schedule. Use when the caller wants work done. Collect their name, the job site/address, and a short description first. Phone comes from caller ID — do not ask for it. Speak the job number only if the tool returns ok:true. If it fails or says SimPRO is not connected, say so and take a message — never pretend a job was created.",
+      "Create a real SimPRO lead for work the caller wants done. Collect their name, the site/address, and a short description first. Phone comes from caller ID — do not ask for it. Speak the lead number only if the tool returns ok:true. If it fails or says SimPRO is not connected, say so and take a message — never pretend a lead was created. Never look up or list other customers' leads.",
     response_timeout_secs: 45,
     api_schema: {
       kind: "webhook",
@@ -35,12 +38,12 @@ export function createSimproJobWebhookTool(functionUrl: string): Record<string, 
           },
           caller_phone: {
             type: "string",
-            dynamic_variable: "system__caller_id",
+            dynamic_variable: "caller_id",
             is_system_provided: false,
           },
           site_address: {
             type: "string",
-            description: "Job site street address, suburb and postcode if the caller gave them",
+            description: "Work site street address, suburb and postcode if the caller gave them",
             is_system_provided: false,
           },
           description: {
@@ -50,7 +53,7 @@ export function createSimproJobWebhookTool(functionUrl: string): Record<string, 
           },
           job_name: {
             type: "string",
-            description: "Optional short job title, e.g. Split system not cooling",
+            description: "Optional short lead title, e.g. Split system not cooling",
             is_system_provided: false,
           },
         },

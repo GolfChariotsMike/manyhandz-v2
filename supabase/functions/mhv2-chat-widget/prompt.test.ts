@@ -50,14 +50,17 @@ test("chat prompt never includes transfer, hang-up, caller ID, or a job-board du
   assert.match(prompt, /no call transfer or call connect/);
 });
 
-test("simpro create-job rule is default-on, honest on failure, and asks for a mobile", () => {
+test("simpro create-lead rule is default-on, honest on failure, and asks for a mobile", () => {
   const on = buildChatSystemPrompt(base);
   assert.match(on, /create_simpro_job/);
-  assert.match(on, /do not pretend a job was created/i);
-  assert.match(on, /Never look up, list, or read out other customers' jobs/);
+  assert.match(on, /SIMPRO LEADS/);
+  assert.match(on, /lead number/);
+  assert.match(on, /do not pretend a lead was created/i);
+  assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
   assert.match(on, /collect their name, mobile/);
+  assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildChatSystemPrompt({ ...base, capCreateSimproJob: false });
-  assert.match(off, /Do not create jobs in SimPRO/);
+  assert.match(off, /Do not create leads in SimPRO/);
   assert.doesNotMatch(off, /use the create_simpro_job tool/);
 });
 

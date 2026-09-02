@@ -226,6 +226,8 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.match(JSON.stringify(save), /mh-save-message\?customer_id=cust-1/);
   assert.match(JSON.stringify(transfer), /mh-customer-transfer\/transfer\?customer_id=cust-1/);
   assert.match(JSON.stringify(createJob), /mhv2-simpro-create-job\?customer_id=cust-1/);
+  assert.match(JSON.stringify(createJob), /lead number/i);
+  assert.equal(JSON.stringify(createJob).includes("system__"), false);
   assert.match(JSON.stringify(sendSms), /mh-send-sms\?customer_id=cust-1/);
   assert.equal(sendSms.tool_call_sound, "typing");
   assert.equal(agent.prompt.tools.some((t) => t.name === "send_signup_sms"), false);

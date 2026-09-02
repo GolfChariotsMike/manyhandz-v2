@@ -714,7 +714,7 @@ export default function Connections() {
       <div className="rounded-2xl border border-white/5 bg-white/3 p-5 text-white/40 text-sm space-y-2">
         <p className="font-medium text-white/60">What your AI can do with connected data:</p>
         <ul className="space-y-1 list-disc list-inside">
-          <li>Create a new SimPRO or ServiceM8 job from a phone call and confirm the job number</li>
+          <li>Create a new SimPRO lead or ServiceM8 job from a phone call or website chat and confirm the number</li>
           <li>Book a real calendar slot when Google or Outlook Calendar is connected</li>
           <li>Raise a Xero draft invoice — the office still approves it</li>
           <li>If a system is not connected, the agent takes a message — it never pretends a job, booking, or invoice was created</li>

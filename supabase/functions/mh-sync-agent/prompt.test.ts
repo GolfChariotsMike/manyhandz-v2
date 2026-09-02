@@ -44,14 +44,17 @@ test("hangup off keeps the live anything-else closer and omits the hangup rule",
   assert.match(prompt, /Always end with: "Is there anything else I can help you with\?"/);
 });
 
-test("simpro create-job rule is default-on and honest on failure", () => {
+test("simpro create-lead rule is default-on and honest on failure", () => {
   const on = buildSystemPrompt(base);
   assert.match(on, /create_simpro_job/);
-  assert.match(on, /do not pretend a job was created/i);
-  assert.match(on, /Never look up, list, or read out other customers' jobs/);
+  assert.match(on, /SIMPRO LEADS/);
+  assert.match(on, /lead number/);
+  assert.match(on, /do not pretend a lead was created/i);
+  assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
   assert.doesNotMatch(on, /lookup_jobs/);
+  assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildSystemPrompt({ ...base, capCreateSimproJob: false });
-  assert.match(off, /Do not create jobs in SimPRO/);
+  assert.match(off, /Do not create leads in SimPRO/);
   assert.doesNotMatch(off, /use the create_simpro_job tool/);
 });
 

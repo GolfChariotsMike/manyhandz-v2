@@ -78,9 +78,13 @@ test("parse helpers split AU address and names", () => {
 test("parseCreateJobInput requires name phone site description", () => {
   const miss = parseCreateJobInput({ caller_name: "Sam" }, CUST);
   assert.equal("ok" in miss && miss.ok === false, true);
+  if ("ok" in miss) assert.match(miss.error, /lead was created/);
   const ok = parseCreateJobInput(input, CUST);
   assert.equal("ok" in ok, false);
   assert.equal((ok as { caller_name: string }).caller_name, "Sam Glacier");
+  const alias = parseCreateJobInput({ ...input, lead_name: "AC not cooling" }, CUST);
+  assert.equal("ok" in alias, false);
+  assert.equal((alias as { job_name?: string }).job_name, "AC not cooling");
 });
 
 test("sanitizeSimproError redacts bearer tokens and secrets", () => {
@@ -139,23 +143,25 @@ test("createSimproJob fails clearly when SimPRO is not connected", async () => {
   if (result.ok) throw new Error("expected failure");
   assert.equal(result.code, "not_connected");
   assert.match(result.error, /not connected/i);
-  assert.match(result.error, /Do not claim a job was created/);
+  assert.match(result.error, /Do not claim a lead was created/);
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
   assert.equal(JSON.stringify(result).includes("live-token"), false);
 });
 
-test("createSimproJob happy path find-or-create customer/site then POST job", async () => {
+test("createSimproJob new customer find-or-create then POST lead not job", async () => {
   const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
   const { env, cached } = envFor({
     connection: conn,
     fetchImpl: async (inputUrl, init) => {
       const url = String(inputUrl);
       const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
       if (url.includes("/customers/") && method === "GET") {
         return Response.json([]);
       }
       if (url.includes("/customers/individuals/") && method === "POST") {
-        const body = JSON.parse(String(init?.body || "{}"));
         assert.equal(body.GivenName, "Sam");
         assert.equal(body.FamilyName, "Glacier");
         assert.equal(body.Phone, "+61411122333");
@@ -165,14 +171,20 @@ test("createSimproJob happy path find-or-create customer/site then POST job", as
       if (url.includes("/sites/") && method === "POST") {
         return Response.json({ ID: 44 }, { status: 201 });
       }
-      if (url.includes("/jobs/") && method === "POST") {
-        const body = JSON.parse(String(init?.body || "{}"));
-        assert.equal(body.Type, "Service");
+      if (url.includes("/leads/") && method === "POST") {
+        assert.equal(url.includes("/companies/0/leads/"), true);
         assert.equal(body.Customer, 88);
         assert.equal(body.Site, 44);
-        assert.equal(body.Stage, "Pending");
+        assert.equal(body.LeadName, "Split system not cooling");
+        assert.equal(body.Stage, "Open");
+        assert.equal(body.Type, undefined);
+        assert.equal(body.DateIssued, undefined);
+        assert.equal(body.Name, undefined);
         assert.match(body.Description, /Split system/);
         return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      if (url.includes("/jobs/") && method === "POST") {
+        return new Response("must not POST /jobs/", { status: 500 });
       }
       return new Response("unexpected " + method + " " + url, { status: 500 });
     },
@@ -181,13 +193,60 @@ test("createSimproJob happy path find-or-create customer/site then POST job", as
   const result = await createSimproJob(input, env);
   assert.equal(result.ok, true);
   if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "18421");
+  assert.equal(result.lead_id, "18421");
   assert.equal(result.job_number, "18421");
   assert.equal(result.customer_created, true);
   assert.equal(result.site_created, true);
-  assert.match(result.message, /18421/);
-  assert.equal((cached[0] as { job_number: string }).job_number, "18421");
+  assert.match(result.message, /lead 18421/);
+  assert.match(result.message, /lead number/);
+  assert.equal((cached[0] as { job_number: string; status: string }).job_number, "18421");
+  assert.equal((cached[0] as { status: string }).status, "Open");
+  assert.equal(posted.some((c) => c.method === "POST" && c.url.includes("/jobs/")), false);
+  assert.equal(posted.some((c) => c.method === "POST" && c.url.includes("/leads/")), true);
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
   assert.equal(JSON.stringify(result).includes("live-token"), false);
+});
+
+test("createSimproJob existing customer still POSTs a lead not a job", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("/customers/") && method === "GET") {
+        if (url.includes("Phone=")) assert.match(url, /411122333/);
+        return Response.json([{ ID: 9, Phone: "0411122333" }]);
+      }
+      if ((url.includes("/sites") || url.includes("/customers/9/sites")) && method === "GET") {
+        return Response.json([{ ID: 3, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        const body = JSON.parse(String(init?.body || "{}"));
+        assert.equal(body.Customer, 9);
+        assert.equal(body.Site, 3);
+        assert.equal(body.Stage, "Open");
+        assert.equal(body.Type, undefined);
+        return Response.json({ ID: 9901 }, { status: 201 });
+      }
+      if (url.includes("/jobs/")) {
+        return new Response("must not touch /jobs/", { status: 500 });
+      }
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob(input, env);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "9901");
+  assert.equal(result.customer_created, false);
+  assert.equal(result.site_created, false);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/leads/")), true);
+  assert.equal(posted.some((c) => c.includes("/jobs/")), false);
 });
 
 test("createSimproJob returns a clear failure on SimPRO API error", async () => {
@@ -203,11 +262,14 @@ test("createSimproJob returns a clear failure on SimPRO API error", async () => 
       if ((url.includes("/sites") || url.includes("/customers/9/sites")) && method === "GET") {
         return Response.json([{ ID: 3, Name: "12 Frost St" }]);
       }
-      if (url.includes("/jobs/") && method === "POST") {
+      if (url.includes("/leads/") && method === "POST") {
         return new Response(
           JSON.stringify({ errors: [{ message: "Site is required" }] }) + " Bearer leaked-token-value client_secret=nope",
           { status: 422 },
         );
+      }
+      if (url.includes("/jobs/") && method === "POST") {
+        return new Response("must not POST /jobs/", { status: 500 });
       }
       return Response.json([]);
     },
@@ -217,9 +279,19 @@ test("createSimproJob returns a clear failure on SimPRO API error", async () => 
   assert.equal(result.ok, false);
   if (result.ok) throw new Error("expected failure");
   assert.equal(result.code, "simpro_error");
-  assert.match(result.error, /Do not claim a job was created/);
+  assert.match(result.error, /Do not claim a lead was created/);
   assert.equal(result.error.includes("leaked-token-value"), false);
   assert.equal(result.error.includes("nope"), false);
+});
+
+test("create source POSTs /leads/ and never /jobs/", async () => {
+  const src = await readFile(new URL("./create.ts", import.meta.url), "utf8");
+  assert.match(src, /\/leads\//);
+  assert.match(src, /LeadName/);
+  assert.doesNotMatch(src, /\/jobs\//);
+  assert.doesNotMatch(src, /Type:\s*"Service"/);
+  assert.doesNotMatch(src, /DateIssued/);
+  assert.doesNotMatch(src, /Stage:\s*"Pending"/);
 });
 
 test("encrypt/decrypt matches the live connect wrap and index has no secrets", async () => {

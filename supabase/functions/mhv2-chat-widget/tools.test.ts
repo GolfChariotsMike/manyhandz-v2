@@ -55,6 +55,8 @@ test("chat tools are save_message + create_simpro_job + send_sms when caps are o
   assert.ok(create);
   assert.match(create.description, /find-or-create/i);
   assert.match(create.description, /no caller ID/i);
+  assert.match(create.description, /lead number/i);
+  assert.match(create.description, /never pretend a lead was created/i);
   assert.ok(create.input_schema.required?.includes("caller_phone"));
 });
 
@@ -76,10 +78,12 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
       seen = input;
       return {
         ok: true,
+        lead_number: "4421",
+        lead_id: "4421",
         job_number: "4421",
         customer_created: true,
         site_created: true,
-        message: "Created SimPRO job 4421. Tell the caller this job number.",
+        message: "Created SimPRO lead 4421. Tell the caller this lead number.",
       };
     },
     handleSaveMessage: async () => ({ success: true, notified: true }),
@@ -93,6 +97,7 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
   }, ctx);
   const result = JSON.parse(raw);
   assert.equal(result.ok, true);
+  assert.equal(result.lead_number, "4421");
   assert.equal(result.job_number, "4421");
   assert.deepEqual(seen, {
     customer_id: CUST,
@@ -109,7 +114,7 @@ test("executeChatTool refuses create_simpro_job without name phone site descript
   const ctx = stubCtx({
     createSimproJob: async () => {
       called = true;
-      return { ok: true, job_number: "1", customer_created: false, site_created: false, message: "x" };
+      return { ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" };
     },
     handleSaveMessage: async () => ({ success: true, notified: true }),
     handleSendSms: async () => ({ success: true, sid: "SM1" }),
@@ -153,7 +158,7 @@ test("executeChatTool save_message and send_sms use the phone handlers", async (
 
 test("unknown tools and lookup_jobs do not invent success", async () => {
   const ctx = stubCtx({
-    createSimproJob: async () => ({ ok: true, job_number: "1", customer_created: false, site_created: false, message: "x" }),
+    createSimproJob: async () => ({ ok: true, lead_number: "1", lead_id: "1", job_number: "1", customer_created: false, site_created: false, message: "x" }),
     handleSaveMessage: async () => ({ success: true, notified: true }),
     handleSendSms: async () => ({ success: true, sid: "SM1" }),
   });
