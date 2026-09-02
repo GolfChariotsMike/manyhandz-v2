@@ -49,6 +49,11 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   assert.match(on, /create_simpro_job/);
   assert.match(on, /SIMPRO LEADS/);
   assert.match(on, /lead number/);
+  assert.match(on, /used the company before/);
+  assert.match(on, /Existing customers: collect only a short description/);
+  assert.match(on, /Do not interrogate name or full site address/);
+  assert.match(on, /New customers: collect name, site\/address/);
+  assert.match(on, /no SimPRO match/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /Never look up, list, or read out other customers' leads or jobs/);
   assert.doesNotMatch(on, /lookup_jobs/);

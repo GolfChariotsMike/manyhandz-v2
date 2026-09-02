@@ -89,7 +89,7 @@ export function buildChatSystemPrompt(data: ChatPromptInput): string {
     : "";
 
   const simproJobRule = capCreateSimproJob
-    ? `- SIMPRO LEADS: When a visitor wants work done, collect their name, mobile, the site/address, and a short description. Then use the create_simpro_job tool. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a visitor wants work done, always collect their mobile first (there is no caller ID). Then briefly check if they have used the company before. If that mobile matches an existing customer, collect only a short description — skip name and full site address unless they volunteer a different address or mention more than one site. New customers: collect name, mobile, site/address, and a short description. Then use the create_simpro_job tool. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. Never pretend a lead was created. If the tool returns a lead number, tell them clearly. If the tool fails or says SimPRO is not connected, take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const capabilitySection =
@@ -115,7 +115,7 @@ YOUR ROLE:
 - Never look up, list, or read out other customers' leads or jobs
 
 VISITOR CONTACT:
-You do not have caller ID. Ask for a name and mobile when you need to create a lead, send an SMS, or leave a message.
+You do not have caller ID. Always ask for a mobile first when you need to create a lead, send an SMS, or leave a message. Skip name and full site address when that mobile matches an existing customer.
 
 CHAT HANDLING:
 - Keep replies short and friendly

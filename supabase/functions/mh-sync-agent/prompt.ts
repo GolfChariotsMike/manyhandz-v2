@@ -122,7 +122,7 @@ export function buildSystemPrompt(data: PromptInput): string {
 
   const createJobOn = capCreateSimproJob ?? true;
   const simproJobRule = createJobOn
-    ? `- SIMPRO LEADS: When a caller wants work done, collect their name, the site/address, and a short description (phone comes from caller ID). Then use the create_simpro_job tool. If the tool returns a lead number, speak it clearly. If the tool fails or says SimPRO is not connected, do not pretend a lead was created — take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
+    ? `- SIMPRO LEADS: When a caller wants work done, briefly check if they have used the company before — or treat caller ID as enough. Phone comes from caller ID; do not ask for it. Existing customers: collect only a short description of the work, then use create_simpro_job. Do not interrogate name or full site address. Optionally confirm the site if they volunteer a different address or mention more than one site. New customers: collect name, site/address, and a short description, then use create_simpro_job. If they say they are existing but the tool fails or asks for name and address (no SimPRO match), honestly ask for those and try again. Never pretend a lead was created. If the tool returns a lead number, speak it clearly. If it fails or says SimPRO is not connected, take a message and say the team will set the lead up. Never look up, list, or read out other customers' leads or jobs.`
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
 
   const servicem8JobRule = capCreateServicem8Job && servicem8Connected

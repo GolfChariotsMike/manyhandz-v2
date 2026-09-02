@@ -27,8 +27,10 @@ export type SimproConnection = {
 
 export type CreateJobInput = {
   customer_id: string;
+  /** Optional when caller_phone matches an existing SimPRO customer. */
   caller_name: string;
   caller_phone: string;
+  /** Optional when the matched customer already has a site. */
   site_address: string;
   description: string;
   job_name?: string;
@@ -138,12 +140,12 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const description = String(src.description || src.message || src.work || "").trim();
   const job_name = String(src.job_name || src.lead_name || src.title || "").trim();
   const cid = String(customerId || src.customer_id || "").trim();
-  if (!cid || !caller_name || !caller_phone || !site_address || !description) {
+  if (!cid || !caller_phone || !description) {
     return {
       ok: false,
       code: "missing_fields",
       error:
-        "Need the caller's name, phone, site address, and a description of the work. Do not claim a lead was created.",
+        "Need the caller's phone and a description of the work. Do not claim a lead was created.",
     };
   }
   return {
@@ -289,13 +291,23 @@ function phoneMatches(recordPhone: unknown, callerDigits: string): boolean {
   return a === b || got.endsWith(b) || callerDigits.endsWith(a);
 }
 
+export function customerDisplayName(row: Record<string, unknown>): string {
+  const given = String(row.GivenName || "").trim();
+  const family = String(row.FamilyName || "").trim();
+  const company = String(row.CompanyName || "").trim();
+  return [given, family].filter(Boolean).join(" ") || company;
+}
+
+type FoundCustomer = { id: number; name: string };
+
+/** Last-9 phone match against SimPRO customers. Name search is a fallback only. */
 async function findCustomerId(
   env: CreateJobEnv,
   conn: SimproConnection,
   token: string,
   phone: string,
   name: string,
-): Promise<number | null> {
+): Promise<FoundCustomer | null> {
   const base = apiBase(conn);
   const digits = digitsOnly(phone);
   const suffix = digits.slice(-9);
@@ -308,8 +320,8 @@ async function findCustomerId(
     const res = await simproJson(env, token, url);
     if (!res.ok || !Array.isArray(res.data)) continue;
     const match = (res.data as Array<Record<string, unknown>>).find((row) => phoneMatches(row.Phone, digits));
-    if (match?.ID != null) return Number(match.ID);
-    if (match?.id != null) return Number(match.id);
+    const id = Number(match?.ID ?? match?.id);
+    if (id) return { id, name: customerDisplayName(match || {}) };
   }
   return null;
 }
@@ -360,9 +372,11 @@ async function findSiteId(
     if (!items.length) continue;
     const match = items.find((row) => {
       const hay = JSON.stringify(row.Address || row.Name || "").toLowerCase();
-      return needle && hay.includes(needle.slice(0, 12));
+      return Boolean(needle) && hay.includes(needle.slice(0, 12));
     });
-    const pick = match || items[0];
+    // Empty site_address → reuse the first existing site. A provided address
+    // that does not match must create a new site (do not silently reuse).
+    const pick = match || (!needle ? items[0] : undefined);
     const id = Number(pick?.ID ?? pick?.id);
     if (id) return id;
   }
@@ -475,19 +489,41 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
 
     // Mike/Nick: unknown callers get a new SimPRO customer + site, then a Lead.
     // Existing last-9 phone match is reused; a new Lead is still always created.
-    let simproCustomerId = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
-    if (!simproCustomerId) {
+    const found = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
+    let simproCustomerId: number;
+    let callerName = input.caller_name;
+    if (found) {
+      simproCustomerId = found.id;
+      if (!callerName) callerName = found.name;
+    } else {
+      if (!input.caller_name || !input.site_address) {
+        return {
+          ok: false,
+          code: "missing_fields",
+          error:
+            "This phone is not on file in SimPRO. Need the caller's name and site address to create a new customer. Do not claim a lead was created.",
+        };
+      }
       simproCustomerId = await createCustomer(env, conn, token, input.caller_name, input.caller_phone);
       customerCreated = true;
     }
 
     let siteId = await findSiteId(env, conn, token, simproCustomerId, input.site_address);
     if (!siteId) {
+      if (!input.site_address) {
+        return {
+          ok: false,
+          code: "missing_fields",
+          error:
+            "Need the work site address — this customer has no site on file. Do not claim a lead was created.",
+        };
+      }
       siteId = await createSite(env, conn, token, simproCustomerId, input.site_address);
       siteCreated = true;
     }
 
-    const leadNumber = await postLead(env, conn, token, input, simproCustomerId, siteId);
+    const resolved: CreateJobInput = { ...input, caller_name: callerName || found?.name || "Customer" };
+    const leadNumber = await postLead(env, conn, token, resolved, simproCustomerId, siteId);
 
     if (env.cacheJob) {
       await env.cacheJob({
@@ -498,7 +534,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
         job_number: leadNumber,
         title: (input.job_name || input.description).slice(0, 120),
         status: "Open",
-        customer_name: input.caller_name,
+        customer_name: resolved.caller_name,
         customer_phone: input.caller_phone,
         site_address: input.site_address,
         description: input.description,
