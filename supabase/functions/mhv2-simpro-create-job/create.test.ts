@@ -202,8 +202,14 @@ test("createSimproJob new customer find-or-create then POST lead not job", async
   assert.match(result.message, /lead number/);
   assert.equal((cached[0] as { job_number: string; status: string }).job_number, "18421");
   assert.equal((cached[0] as { status: string }).status, "Open");
-  assert.equal(posted.some((c) => c.method === "POST" && c.url.includes("/jobs/")), false);
-  assert.equal(posted.some((c) => c.method === "POST" && c.url.includes("/leads/")), true);
+  const methods = posted.filter((c) => c.method === "POST").map((c) => c.url);
+  assert.equal(methods.some((u) => u.includes("/customers/individuals/")), true, "unknown caller must create a SimPRO customer");
+  assert.equal(methods.some((u) => u.includes("/sites/")), true, "unknown caller must create a site");
+  assert.equal(methods.some((u) => u.includes("/leads/")), true);
+  assert.equal(methods.some((u) => u.includes("/jobs/")), false);
+  const customerAt = methods.findIndex((u) => u.includes("/customers/individuals/"));
+  const leadAt = methods.findIndex((u) => u.includes("/leads/"));
+  assert.equal(customerAt >= 0 && customerAt < leadAt, true, "customer create must happen before the lead POST");
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
   assert.equal(JSON.stringify(result).includes("live-token"), false);
 });
@@ -245,8 +251,51 @@ test("createSimproJob existing customer still POSTs a lead not a job", async () 
   assert.equal(result.lead_number, "9901");
   assert.equal(result.customer_created, false);
   assert.equal(result.site_created, false);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/")), false);
   assert.equal(posted.some((c) => c.includes("POST") && c.includes("/leads/")), true);
   assert.equal(posted.some((c) => c.includes("/jobs/")), false);
+});
+
+test("createSimproJob existing customer with no site still creates site then a new lead", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("/sites") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/") && method === "GET") {
+        return Response.json([{ ID: 9, Phone: "0411122333" }]);
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return Response.json({ ID: 55 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        const body = JSON.parse(String(init?.body || "{}"));
+        assert.equal(body.Customer, 9);
+        assert.equal(body.Site, 55);
+        return Response.json({ ID: 7702 }, { status: 201 });
+      }
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        return new Response("must not create a second customer", { status: 500 });
+      }
+      if (url.includes("/jobs/")) {
+        return new Response("must not touch /jobs/", { status: 500 });
+      }
+      return Response.json([]);
+    },
+  });
+
+  const result = await createSimproJob(input, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.customer_created, false);
+  assert.equal(result.site_created, true);
+  assert.equal(result.lead_number, "7702");
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/customers/individuals/")), false);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/sites/")), true);
+  assert.equal(posted.some((c) => c.includes("POST") && c.includes("/leads/")), true);
 });
 
 test("createSimproJob returns a clear failure on SimPRO API error", async () => {

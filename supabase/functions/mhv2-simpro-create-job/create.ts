@@ -473,6 +473,8 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
     let customerCreated = false;
     let siteCreated = false;
 
+    // Mike/Nick: unknown callers get a new SimPRO customer + site, then a Lead.
+    // Existing last-9 phone match is reused; a new Lead is still always created.
     let simproCustomerId = await findCustomerId(env, conn, token, input.caller_phone, input.caller_name);
     if (!simproCustomerId) {
       simproCustomerId = await createCustomer(env, conn, token, input.caller_name, input.caller_phone);
