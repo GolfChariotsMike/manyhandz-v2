@@ -1254,7 +1254,7 @@ async function createSite(
     const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
     logSiteAttempt(env, "POST", sitesUrl, res);
     lastText = res.text || lastText;
-    if (!res.ok) continue;
+    if (res.status !== 201) continue;
     const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
     if (id) return id;
   }
@@ -1264,7 +1264,7 @@ async function createSite(
     const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
     logSiteAttempt(env, "POST", sitesUrl, res);
     lastText = res.text || lastText;
-    if (!res.ok) continue;
+    if (res.status !== 201) continue;
     const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
     if (!id) continue;
     orphanId = id;
@@ -1279,7 +1279,7 @@ async function createSite(
       const res = await simproJson(env, token, url, { method: "POST", body });
       logSiteAttempt(env, "POST", url, res);
       lastText = res.text || lastText;
-      if (!res.ok) continue;
+      if (res.status !== 201) continue;
       const id = await recoverCreatedSiteId(env, conn, token, customerId, siteAddress, res);
       if (id) return id;
     }

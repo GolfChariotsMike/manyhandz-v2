@@ -1574,7 +1574,7 @@ test("createSimproJob extra site on 4708 POSTs /sites/ + Customers array then Op
   assert.equal(posted.some((c) => c.method === "POST" && isUntypedCustomerSitesUrl(String(c.url))), false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/") && String(c.url).includes("/sites")), false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/") && !String(c.url).includes("/sites")), false);
-  assert.equal(logs.some((l) => /OPTIONS/.test(l) && /\/sites\//.test(l)), true);
+  assert.equal(logs.some((l) => /OPTIONS/.test(l) && /\/sites\//.test(l) && /Allow=GET, POST, PATCH, OPTIONS/.test(l)), true);
   assert.equal(logs.some((l) => /POST/.test(l) && /\/sites\//.test(l) && /status=201/.test(l)), true);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
   assert.equal(posted.some((c) => String(c.url).includes("/jobs/")), false);
