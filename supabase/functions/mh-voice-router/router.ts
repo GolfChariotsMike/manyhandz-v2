@@ -80,8 +80,9 @@ export function registerCallBody(agentId: string, callerId: string, to: string):
     to_number: to,
     direction: "inbound",
     conversation_initiation_client_data: {
+      // EL rejects any dynamic variable name starting with system__.
       dynamic_variables: {
-        system__caller_id: callerId,
+        caller_id: callerId,
       },
     },
   };

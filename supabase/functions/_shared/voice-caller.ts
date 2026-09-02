@@ -3,7 +3,8 @@
  *
  * Use Twilio From as caller_id unless that number is the customer's own
  * Twilio line (the business number). Then use ForwardedFrom / "forwarded via".
- * Never pass the business line into ElevenLabs system__caller_id.
+ * Never pass the business line into ElevenLabs from_number or caller_id.
+ * Do not send system__* dynamic variables — ElevenLabs rejects those names.
  */
 
 import { phoneLookupVariants } from "./sms-send.ts";
