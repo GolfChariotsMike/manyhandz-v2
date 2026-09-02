@@ -8,7 +8,9 @@ import {
   customerNameMatches,
   decryptSecret,
   encryptSecret,
+  formatSimproAddress,
   formatSimproSite,
+  formatSpokenSiteChoices,
   getAccessToken,
   idFromLocation,
   inferCompanyName,
@@ -17,6 +19,7 @@ import {
   parseLookupCustomerInput,
   parseSiteAddress,
   personNameFromSpoken,
+  siteSpokenLabel,
   resolveSiteContactPerson,
   resourceId,
   sanitizeSimproError,
@@ -794,6 +797,11 @@ test("lookupSimproCustomer phone hit returns customer + sites and creates nothin
   assert.equal(result.sites[0].id, 3);
   assert.match(result.sites[0].address, /12 Frost St/);
   assert.match(result.message, /which site/i);
+  assert.match(result.message, /12 Frost St/);
+  assert.match(result.message, /88 Ice Ave/);
+  assert.doesNotMatch(result.message, /site_id 3/);
+  assert.doesNotMatch(result.message, /1\. Site/);
+  assert.equal(posted.some((c) => c.includes("columns=") && c.includes("/sites")), true);
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
   assert.equal(posted.some((c) => c.includes("/jobs/")), false);
   assert.equal(posted.some((c) => c.includes("/leads/")), false);
@@ -859,6 +867,235 @@ test("lookupSimproCustomer miss creates nothing", async () => {
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
 });
 
+test("lookupSimproCustomer maps nested Address sites for Micycle and never lists company-wide IDs", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const companyWide = Array.from({ length: 50 }, (_, i) => ({ ID: i + 1, Name: "Site" }));
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("Phone=")) {
+        return Response.json([{
+          ID: 88,
+          Phone: "0433121933",
+          GivenName: "Micycle",
+          FamilyName: "Kerr",
+        }]);
+      }
+      if (url.includes("/customers/88/sites/") && method === "GET") {
+        assert.match(url, /columns=/);
+        assert.match(url, /ID,Name,Address/);
+        return Response.json([
+          {
+            ID: 101,
+            Name: "Site",
+            Address: { Address: "37 Derictoe Way", City: "Greenwood", State: "WA", PostalCode: "6024" },
+            Customer: { ID: 88 },
+          },
+          {
+            ID: 102,
+            Name: "67 Mars Street",
+            Address: { Address: "67 Mars Street", City: "Malaga" },
+            Customer: { ID: 88 },
+          },
+          {
+            ID: 103,
+            Name: "Site",
+            Address: { Address: "12 Test Ave", City: "Osborne Park" },
+            Customer: { ID: 88 },
+          },
+        ]);
+      }
+      if (url.includes("/sites/") && method === "GET" && !url.includes("/customers/")) {
+        return Response.json(companyWide);
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      if (url.includes("/jobs/")) return new Response("must not list jobs", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected Micycle hit");
+  assert.equal(result.customer.name, "Micycle Kerr");
+  assert.equal(result.sites.length, 3);
+  assert.equal(result.need_site_choice, true);
+  assert.match(result.sites[0].address, /37 Derictoe Way/);
+  assert.match(result.sites[0].address, /Greenwood/);
+  assert.equal(result.sites[0].name, "37 Derictoe Way");
+  assert.match(result.sites[1].address, /67 Mars Street/);
+  assert.match(result.message, /37 Derictoe Way/);
+  assert.match(result.message, /67 Mars Street/);
+  assert.doesNotMatch(result.message, /site_id \d+/);
+  assert.doesNotMatch(result.message, /1\. Site/);
+  assert.equal(result.sites.some((s) => s.name === "Site" && !s.address), false);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+  assert.equal(posted.some((c) => c.includes("/jobs/")), false);
+});
+
+test("lookupSimproCustomer hydrates ID-only customer sites via nested Address retrieve", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("Phone=")) {
+        return Response.json([{ ID: 88, Phone: "0433121933", GivenName: "Micycle", FamilyName: "Kerr" }]);
+      }
+      if (url.includes("/customers/88/sites/") && method === "GET" && !/\/sites\/\d+/.test(url)) {
+        return Response.json([{ ID: 101 }, { ID: 102 }]);
+      }
+      if ((url.endsWith("/sites/101") || url.endsWith("/sites/101/")) && method === "GET") {
+        return Response.json({
+          ID: 101,
+          Name: "Site",
+          Address: { Address: "37 Derictoe Way", City: "Greenwood", State: "WA", PostalCode: "6024" },
+        });
+      }
+      if ((url.endsWith("/sites/102") || url.endsWith("/sites/102/")) && method === "GET") {
+        return Response.json({
+          ID: 102,
+          Name: "Site",
+          Address: { Address: "67 Mars Street", City: "Malaga" },
+        });
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected hydrate hit");
+  assert.equal(result.sites.length, 2);
+  assert.match(result.sites[0].address, /37 Derictoe Way/);
+  assert.match(result.sites[1].address, /67 Mars Street/);
+  assert.match(result.message, /37 Derictoe or 67 Mars|37 Derictoe Way/);
+  assert.doesNotMatch(result.message, /site_id \d+/);
+  assert.equal(posted.some((c) => /GET .*\/sites\/101/.test(c)), true);
+});
+
+test("lookupSimproCustomer discards company-wide ID-only site dumps", async () => {
+  const conn = await connected();
+  const posted: string[] = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      posted.push(`${method} ${url}`);
+      if (url.includes("Phone=")) {
+        return Response.json([{ ID: 88, Phone: "0433121933", CompanyName: "Micycle" }]);
+      }
+      if (url.includes("/customers/") && url.includes("/sites") && method === "GET") {
+        return new Response("not found", { status: 404 });
+      }
+      if (url.includes("/sites/") && method === "GET") {
+        return Response.json(Array.from({ length: 50 }, (_, i) => ({ ID: i + 1, Name: "Site" })));
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61433121933",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected phone hit");
+  assert.equal(result.sites.length, 0);
+  assert.equal(result.need_site_choice, false);
+  assert.match(result.message, /street|site/i);
+  assert.doesNotMatch(result.message, /1\. Site \(site_id 1\)/);
+  assert.equal(posted.some((c) => c.startsWith("POST")), false);
+});
+
+test("lookupSimproCustomer one readable site confirms the street and does not ask for an ID", async () => {
+  const conn = await connected();
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      if (url.includes("Phone=")) {
+        return Response.json([{ ID: 9, Phone: "0411122333", GivenName: "Sam", FamilyName: "Glacier" }]);
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{
+          ID: 3,
+          Name: "Site",
+          Address: { Address: "12 Frost St", City: "Malaga", State: "WA", PostalCode: "6090" },
+        }]);
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61411122333",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected one site");
+  assert.equal(result.need_site_choice, false);
+  assert.equal(result.sites.length, 1);
+  assert.match(result.sites[0].address, /12 Frost St/);
+  assert.match(result.message, /Confirm the street 12 Frost St/);
+  assert.match(result.message, /do not ask for a site ID/i);
+  assert.doesNotMatch(result.message, /site_id 3/);
+});
+
+test("lookupSimproCustomer many sites asks for street or suburb instead of reading IDs", async () => {
+  const conn = await connected();
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      if (url.includes("Phone=")) {
+        return Response.json([{ ID: 9, Phone: "0411122333", GivenName: "Sam", FamilyName: "Glacier" }]);
+      }
+      if (url.includes("/customers/9/sites/") && method === "GET") {
+        return Response.json(Array.from({ length: 6 }, (_, i) => ({
+          ID: 200 + i,
+          Name: `${10 + i} Frost St`,
+          Address: { Address: `${10 + i} Frost St`, City: "Malaga" },
+          Customer: { ID: 9 },
+        })));
+      }
+      if (method === "POST") return new Response("lookup must not create", { status: 500 });
+      return Response.json([]);
+    },
+  });
+
+  const result = await lookupSimproCustomer({
+    customer_id: CUST,
+    caller_phone: "+61411122333",
+  }, env);
+  assert.equal(result.ok, true);
+  if (!result.ok || !result.found || !("customer" in result)) throw new Error("expected many sites");
+  assert.equal(result.sites.length, 6);
+  assert.equal(result.need_site_choice, true);
+  assert.match(result.message, /street or suburb/i);
+  assert.doesNotMatch(result.message, /site_id \d+/);
+  assert.doesNotMatch(result.message, /1\. /);
+});
+
 test("customerNameMatches and formatSimproSite help the picker", () => {
   assert.equal(customerNameMatches({ CompanyName: "Woolies Pty Ltd" }, "Woolies"), true);
   assert.equal(customerNameMatches({ GivenName: "Sam", FamilyName: "Glacier" }, "Sam Glacier"), true);
@@ -873,6 +1110,30 @@ test("customerNameMatches and formatSimproSite help the picker", () => {
     name: "12 Frost St",
     address: "12 Frost St, Malaga, WA, 6090",
   });
+});
+
+test("formatSimproSite maps nested SimPRO Address and never returns empty Site + id-only", () => {
+  const nested = formatSimproSite({
+    ID: 166,
+    Name: "Site",
+    Address: { Address: "37 Derictoe Way", City: "Greenwood", State: "WA", PostalCode: "6024" },
+  });
+  assert.deepEqual(nested, {
+    id: 166,
+    name: "37 Derictoe Way",
+    address: "37 Derictoe Way, Greenwood, WA, 6024",
+  });
+  assert.equal(siteSpokenLabel(nested!), "37 Derictoe Way, Greenwood");
+  assert.equal(formatSimproAddress({
+    Address: "67 Mars Street",
+    City: "Malaga",
+  }), "67 Mars Street, Malaga");
+  assert.equal(formatSimproSite({ ID: 1 }), null);
+  assert.equal(formatSimproSite({ ID: 2, Name: "Site", Address: "" }), null);
+  assert.equal(formatSpokenSiteChoices([
+    { name: "Site", address: "37 Derictoe Way, Greenwood" },
+    { name: "67 Mars Street", address: "67 Mars Street" },
+  ]), "37 Derictoe Way, Greenwood or 67 Mars Street");
 });
 
 test("createSimproJob multiple sites and no pick asks which site", async () => {
@@ -910,8 +1171,11 @@ test("createSimproJob multiple sites and no pick asks which site", async () => {
   assert.equal(result.code, "need_site_choice");
   assert.equal(result.simpro_customer_id, 9);
   assert.equal(result.sites?.length, 2);
-  assert.match(result.error, /site_id 3/);
+  assert.match(result.error, /12 Frost St/);
+  assert.match(result.error, /88 Ice Ave/);
   assert.match(result.error, /which site/i);
+  assert.doesNotMatch(result.error, /site_id 3/);
+  assert.doesNotMatch(result.error, /1\. Site/);
   assert.equal(posted.some((c) => c.includes("POST")), false);
 });
 

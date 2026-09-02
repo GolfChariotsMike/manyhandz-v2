@@ -47,7 +47,9 @@ test("lookup_simpro_customer never creates, never lists jobs, never sends system
   assert.match(created.description, /never creates/i);
   assert.match(created.description, /never lists jobs/i);
   assert.match(created.description, /used the company before/i);
-  assert.match(created.description, /which site/i);
+  assert.match(created.description, /which street/i);
+  assert.match(created.description, /37 Derictoe or 67 Mars/);
+  assert.match(created.description, /never site IDs/i);
   assert.match(created.description, /simpro_customer_id/);
   assert.match(created.description, /site_id/);
   assert.doesNotMatch(created.description, /lookup_jobs/);
