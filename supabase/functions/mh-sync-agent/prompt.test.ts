@@ -141,6 +141,19 @@ test("empty system_prompt includes the composed live prompt with SimPRO rules", 
   assert.equal(buildSystemPrompt(base), composed);
   assert.equal(buildSystemPrompt({ ...base, systemPrompt: "   " }), composed);
   assert.equal(operatorPromptOverride(""), "");
+  const leftover = `You are Charlie, the AI receptionist for AI Agent.
+
+ABOUT US:
+We are AI Agent.
+
+BUSINESS HOURS:
+Hours not specified.
+
+YOUR ROLE:
+- Answer calls warm and friendly`.repeat(3);
+  assert.equal(leftover.length < 800, true);
+  assert.equal(operatorPromptOverride(leftover), "");
+  assert.equal(buildSystemPrompt({ ...base, systemPrompt: leftover }), composed);
   assert.match(composed, /lookup_simpro_customer/);
   assert.match(composed, /SITE CONTACT/);
   assert.match(composed, /who'?s the site contact at the site/);

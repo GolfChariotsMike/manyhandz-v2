@@ -43,9 +43,22 @@ export type PromptInput = {
   systemPrompt?: string | null;
 };
 
+const GENERIC_PROMPT_LEFTOVER_MAX = 800;
+
+/** Provisioning stubs like “AI receptionist for AI Agent” must not beat compose. */
+export function isGenericPromptLeftover(raw: unknown): boolean {
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text || text.length > GENERIC_PROMPT_LEFTOVER_MAX) return false;
+  if (/lookup_simpro_customer|create_simpro_job|SIMPRO LEADS/i.test(text)) return false;
+  if (/AI (?:receptionist|assistant) for AI Agent/i.test(text)) return true;
+  return /^You are .+,\s*the AI receptionist for .+/i.test(text) && /ABOUT US:/.test(text);
+}
+
 /** Trimmed operator prompt, or "" so callers can compose instead. */
 export function operatorPromptOverride(raw: unknown): string {
-  return typeof raw === "string" ? raw.trim() : "";
+  const text = typeof raw === "string" ? raw.trim() : "";
+  if (!text || isGenericPromptLeftover(text)) return "";
+  return text;
 }
 
 export function servicesFromUnknown(raw: unknown): string[] {

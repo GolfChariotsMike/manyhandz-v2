@@ -70,6 +70,21 @@ test("empty system_prompt loads the same composed live prompt the phone builder 
   assert.doesNotMatch(live, /lookup_jobs/);
 });
 
+test("short generic AI Agent leftover composes instead of overwriting Charlie", () => {
+  const leftover = `You are Charlie, the AI receptionist for AI Agent.
+
+ABOUT US:
+We are AI Agent.
+
+YOUR ROLE:
+- Answer calls warm and friendly`;
+  const live = liveAiPromptFromRows({ ...rows, systemPrompt: leftover });
+  const composed = composeSystemPrompt(phoneInput);
+  assert.equal(live, composed);
+  assert.match(live, /lookup_simpro_customer/);
+  assert.doesNotMatch(live, /AI receptionist for AI Agent/);
+});
+
 test("operator system_prompt overrides compose and is not concatenated onto it", () => {
   const override = "Always mention Malaga. Be extra brief.";
   const live = liveAiPromptFromRows({ ...rows, systemPrompt: `  ${override}  ` });
