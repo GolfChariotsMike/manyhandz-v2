@@ -19,7 +19,11 @@ export function bookingConfirmMustCreateRule(): string {
   return `- BOOKING CONFIRM: When they confirm they want to book / say "yes please", you MUST call create_simpro_job in that turn with the collected fields (name, phone, site, description including any quote). Do not use save_message as the only close when SimPRO create is enabled.`;
 }
 
+export function siteContactRule(): string {
+  return `- SITE CONTACT: For a private / individual customer the person booking is the site contact — never ask for a separate site contact; pass their name and phone (site_contact_name / site_contact_phone, or caller_name / caller_phone). For a company booking you need a person's name as the site contact. If they already gave a human name (e.g. "Jane from Woolies", or their name plus a company), use that — do not ask again. If you only have a company name, ask "who's the site contact at the site?" before calling create_simpro_job. Do not ask whether they are a company or an individual.`;
+}
+
 /** Appended to SIMPRO LEADS when create_simpro_job is enabled. */
 export function simproHonestyAddon(channel: "chat" | "voice"): string {
-  return `${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}`;
+  return `${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}`;
 }

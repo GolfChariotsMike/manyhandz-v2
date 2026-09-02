@@ -32,7 +32,11 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
       url: string;
       request_body_schema: {
         required?: string[];
-        properties: { caller_phone: { dynamic_variable?: string } };
+        properties: {
+          caller_phone: { dynamic_variable?: string };
+          site_contact_name?: { type?: string };
+          site_contact_phone?: { type?: string };
+        };
       };
     };
   };
@@ -44,8 +48,13 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
   assert.match(created.description, /do not use send_sms to notify the office/i);
   assert.match(created.description, /yes please/i);
   assert.match(created.description, /save_message as the only close/i);
+  assert.match(created.description, /site contact/i);
+  assert.match(created.description, /Jane from Woolies/);
+  assert.match(created.description, /do not ask for a separate one/i);
   assert.doesNotMatch(created.description, /job number/i);
   assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
+  assert.equal(created.api_schema.request_body_schema.properties.site_contact_name?.type, "string");
+  assert.equal(created.api_schema.request_body_schema.properties.site_contact_phone?.type, "string");
   assert.deepEqual(created.api_schema.request_body_schema.required, ["caller_phone", "description"]);
   assert.equal(JSON.stringify(created).includes("system__"), false);
   assert.match(created.api_schema.url, /mhv2-simpro-create-job\?customer_id=cust-1/);

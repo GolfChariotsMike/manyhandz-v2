@@ -61,7 +61,7 @@ export function createSimproJobChatTool(): AnthropicTool {
   return {
     name: CREATE_SIMPRO_JOB_TOOL_NAME,
     description:
-      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (find-or-create customer and site, then create the lead). Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description — skip any already given. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
+      "You MUST call this once you have their mobile and the work description (existing customers can skip name/address), and again immediately when they confirm / say yes please. Create a real SimPRO lead (find-or-create customer and site, then create the lead). Chat has no caller ID — if they already typed a mobile in this chat, use that number; do not ask again. If that mobile matches an existing customer, skip name and full site address and collect only a short description (optionally confirm site if they volunteer a different address or have multiple sites). New customers: collect name, mobile, site/address, and description — skip any already given. Company bookings need a person's name as site contact: if they already gave one (e.g. Jane from Woolies), pass site_contact_name and do not ask again; if you only have a company name, ask who's the site contact at the site before calling. Individuals: the visitor is the site contact — do not ask for a separate one. Do not use send_sms to notify the office; the function notifies. Do not use save_message as the only close. If they said existing but the tool asks for name and address, ask honestly and retry. Tell them the lead number only if ok:true. If it fails or says SimPRO is not connected, use save_message — never pretend a lead was created or that the team was notified. Never look up other customers' leads.",
     input_schema: {
       type: "object",
       required: ["caller_phone", "description"],
@@ -71,6 +71,8 @@ export function createSimproJobChatTool(): AnthropicTool {
         site_address: { type: "string", description: "Work site address — required for new customers or a new/different site; skip if reusing their existing site" },
         description: { type: "string", description: "What work they need done" },
         job_name: { type: "string", description: "Optional short lead title" },
+        site_contact_name: { type: "string", description: "Person who is the site contact. Individuals: same as caller_name. Companies: the person at the site (e.g. Jane). Required for company bookings unless already in caller_name." },
+        site_contact_phone: { type: "string", description: "Site contact phone. Falls back to caller_phone." },
       },
     },
   };

@@ -5,6 +5,7 @@ import {
   bookingConfirmMustCreateRule,
   neverFakeLeadCloseRule,
   simproHonestyAddon,
+  siteContactRule,
 } from "./booking-honesty.ts";
 
 test("honesty addon forbids fake notify and save_message-only close", () => {
@@ -17,6 +18,12 @@ test("honesty addon forbids fake notify and save_message-only close", () => {
   assert.match(neverFakeLeadCloseRule(), /ok:true/);
   assert.match(bookingConfirmMustCreateRule(), /yes please/);
   assert.match(bookingConfirmMustCreateRule(), /Do not use save_message as the only close/);
+  assert.match(siteContactRule(), /who'?s the site contact at the site/);
+  assert.match(siteContactRule(), /Jane from Woolies/);
+  assert.match(siteContactRule(), /never ask for a separate site contact/i);
+  assert.match(siteContactRule(), /Do not ask whether they are a company or an individual/);
+  assert.match(chat, /site contact/i);
+  assert.match(voice, /site contact/i);
   assert.doesNotMatch(chat, /system__/);
   assert.doesNotMatch(voice, /system__/);
 });
