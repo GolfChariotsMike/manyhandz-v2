@@ -5,12 +5,15 @@
  * Do not strip it when transfers are enabled. The function returns accepted:false
  * if the bridge cannot take the call — then the agent should save_message.
  *
- * The agent must speak a short acknowledgement before calling this tool
- * (never a silent tool-call). Typing is applied by mergeToolCallTyping.
- * Never put this shape on end_call.
+ * Prompt + description are not enough — EL still silent-tools (empty message +
+ * typing). Require a spoken `say_to_caller` sentence and force TTS before the
+ * webhook (`pre_tool_speech: force`, `execution_mode: post_tool_speech`).
+ * Typing is applied by mergeToolCallTyping. Never put this shape on end_call.
  */
 
 export const TRANSFER_TO_STAFF_TOOL_NAME = "transfer_to_staff";
+
+export const SAY_TO_CALLER_EXAMPLE = "No problem, I'll transfer you to {Name} now.";
 
 export function transferToStaffUrl(supabaseUrl: string, customerId: string): string {
   const base = supabaseUrl.replace(/\/$/, "");
@@ -25,24 +28,61 @@ export function staffTransferEnabled(
   return Boolean(String(bridgeToNumber || "").trim());
 }
 
+/** The confirmation sentence Charlie must speak before the webhook fires. */
+export function isSpokenTransferAck(text?: string | null): boolean {
+  const spoken = String(text || "").replace(/\s+/g, " ").trim();
+  if (spoken.length < 12) return false;
+  return /i('ll| will)? transfer|transfer you|put you through|putting you through|connect you/i.test(spoken);
+}
+
+export function spokenAckFromBody(body: Record<string, unknown> | null | undefined): string {
+  if (!body) return "";
+  return String(body.say_to_caller || body.say || body.message || "").trim();
+}
+
+export function missingSpokenAckResponse(staffName?: string | null): {
+  success: false;
+  accepted: false;
+  missing_spoken_ack: true;
+  message: string;
+} {
+  const first = String(staffName || "").trim().split(/\s+/)[0] || "them";
+  return {
+    success: false,
+    accepted: false,
+    missing_spoken_ack: true,
+    message:
+      `Speak first — say "No problem, I'll transfer you to ${first} now." then call this tool again with that exact sentence as say_to_caller. A silent tool call is invalid.`,
+  };
+}
+
 export function transferToStaffWebhookTool(functionUrl: string): Record<string, unknown> {
   return {
     type: "webhook",
     name: TRANSFER_TO_STAFF_TOOL_NAME,
     description:
-      "Transfer the caller to a staff member when they ask for a person or to be put through. Before you call this tool, speak a short acknowledgement (e.g. if they asked for Jason, say \"No problem, I'll transfer you to Jason now.\"). Never call this tool silently. Then call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
+      "Transfer the caller to a staff member when they ask for a person or to be put through. You MUST speak first. Pass say_to_caller as the exact sentence you speak (e.g. \"No problem, I'll transfer you to Jason now.\"). Never call this tool silently (empty message + typing is invalid). Then call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung — do not ask them for their own details first. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
     response_timeout_secs: 120,
+    pre_tool_speech: "force",
+    force_pre_tool_speech: true,
+    execution_mode: "post_tool_speech",
     api_schema: {
       kind: "webhook",
       url: functionUrl,
       method: "POST",
       request_body_schema: {
         type: "object",
-        required: ["caller_name", "caller_need", "staff_name"],
+        required: ["say_to_caller", "caller_name", "caller_need", "staff_name"],
         properties: {
+          say_to_caller: {
+            type: "string",
+            description:
+              "The exact sentence you speak to the caller BEFORE this webhook runs. Must be a spoken acknowledgement such as \"No problem, I'll transfer you to Jason now.\" Empty or missing is invalid.",
+            is_system_provided: false,
+          },
           caller_name: {
             type: "string",
-            description: "Name the CALLER gave you — not the staff member to ring",
+            description: "Name the CALLER gave you — not the staff member to ring. Use a first name if you have one; the webhook also looks up caller ID.",
             is_system_provided: false,
           },
           caller_need: {
@@ -65,7 +105,8 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
           caller_number: {
             type: "string",
             // EL rejects description + dynamic_variable on the same property.
-            dynamic_variable: "system__caller_id",
+            // Voice router sends caller_id (never system__).
+            dynamic_variable: "caller_id",
             is_system_provided: false,
           },
         },

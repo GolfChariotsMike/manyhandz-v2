@@ -28,11 +28,14 @@ const GLACIER_STAFF = [
   { name: "Lachlan Thomas", role: "Apprentice", is_owner: false, sort_order: 3, phone: "+61460111000" },
 ];
 
+const SAY = "No problem, I'll transfer you to Tony now.";
+
 function makeEnv(opts?: {
   statusAt?: (elapsedMs: number) => string;
   startStatus?: string;
   staffRows?: unknown;
   lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
+  lookupCallerName?: (input: { customerId: string; callerPhone: string }) => Promise<string | null>;
   returnPrompt?: string | null;
 }): {
   env: CustomerTransferEnv;
@@ -60,6 +63,7 @@ function makeEnv(opts?: {
     twilioToken: "secret-token",
     elApiKey: "el-test-key",
     lookupLastJob: opts?.lookupLastJob,
+    lookupCallerName: opts?.lookupCallerName,
     clock: {
       timeoutMs: 50_000,
       pollMs: 10_000,
@@ -165,11 +169,11 @@ test("GET / is healthy", async () => {
 });
 
 test("/transfer parks inbound with hold music then waits past 25s of ringing without accepted:false", async () => {
-  const { env, parkTwiml, dropTwiml, twilioBodies } = makeEnv({
+  const { env, parkTwiml, dropTwiml, returnTwiml, twilioBodies } = makeEnv({
     statusAt: () => RINGING,
   });
   const res = await handleCustomerTransfer(
-    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak" }),
+    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak", say_to_caller: SAY }),
     env,
   );
   assert.equal(res.status, 200);
@@ -182,6 +186,7 @@ test("/transfer parks inbound with hold music then waits past 25s of ringing wit
   assert.ok((parkTwiml[0] || "").includes(HOLD_MUSIC_URL));
   assert.match(parkTwiml[0] || "", /mh-transfer-/);
   assert.equal(dropTwiml.length, 0);
+  assert.equal(returnTwiml.length, 0);
   assert.match(twilioBodies[0] || "", /Timeout=20/);
   assert.match(twilioBodies[0] || "", /MachineDetection=Enable/);
   assert.equal(JSON.stringify(json).includes("secret-token"), false);
@@ -192,7 +197,7 @@ test("/transfer returns accepted:true when staff presses 1 after 30s", async () 
     statusAt: (elapsed) => (elapsed >= 30_000 ? "accepted" : RINGING),
   });
   const res = await handleCustomerTransfer(
-    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak" }),
+    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak", say_to_caller: SAY }),
     env,
   );
   const json = await res.json() as { accepted?: boolean };
@@ -210,6 +215,7 @@ test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only"
       caller_name: "Alex",
       caller_need: "speak to Jason",
       staff_name: "Jason",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -242,6 +248,7 @@ test("/transfer no-answer uses a short say only when EL reconnect fails", async 
       caller_name: "Alex",
       caller_need: "speak to Jason",
       staff_name: "Jason",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -301,9 +308,147 @@ test("/transfer-screen is press-1 TwiML with a 10s gather", async () => {
   const xml = await res.text();
   assert.match(res.headers.get("Content-Type") || "", /xml/);
   assert.match(xml, /timeout="10"/);
+  assert.match(xml, /actionOnEmptyResult="true"/);
   assert.match(xml, /Press 1/);
   assert.match(xml, /Alex/);
   assert.match(xml, /transfer-accept\?id=xyz/);
+});
+
+test("/transfer without a spoken ack is invalid and does not dial", async () => {
+  const { env, twilioBodies, parkTwiml } = makeEnv({ staffRows: GLACIER_STAFF });
+  const silent = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "caller",
+      caller_need: "speak to Tony",
+      staff_name: "Tony",
+    }),
+    env,
+  );
+  const json = await silent.json() as { accepted?: boolean; missing_spoken_ack?: boolean };
+  assert.equal(json.accepted, false);
+  assert.equal(json.missing_spoken_ack, true);
+  assert.equal(twilioBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
+
+  const empty = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "caller",
+      caller_need: "speak to Tony",
+      staff_name: "Tony",
+      say_to_caller: "",
+    }),
+    env,
+  );
+  assert.equal(((await empty.json()) as { missing_spoken_ack?: boolean }).missing_spoken_ack, true);
+});
+
+test("/transfer looks up caller ID and whispers the real name, not caller", async () => {
+  const { env, transfers } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+    lookupCallerName: async ({ callerPhone }) => {
+      assert.equal(callerPhone, "+61411122333");
+      return "Micycle Kerr";
+    },
+  });
+  await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "caller",
+      caller_need: "speak to Tony",
+      staff_name: "Tony",
+      say_to_caller: SAY,
+    }),
+    env,
+  );
+  const row = [...transfers.values()][0];
+  assert.equal(row?.caller_name, "Micycle Kerr");
+  assert.equal(row?.staff_name, "Tony Muni");
+
+  const screen = await handleCustomerTransfer(
+    new Request(`https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-screen?id=${row?.id}`),
+    env,
+  );
+  const xml = await screen.text();
+  assert.match(xml, /call from Micycle Kerr about speak to Tony/);
+  assert.doesNotMatch(xml, /call from caller /);
+});
+
+test("/transfer still transfers on a lookup miss and whispers a caller", async () => {
+  const { env, transfers, twilioBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+    lookupCallerName: async () => null,
+  });
+  await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "caller",
+      caller_need: "speak to Tony",
+      staff_name: "Tony",
+      say_to_caller: SAY,
+    }),
+    env,
+  );
+  assert.equal([...transfers.values()][0]?.caller_name, "a caller");
+  assert.equal(twilioBodies.length, 1);
+});
+
+test("/transfer-status no-answer reconnects parked inbound to Stream, not Hangup", async () => {
+  const { env, transfers, returnTwiml, dropTwiml, registerBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+  });
+  transfers.set("mtl5hhqu", {
+    id: "mtl5hhqu",
+    status: RINGING,
+    call_sid: "CAinbound",
+    staff_name: "Tony Muni",
+    caller_name: "Micycle Kerr",
+    caller_need: "speak to Tony",
+  });
+  const res = await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-status?id=mtl5hhqu&customer_id=cust-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "CallStatus=completed",
+    }),
+    env,
+  );
+  assert.equal(res.status, 204);
+  assert.equal(transfers.get("mtl5hhqu")?.status, RETURNED);
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /<Stream /);
+  assert.match(returnTwiml[0] || "", /<Connect>/);
+  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.doesNotMatch(returnTwiml[0] || "", /putting you back through/);
+  assert.equal(dropTwiml.length, 0);
+  const init = registerBodies[0].conversation_initiation_client_data as {
+    conversation_config_override: { agent: { first_message: string } };
+  };
+  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Tony isn't available/);
+});
+
+test("/transfer-accept timeout or hangup reconnects Stream; digit 2 is not a join", async () => {
+  const { env, transfers, returnTwiml } = makeEnv({ staffRows: GLACIER_STAFF });
+  transfers.set("xyz", {
+    id: "xyz",
+    status: RINGING,
+    call_sid: "CAinbound",
+    staff_name: "Tony Muni",
+  });
+  const res = await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-accept?id=xyz&customer_id=cust-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "Digits=",
+    }),
+    env,
+  );
+  const xml = await res.text();
+  assert.match(xml, /<Hangup\/>/);
+  assert.doesNotMatch(xml, /Conference/);
+  assert.equal(transfers.get("xyz")?.status, RETURNED);
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /<Stream /);
+  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
 });
 
 test("/transfer-accept 1 joins the parked conference with hold music", async () => {
@@ -345,6 +490,7 @@ test("/transfer rings Jason Bond when staff_name is Jason", async () => {
       caller_name: "Mike",
       caller_need: "Transfer to technician Jason",
       staff_name: "Jason",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -370,6 +516,7 @@ test("/transfer generic technician + last job tech matching staff rings that per
       caller_need: "had work done recently",
       staff_name: "technician",
       caller_number: "+61411122333",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -390,6 +537,7 @@ test("/transfer generic technician + last job with no tech returns no_technician
       caller_need: "my technician",
       staff_name: "the technician",
       caller_number: "+61411122333",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -412,6 +560,7 @@ test("/transfer SimPRO error asks for a name and does not ring the owner", async
       caller_need: "the technician",
       staff_name: "technician",
       caller_number: "+61411122333",
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -432,6 +581,7 @@ test("/transfer unknown name after ask rings first Lead/Senior tech not owner", 
       caller_need: "don't know",
       staff_name: "unknown",
       name_unknown: true,
+      say_to_caller: SAY,
     }),
     env,
   );
@@ -453,6 +603,7 @@ test("/transfer unknown named person falls back to owner, missing staff table us
       caller_name: "Alex",
       caller_need: "a leak",
       staff_name: "Steve",
+      say_to_caller: SAY,
     }),
     withStaff.env,
   );
@@ -461,7 +612,7 @@ test("/transfer unknown named person falls back to owner, missing staff table us
 
   const missingTable = makeEnv({ statusAt: () => RINGING });
   await handleCustomerTransfer(
-    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak" }),
+    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak", say_to_caller: SAY }),
     missingTable.env,
   );
   assert.equal(postedTo(missingTable.twilioBodies[0] || ""), "+61400000000");

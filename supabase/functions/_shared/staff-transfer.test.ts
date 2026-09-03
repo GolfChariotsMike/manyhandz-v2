@@ -20,6 +20,7 @@ import {
   ringingOnlyFilter,
   screenGatherTwiml,
   staffJoinTwiml,
+  staffScreenHangupTwiml,
   transferToolResponse,
   waitForResult,
 } from "./staff-transfer.ts";
@@ -158,6 +159,7 @@ test("screen gather uses a 10s press-1 timeout and Polly.Matthew-Neural", () => 
   });
   assert.match(xml, /timeout="10"/);
   assert.match(xml, /numDigits="1"/);
+  assert.match(xml, /actionOnEmptyResult="true"/);
   assert.match(xml, /transfer-accept\?id=1/);
   assert.match(xml, /Polly\.Matthew-Neural/);
   assert.equal(xml.includes("Nicole"), false);
@@ -174,6 +176,13 @@ test("outbound dial is 20s with AMD Enable", () => {
   assert.equal(body.get("Timeout"), "20");
   assert.equal(body.get("MachineDetection"), "Enable");
   assert.equal(body.get("StatusCallbackEvent"), "completed");
+});
+
+test("staff screen hangup is Hangup-only so inbound can be Streamed while parked", () => {
+  const xml = staffScreenHangupTwiml();
+  assert.match(xml, /<Hangup\/>/);
+  assert.doesNotMatch(xml, /Say/);
+  assert.doesNotMatch(xml, /Conference/);
 });
 
 test("drop inbound TwiML hangs up after a short say", () => {

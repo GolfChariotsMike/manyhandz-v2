@@ -4,7 +4,10 @@ import { mergeEndCallTools } from "./hangup-on-goodbye.ts";
 import { mergeToolCallTyping } from "./tool-call-typing.ts";
 import {
   TRANSFER_TO_STAFF_TOOL_NAME,
+  isSpokenTransferAck,
   mergeTransferToStaffTool,
+  missingSpokenAckResponse,
+  spokenAckFromBody,
   staffTransferEnabled,
   transferToStaffUrl,
 } from "./transfer-to-staff-tool.ts";
@@ -33,11 +36,15 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
   );
   assert.equal(merged.filter((t) => (t as { name?: string }).name === TRANSFER_TO_STAFF_TOOL_NAME).length, 1);
   const tool = merged.find((t) => (t as { name?: string }).name === TRANSFER_TO_STAFF_TOOL_NAME) as {
+    pre_tool_speech?: string;
+    execution_mode?: string;
+    force_pre_tool_speech?: boolean;
     api_schema: {
       url: string;
       request_body_schema: {
         required: string[];
         properties: {
+          say_to_caller: { description?: string };
           caller_name: { description?: string };
           caller_need: { description?: string };
           staff_name: { description?: string };
@@ -55,15 +62,41 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
   assert.match(description, /Do not take a message until this webhook returns accepted:false/);
   assert.match(description, /I'll transfer you to Jason now/);
   assert.match(description, /Never call this tool silently/);
-  assert.deepEqual(tool.api_schema.request_body_schema.required, ["caller_name", "caller_need", "staff_name"]);
+  assert.match(description, /say_to_caller/);
+  assert.equal(tool.pre_tool_speech, "force");
+  assert.equal(tool.force_pre_tool_speech, true);
+  assert.equal(tool.execution_mode, "post_tool_speech");
+  assert.deepEqual(tool.api_schema.request_body_schema.required, [
+    "say_to_caller",
+    "caller_name",
+    "caller_need",
+    "staff_name",
+  ]);
+  assert.match(String(tool.api_schema.request_body_schema.properties.say_to_caller.description), /exact sentence/i);
   assert.match(String(tool.api_schema.request_body_schema.properties.staff_name.description), /NOT the caller/i);
   assert.match(String(tool.api_schema.request_body_schema.properties.caller_name.description), /CALLER/i);
   assert.equal(tool.api_schema.request_body_schema.properties.name_unknown?.type, "boolean");
   const caller = tool.api_schema.request_body_schema.properties.caller_number;
-  assert.equal(caller.dynamic_variable, "system__caller_id");
+  assert.equal(caller.dynamic_variable, "caller_id");
   assert.equal(caller.is_system_provided, false);
   assert.equal(caller.description, undefined);
   assert.equal(merged.some((t) => (t as { name?: string }).name === "save_message"), true);
+});
+
+test("a transfer without a spoken ack is invalid", () => {
+  assert.equal(isSpokenTransferAck(""), false);
+  assert.equal(isSpokenTransferAck("ok"), false);
+  assert.equal(isSpokenTransferAck("   "), false);
+  assert.equal(spokenAckFromBody({ caller_name: "caller", staff_name: "Tony" }), "");
+  assert.equal(isSpokenTransferAck(spokenAckFromBody({ say_to_caller: "" })), false);
+  assert.equal(
+    isSpokenTransferAck("No problem, I'll transfer you to Tony now."),
+    true,
+  );
+  const rejected = missingSpokenAckResponse("Tony Muni");
+  assert.equal(rejected.missing_spoken_ack, true);
+  assert.equal(rejected.accepted, false);
+  assert.match(rejected.message, /I'll transfer you to Tony now/);
 });
 
 test("mergeTransferToStaffTool attaches even when the existing agent has no tools", () => {

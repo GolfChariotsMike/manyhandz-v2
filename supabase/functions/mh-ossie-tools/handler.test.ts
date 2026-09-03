@@ -133,7 +133,7 @@ test("Ossie From and staff map match live (Gavin / Mike / Adam)", () => {
 });
 
 test("/transfer parks inbound, dials from Ossie From, and does not fail while ringing", async () => {
-  const { env, parkTwiml, twilioBodies, dropTwiml } = makeEnv({ statusAt: () => RINGING });
+  const { env, parkTwiml, twilioBodies, dropTwiml, returnTwiml } = makeEnv({ statusAt: () => RINGING });
   const res = await handleOssieTools(
     post("/transfer", { caller_name: "Sam", caller_need: "court hire", transfer_to: "mike" }),
     env,
@@ -149,6 +149,7 @@ test("/transfer parks inbound, dials from Ossie From, and does not fail while ri
   assert.match(twilioBodies[0] || "", /To=%2B61433121933/);
   assert.match(twilioBodies[0] || "", /Timeout=20/);
   assert.equal(dropTwiml.length, 0);
+  assert.equal(returnTwiml.length, 0);
 });
 
 test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only", async () => {
@@ -186,6 +187,33 @@ test("/transfer accepted:true after a late press 1 does not drop the conference"
   assert.equal(json.accepted, true);
   assert.match(json.message, /Gavin/);
   assert.equal(dropTwiml.length, 0);
+});
+
+test("/transfer-status ringing completed reconnects Stream while parked", async () => {
+  const { env, transfers, returnTwiml, dropTwiml, registerBodies } = makeEnv();
+  transfers.set("abc", {
+    id: "abc",
+    status: RINGING,
+    call_sid: "CAinbound",
+    staff_name: "Mike",
+  });
+  const res = await handleOssieTools(
+    new Request("https://example.supabase.co/functions/v1/mh-ossie-tools/transfer-status?id=abc", {
+      method: "POST",
+      body: "CallStatus=completed",
+    }),
+    env,
+  );
+  assert.equal(res.status, 204);
+  assert.equal(transfers.get("abc")?.status, "returned");
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /<Stream /);
+  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.equal(dropTwiml.length, 0);
+  const init = registerBodies[0].conversation_initiation_client_data as {
+    conversation_config_override: { agent: { first_message: string } };
+  };
+  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Mike isn't available/);
 });
 
 test("/transfer-status never overwrites accepted", async () => {

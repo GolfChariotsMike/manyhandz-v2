@@ -19,6 +19,7 @@ import {
   elReconnectTwimlLooksLive,
   failedTransferInstruction,
   fetchRegisterCallTwiml,
+  reconnectKindForStatus,
   resolvedReturnInstruction,
   returnRegisterCallBody,
   shouldReturnToAi,
@@ -41,6 +42,7 @@ import {
   ringingOnlyFilter,
   screenGatherTwiml,
   staffJoinTwiml,
+  staffScreenHangupTwiml,
   transferToolResponse,
   twimlResponse,
   waitForResult,
@@ -318,7 +320,7 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action !== "accept") {
+      if (decision.action === "fail") {
         await returnOssieCallerToAi(env, transferId, "failed-transfer");
       }
 
@@ -371,7 +373,8 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
     console.log(`[transfer-accept] ${id} — DECLINED`);
-    return twimlResponse(dropInboundTwiml("No worries, I'll take a message."));
+    await returnOssieCallerToAi(env, id, "failed-transfer");
+    return twimlResponse(staffScreenHangupTwiml());
   }
 
   if (path === "/staff-left") {
@@ -402,7 +405,9 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     await dbPatch(env, TRANSFERS_TABLE, ringingOnlyFilter(id), { status: "no-answer" });
     const callStatus = String(params.get("CallStatus") || json.CallStatus || "").toLowerCase();
     if (callStatus === "completed" && id) {
-      await returnOssieCallerToAi(env, id);
+      const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=status`);
+      const kind = reconnectKindForStatus(firstRow<{ status?: string }>(rows)?.status);
+      if (kind) await returnOssieCallerToAi(env, id, kind);
     }
     return noContent();
   }

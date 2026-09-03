@@ -102,6 +102,19 @@ export function canReconnectFailedTransfer(status?: string | null): boolean {
   return true;
 }
 
+/**
+ * Outbound completed / screen timeout: reconnect immediately while the
+ * inbound CallSid is still parked. Do not wait for waitForResult.
+ * accepted → staff hung up after a live conference (press-9 fallback).
+ * ringing / no-answer / declined → failed warm transfer.
+ */
+export function reconnectKindForStatus(status?: string | null): ReturnReconnectKind | null {
+  const s = String(status || "").trim();
+  if (s === RETURNED) return null;
+  if (s === "accepted") return "staff-return";
+  return "failed-transfer";
+}
+
 export function returnRegisterCallBody(opts: {
   agentId: string;
   callerId: string;
