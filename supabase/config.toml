@@ -96,6 +96,9 @@ verify_jwt = false
 [functions.mh-ossie-tools]
 verify_jwt = false
 
+[functions.mh-nextride-tools]
+verify_jwt = false
+
 [functions.mhv2-crm-connections]
 verify_jwt = false
 
