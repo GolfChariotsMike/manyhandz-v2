@@ -6,20 +6,17 @@ After this PR merges, Grok (or whoever deploys) must apply new SQL on that proje
 
 ## This branch
 
-`20260902030000_notify_email_and_sms_toggles.sql`
+`20260903060000_mh_voice_config_return_to_ai_prompt.sql`
 
 Adds:
 
-- `mh_v2_customers.notify_email` — lead-alert address (login `email` stays login)
-- `mh_v2_customers.notify_email_enabled` — default `true`; off = skip email even if login email exists
-- `mh_voice_config.notify_sms_enabled` — default `true`; off = skip office SMS; keeps `notify_sms`
+- `mh_voice_config.return_to_ai_prompt` — dashboard instruction injected when staff send a caller back to the AI (press star then 9, or hang up). Blank = generic default at reconnect time.
+- `mh_ossie_config` — Ossie is not an `mh_v2_customers` row; volleyball default they can rewrite.
+- Seeds Glacier `a77816d9-3b5f-4635-a77d-095e767a532e` with the booking-focused return instruction if the field is still empty.
 
-Empty or disabled email/SMS must not send. Notify failures must not fail SimPRO lead create. Do not SMS the caller.
+Also still apply if not already on the project:
 
-New signups get these columns on by default (`notify_*_enabled` true,
-`cap_create_simpro_job` true). They still type their own SimPRO host + API
-key and office notify mobile/email — see
-`supabase/functions/mh-provision-number/CUSTOMER_SETUP.md`.
+`20260902030000_notify_email_and_sms_toggles.sql`
 
 ## How to apply
 
@@ -29,4 +26,4 @@ In the Supabase SQL editor for `kouembkldbpdbhzeaoth`, run the migration file, *
 supabase db push
 ```
 
-against that project. `IF NOT EXISTS` / `DEFAULT true` is idempotent.
+against that project. `IF NOT EXISTS` / `ON CONFLICT DO NOTHING` is idempotent.

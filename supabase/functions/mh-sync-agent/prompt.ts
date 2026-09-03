@@ -6,6 +6,7 @@
  */
 import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
+import { returnFromStaffPromptRule } from "../_shared/return-to-ai.ts";
 import { staffTransferEnabled } from "../_shared/transfer-to-staff-tool.ts";
 
 export type PriceItem = {
@@ -263,7 +264,7 @@ export function composeSystemPrompt(data: PromptInput): string {
     : `- PRICING: Do not quote specific prices. Say: "I can't give you an exact price over the phone — I can arrange for someone to get back to you with an accurate quote." Then take a message.`;
 
   const transferRule = capTransferCalls
-    ? `- TRANSFERS: If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Do not just talk about transferring. Do not take a message until the webhook returns accepted:false. Only use save_message if transfer_to_staff returns accepted:false or the transfer fails.`
+    ? `- TRANSFERS: If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director) — caller_name is the caller, not the destination. If they ask for a named person, ring that person. If they ask for "the technician" or "my technician" and do not give a name, call transfer_to_staff with staff_name set to technician (caller ID is already on the call). If the webhook returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait for a name, then call transfer_to_staff with that staff_name. If they still do not know, call transfer_to_staff with name_unknown true. Do not just talk about transferring. Do not take a message until the webhook returns accepted:false. Only use save_message if transfer_to_staff returns accepted:false or the transfer fails.`
     : `- TRANSFERS: Do not transfer calls. Take a message and tell the caller someone will call them back.`;
 
   const smsRule = capSendSms
@@ -284,11 +285,12 @@ export function composeSystemPrompt(data: PromptInput): string {
 
   const hangupRule = hangupOnGoodbyePromptRule(capHangupOnGoodbye, closingMessage);
   const hangupCap = hangupRule ? `\n- HANG UP AFTER GOODBYE: ${hangupRule}` : "";
+  const returnRule = capTransferCalls ? `\n${returnFromStaffPromptRule()}` : "";
 
   const extraJobRules = [servicem8JobRule, xeroInvoiceRule].filter(Boolean).map((r) => `\n${r}`).join("");
 
   const capabilitySection =
-    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}${returnRule}`;
 
   // Live function always asked "anything else?" — that is why two bots goodbye-looped.
   const callHandlingEnd = capHangupOnGoodbye
@@ -311,7 +313,7 @@ YOUR ROLE:
 - Answer calls ${toneDesc}
 - Provide accurate information about our services, pricing, and hours
 ${capTransferCalls
-    ? `- If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Do not take a message until the webhook returns accepted:false. Only use save_message if the tool returns accepted:false or the transfer fails.`
+    ? `- If the caller asks for a person or to be put through, call the transfer_to_staff tool FIRST. Pass staff_name as who they asked for — caller_name is the caller. If they ask for a named person, ring that person. If they ask for the technician without a name, pass staff_name=technician. If the webhook returns no_technician_on_file or could_not_see_job, say so and ask for the name; if they still do not know, call again with name_unknown true. Do not take a message until the webhook returns accepted:false. Only use save_message if the tool returns accepted:false or the transfer fails.`
     : `- Take messages when callers want to speak to a staff member`}
 - Never make up information not in your knowledge base
 - If unsure about anything, offer to take a message and have someone call back

@@ -32,6 +32,7 @@ export const RINGING = "ringing";
 export const DECLINED = "declined";
 export const NO_ANSWER = "no-answer";
 export const COMPLETED = "completed";
+export { RETURNED } from "./return-to-ai.ts";
 
 export type TransferStatus = string;
 
@@ -79,7 +80,33 @@ export function inboundParkTwiml(confName: string): string {
   );
 }
 
-export function staffJoinTwiml(confName: string, say: string, voice = "Polly.Matthew-Neural"): string {
+export type StaffJoinOpts = {
+  voice?: string;
+  /** hangupOnStar + Gather 9. Staff hangup is the fallback (Dial action). */
+  returnAfterStar?: {
+    dialActionUrl: string;
+    gatherActionUrl: string;
+  };
+};
+
+export function staffJoinTwiml(
+  confName: string,
+  say: string,
+  voiceOrOpts: string | StaffJoinOpts = "Polly.Matthew-Neural",
+): string {
+  const opts: StaffJoinOpts = typeof voiceOrOpts === "string" ? { voice: voiceOrOpts } : voiceOrOpts;
+  const voice = opts.voice || "Polly.Matthew-Neural";
+  const returnTo = opts.returnAfterStar;
+  if (returnTo) {
+    const hint = " Press star, then 9, to send the caller back to the assistant. Or hang up when you are done.";
+    return `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="${voice}">${say}${hint}</Say>
+  <Dial hangupOnStar="true" action="${returnTo.dialActionUrl}">
+    <Conference endConferenceOnExit="false" startConferenceOnEnter="true" beep="false" waitUrl="${HOLD_MUSIC_URL}">${confName}</Conference>
+  </Dial>
+</Response>`;
+  }
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="${voice}">${say}</Say>

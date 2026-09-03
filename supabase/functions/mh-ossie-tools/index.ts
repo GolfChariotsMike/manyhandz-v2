@@ -11,6 +11,9 @@ function envFromDeno(): OssieToolsEnv {
     serviceKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
     twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+    elApiKey: Deno.env.get("EL_API_KEY") || Deno.env.get("ELEVENLABS_API_KEY") || "",
+    elAgentId: Deno.env.get("OSSIE_EL_AGENT_ID") || Deno.env.get("EL_OSSIE_AGENT_ID") || "",
+    returnToAiPrompt: Deno.env.get("OSSIE_RETURN_TO_AI_PROMPT") || null,
     fetch: globalThis.fetch.bind(globalThis),
   };
 }

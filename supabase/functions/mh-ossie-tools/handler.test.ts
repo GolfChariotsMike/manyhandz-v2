@@ -31,11 +31,15 @@ function makeEnv(opts?: {
   twilioBodies: string[];
   parkTwiml: string[];
   dropTwiml: string[];
+  returnTwiml: string[];
+  registerBodies: Record<string, unknown>[];
 } {
   const transfers = new Map<string, TransferRow>();
   const twilioBodies: string[] = [];
   const parkTwiml: string[] = [];
   const dropTwiml: string[] = [];
+  const returnTwiml: string[] = [];
+  const registerBodies: Record<string, unknown>[] = [];
   let clock = 0;
 
   const env: OssieToolsEnv = {
@@ -43,6 +47,8 @@ function makeEnv(opts?: {
     serviceKey: "service-key",
     twilioSid: "ACtest",
     twilioToken: "secret-token",
+    elApiKey: "el-test-key",
+    elAgentId: "agent-ossie",
     nowDate: () => OPEN_MONDAY,
     clock: {
       timeoutMs: 50_000,
@@ -58,7 +64,16 @@ function makeEnv(opts?: {
       const body = String(init?.body || "");
 
       if (url.includes("/rest/v1/mh_ossie_call_sids")) {
-        return Response.json([{ call_sid: "CAinbound" }]);
+        return Response.json([{ call_sid: "CAinbound", caller: "+61400111222" }]);
+      }
+      if (url.includes("/rest/v1/mh_ossie_config")) {
+        return Response.json([{ return_to_ai_prompt: "" }]);
+      }
+      if (url.includes("api.elevenlabs.io/v1/convai/twilio/register-call")) {
+        registerBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return new Response(
+          `<?xml version="1.0"?><Response><Connect><Stream url="wss://el.example/stream"></Stream></Connect></Response>`,
+        );
       }
       if (url.includes("/rest/v1/mh_ossie_transfers") && method === "POST") {
         const row = JSON.parse(body) as TransferRow;
@@ -89,6 +104,7 @@ function makeEnv(opts?: {
       if (url.includes("/Calls/CAinbound.json") && method === "POST") {
         const twiml = decodeURIComponent((body.match(/Twiml=([^&]*)/) || [])[1] || "").replace(/\+/g, " ");
         if (twiml.includes("Hangup")) dropTwiml.push(twiml);
+        else if (twiml.includes("Stream") || twiml.includes("putting you back")) returnTwiml.push(twiml);
         else parkTwiml.push(twiml);
         return Response.json({ sid: "CAinbound" });
       }
@@ -96,7 +112,7 @@ function makeEnv(opts?: {
     }) as typeof fetch,
   };
 
-  return { env, transfers, twilioBodies, parkTwiml, dropTwiml };
+  return { env, transfers, twilioBodies, parkTwiml, dropTwiml, returnTwiml, registerBodies };
 }
 
 function post(path: string, body: unknown): Request {
@@ -194,7 +210,30 @@ test("/transfer-screen and /transfer-accept keep press-1 TwiML", async () => {
   assert.equal(transfers.get("xyz")?.status, "accepted");
   assert.match(xml, /ossie-transfer-xyz/);
   assert.match(xml, /startConferenceOnEnter="true"/);
+  assert.match(xml, /endConferenceOnExit="false"/);
+  assert.match(xml, /hangupOnStar="true"/);
   assert.ok(xml.includes(HOLD_MUSIC_URL));
+});
+
+test("/return-to-ai press 9 reconnects the Ossie caller, not staff", async () => {
+  const { env, transfers, returnTwiml, registerBodies } = makeEnv();
+  transfers.set("xyz", { id: "xyz", status: "accepted", call_sid: "CAinbound", staff_name: "Mike" });
+  const res = await handleOssieTools(
+    new Request("https://example.supabase.co/functions/v1/mh-ossie-tools/return-to-ai?id=xyz", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "Digits=9",
+    }),
+    env,
+  );
+  assert.match(await res.text(), /Sending them back/);
+  assert.equal(transfers.get("xyz")?.status, "returned");
+  assert.equal(returnTwiml.length, 1);
+  const dyn = (registerBodies[0].conversation_initiation_client_data as {
+    dynamic_variables: Record<string, string>;
+  }).dynamic_variables;
+  assert.equal(dyn.return_from_staff, "true");
+  assert.match(dyn.return_instruction, /volleyball|Help with whatever/i);
 });
 
 test("after-hours /transfer returns accepted:false without dialing", async () => {

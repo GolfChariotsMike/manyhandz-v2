@@ -11,6 +11,8 @@ function envFromDeno(): CustomerTransferEnv {
     serviceKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "",
     twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+    encryptionKey: Deno.env.get("ENCRYPTION_KEY") || "",
+    elApiKey: Deno.env.get("EL_API_KEY") || Deno.env.get("ELEVENLABS_API_KEY") || "",
     fetch: globalThis.fetch.bind(globalThis),
   };
 }

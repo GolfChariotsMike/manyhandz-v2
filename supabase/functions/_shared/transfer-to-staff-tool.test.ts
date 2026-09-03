@@ -40,6 +40,8 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
         properties: {
           caller_name: { description?: string };
           caller_need: { description?: string };
+          staff_name: { description?: string };
+          name_unknown?: { type?: string };
           caller_number: { dynamic_variable?: string; description?: string; is_system_provided?: boolean };
         };
       };
@@ -53,7 +55,10 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
     String((merged.find((t) => (t as { name?: string }).name === TRANSFER_TO_STAFF_TOOL_NAME) as { description?: string }).description),
     /Do not take a message until this webhook returns accepted:false/,
   );
-  assert.deepEqual(tool.api_schema.request_body_schema.required, ["caller_name", "caller_need"]);
+  assert.deepEqual(tool.api_schema.request_body_schema.required, ["caller_name", "caller_need", "staff_name"]);
+  assert.match(String(tool.api_schema.request_body_schema.properties.staff_name.description), /NOT the caller/i);
+  assert.match(String(tool.api_schema.request_body_schema.properties.caller_name.description), /CALLER/i);
+  assert.equal(tool.api_schema.request_body_schema.properties.name_unknown?.type, "boolean");
   const caller = tool.api_schema.request_body_schema.properties.caller_number;
   assert.equal(caller.dynamic_variable, "system__caller_id");
   assert.equal(caller.is_system_provided, false);

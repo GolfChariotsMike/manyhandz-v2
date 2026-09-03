@@ -83,6 +83,8 @@ export function registerCallBody(agentId: string, callerId: string, to: string):
       // EL rejects any dynamic variable name starting with system__.
       dynamic_variables: {
         caller_id: callerId,
+        return_from_staff: "false",
+        return_instruction: "",
       },
     },
   };
