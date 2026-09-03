@@ -46,6 +46,20 @@ export function noNumbersError(market: Market): string {
   return market === "US" ? "No available US local numbers" : "No available AU mobile numbers";
 }
 
+/** Voice webhook + call-status fields for Incoming Phone Number create/update. */
+export function twilioVoiceBindFields(opts: {
+  voiceUrl: string;
+  statusCallback: string;
+}): Record<string, string> {
+  return {
+    VoiceUrl: opts.voiceUrl,
+    VoiceMethod: "POST",
+    VoiceApplicationSid: "",
+    StatusCallback: opts.statusCallback,
+    StatusCallbackMethod: "POST",
+  };
+}
+
 export function twilioPurchaseFields(opts: {
   market: Market;
   phoneNumber: string;
@@ -58,10 +72,10 @@ export function twilioPurchaseFields(opts: {
 }): Record<string, string> {
   const fields: Record<string, string> = {
     PhoneNumber: opts.phoneNumber,
-    VoiceUrl: opts.voiceUrl,
-    VoiceMethod: "POST",
-    StatusCallback: opts.statusCallback,
-    StatusCallbackMethod: "POST",
+    ...twilioVoiceBindFields({
+      voiceUrl: opts.voiceUrl,
+      statusCallback: opts.statusCallback,
+    }),
     FriendlyName: opts.friendlyName,
   };
   if (opts.smsUrl) {
