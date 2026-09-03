@@ -6,16 +6,15 @@ After this PR merges, Grok (or whoever deploys) must apply new SQL on that proje
 
 ## This branch
 
-`20260903060000_mh_voice_config_return_to_ai_prompt.sql`
+`20260903070000_mh_sms_confirms.sql`
 
 Adds:
 
-- `mh_voice_config.return_to_ai_prompt` — dashboard instruction injected when staff send a caller back to the AI (press star then 9, or hang up). Blank = generic default at reconnect time.
-- `mh_ossie_config` — Ossie is not an `mh_v2_customers` row; volleyball default they can rewrite.
-- Seeds Glacier `a77816d9-3b5f-4635-a77d-095e767a532e` with the booking-focused return instruction if the field is still empty.
+- `mh_sms_confirms` — pending name/email SMS confirm after Charlie creates a **new** SimPRO customer (not an extra site on an existing one). Service role only. `mh-sms-inbound` consumes a reply before the KB bot.
 
 Also still apply if not already on the project:
 
+`20260903060000_mh_voice_config_return_to_ai_prompt.sql`
 `20260902030000_notify_email_and_sms_toggles.sql`
 
 ## How to apply

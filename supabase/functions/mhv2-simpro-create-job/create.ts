@@ -16,6 +16,7 @@
  * notify lives here so voice and chat both fire — do not rely on send_sms.
  * Never dumps jobs or other customers' leads into the tool result.
  */
+import { maybeSendNewCustomerConfirm, type SmsConfirmEnv } from "../_shared/sms-confirm.ts";
 import { notifySimproLeadCreated, type LeadNotifyEnv, type LeadNotifyTargets } from "./notify.ts";
 
 export type { LeadNotifyTargets };
@@ -60,6 +61,8 @@ export type CreateJobInput = {
   site_contact_name?: string;
   /** Site-contact phone. Falls back to caller_phone. */
   site_contact_phone?: string;
+  /** Email — new customers only. Never required for an existing SimPRO match. */
+  caller_email?: string;
   /** SimPRO customer ID from lookup_simpro_customer. Never create a new customer when set. */
   simpro_customer_id?: number;
   /** SimPRO site ID from lookup / "which site?". */
@@ -168,7 +171,7 @@ export type CreateJobEnv = {
   loadConnection: (customerId: string) => Promise<SimproConnection | null>;
   saveTokens?: (connectionId: string, encryptedToken: string, expiresAt: string) => Promise<void>;
   cacheJob?: (row: CachedJobRow) => Promise<void>;
-} & LeadNotifyEnv;
+} & LeadNotifyEnv & SmsConfirmEnv;
 
 export function sanitizeSimproError(text: string): string {
   return String(text || "")
@@ -504,6 +507,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const company_name = String(src.company_name || src.CompanyName || src.company || "").trim();
   const site_contact_name = String(src.site_contact_name || src.SiteContactName || "").trim();
   const site_contact_phone = String(src.site_contact_phone || src.SiteContactPhone || "").trim();
+  const caller_email = String(src.caller_email || src.email || "").trim();
   const simpro_customer_id = optionalPositiveId(src.simpro_customer_id ?? src.SimproCustomerId);
   const site_id = optionalPositiveId(src.site_id ?? src.SiteId ?? src.siteId);
   const existing_customer = truthyFlag(src.existing_customer ?? src.existingCustomer);
@@ -526,6 +530,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
     ...(company_name ? { company_name } : {}),
     ...(site_contact_name ? { site_contact_name } : {}),
     ...(site_contact_phone ? { site_contact_phone } : {}),
+    ...(caller_email ? { caller_email } : {}),
     ...(simpro_customer_id ? { simpro_customer_id } : {}),
     ...(site_id ? { site_id } : {}),
     ...(existing_customer ? { existing_customer: true } : {}),
@@ -858,12 +863,14 @@ async function createCustomer(
     ? `${apiBase(conn)}/customers/companies/?createSite=true`
     : `${apiBase(conn)}/customers/individuals/?createSite=true`;
   const names = splitPersonName(input.caller_name);
+  const email = String(input.caller_email || "").trim();
   const body = company
     ? {
       CompanyName: company,
       CustomerType: "Customer",
       Phone: input.caller_phone,
       Address: address,
+      ...(email ? { Email: email } : {}),
     }
     : {
       GivenName: names.givenName,
@@ -871,6 +878,7 @@ async function createCustomer(
       CustomerType: "Customer",
       Phone: input.caller_phone,
       Address: address,
+      ...(email ? { Email: email } : {}),
     };
   const res = await simproJson(env, token, path, { method: "POST", body });
   if (!res.ok) {
@@ -1483,13 +1491,15 @@ async function findMatchingContactId(
 
 /** Nested customer contacts reject `Phone` (Invalid column). CellPhone /
  * WorkPhone only — never Phone. */
-function contactCreateBody(name: string, phone: string): Record<string, unknown> {
+function contactCreateBody(name: string, phone: string, email?: string): Record<string, unknown> {
   const names = splitPersonName(name);
+  const mail = String(email || "").trim();
   return {
     GivenName: names.givenName,
     FamilyName: names.familyName,
     CellPhone: phone,
     WorkPhone: phone,
+    ...(mail ? { Email: mail } : {}),
   };
 }
 
@@ -1537,11 +1547,12 @@ async function ensureSiteContact(
   customerId: number,
   name: string,
   phone: string,
+  email?: string,
 ): Promise<number | null> {
   const existing = await findMatchingContactId(env, conn, token, customerId, name, phone);
   if (existing) return existing;
 
-  const body = contactCreateBody(name, phone);
+  const body = contactCreateBody(name, phone, email);
   const res = await simproJson(
     env,
     token,
@@ -1577,9 +1588,10 @@ async function postLead(
     input.description,
     `Caller: ${input.caller_name}`,
     `Phone: ${input.caller_phone}`,
+    input.caller_email ? `Email: ${input.caller_email}` : "",
     `Site: ${input.site_address}`,
     `Site contact: ${resolveSiteContactPerson(input) || input.caller_name}`,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
   const res = await simproJson(env, token, `${apiBase(conn)}/leads/`, {
     method: "POST",
     body: {
@@ -1747,6 +1759,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       simproCustomerId,
       resolved.site_contact_name || resolved.caller_name,
       resolved.site_contact_phone || resolved.caller_phone,
+      input.caller_email,
     );
     const leadContact = resolveLeadSiteContact(
       createdContactId,
@@ -1799,6 +1812,23 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       await notifySimproLeadCreated(resolved, leadNumber, env);
     } catch {
       // Notify must never fail the lead. Errors are sanitized inside notify.
+    }
+
+    try {
+      await maybeSendNewCustomerConfirm({
+        customerCreated,
+        customerId: input.customer_id,
+        callerPhone: input.caller_phone,
+        callerName: resolved.caller_name,
+        callerEmail: input.caller_email || "",
+        simproCustomerId,
+        simproIsCompany: isCompanyCustomer,
+        simproContactId: createdContactId,
+        leadId: leadNumber,
+        now: env.now(),
+      }, env);
+    } catch {
+      // Confirm SMS must never fail the lead.
     }
 
     return {
@@ -1938,7 +1968,7 @@ export async function lookupSimproCustomer(
         ok: true,
         found: false,
         message:
-          "No SimPRO customer matched that mobile or name. Ask if they are already a customer of this business (use the business name). If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, THEN collect name, site address, and description and call create_simpro_job. Do not create a customer from this lookup.",
+          "No SimPRO customer matched that mobile or name. Ask if they are already a customer of this business (use the business name). If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, THEN collect name, email, site address, and description (ask name and email once — do not read them back or spell the email; say you will text to confirm) and call create_simpro_job. Do not collect or confirm email this way for existing customers. Do not create a customer from this lookup.",
       };
     }
 
@@ -1961,5 +1991,76 @@ export async function lookupSimproCustomer(
       code: "simpro_error",
       error: `${message} Do not create a customer.`,
     };
+  }
+}
+
+export type SimproCustomerPatchInput = {
+  customer_id: string;
+  simpro_customer_id: number;
+  simpro_is_company: boolean;
+  simpro_contact_id?: number | null;
+  name?: string;
+  email?: string;
+};
+
+/** PATCH SimPRO customer and/or site contact after a confirm-SMS correction. */
+export async function patchSimproCustomerDetails(
+  input: SimproCustomerPatchInput,
+  env: CreateJobEnv,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!input.simpro_customer_id || (!input.name && !input.email)) {
+    return { ok: false, error: "nothing to patch" };
+  }
+  try {
+    const conn = await env.loadConnection(input.customer_id);
+    if (!conn || (!hasSimproOauth(conn) && !hasSimproApiKey(conn))) {
+      return { ok: false, error: "not_connected" };
+    }
+    const token = await getAccessToken(conn, env);
+    const id = input.simpro_customer_id;
+    const kind = input.simpro_is_company ? "companies" : "individuals";
+    const customerBody: Record<string, unknown> = {};
+    if (input.email) customerBody.Email = input.email;
+    if (input.name && !input.simpro_is_company) {
+      const names = splitPersonName(input.name);
+      customerBody.GivenName = names.givenName;
+      customerBody.FamilyName = names.familyName;
+    }
+    if (Object.keys(customerBody).length) {
+      const res = await simproJson(env, token, `${apiBase(conn)}/customers/${kind}/${id}`, {
+        method: "PATCH",
+        body: customerBody,
+      });
+      if (!res.ok) {
+        logCreate(env, `confirm patch customer failed status=${res.status}`);
+        return { ok: false, error: sanitizeSimproError(res.text) };
+      }
+    }
+    const contactId = input.simpro_contact_id;
+    if (contactId && contactId !== id) {
+      const contactBody: Record<string, unknown> = {};
+      if (input.email) contactBody.Email = input.email;
+      if (input.name) {
+        const names = splitPersonName(input.name);
+        contactBody.GivenName = names.givenName;
+        contactBody.FamilyName = names.familyName;
+      }
+      if (Object.keys(contactBody).length) {
+        const res = await simproJson(
+          env,
+          token,
+          `${apiBase(conn)}/customers/${id}/contacts/${contactId}`,
+          { method: "PATCH", body: contactBody },
+        );
+        if (!res.ok) {
+          logCreate(env, `confirm patch contact failed status=${res.status}`);
+        }
+      }
+    }
+    return { ok: true };
+  } catch (err) {
+    const message = err instanceof Error ? sanitizeSimproError(err.message) : "SimPRO patch failed";
+    logCreate(env, `confirm patch failed ${message}`);
+    return { ok: false, error: message };
   }
 }

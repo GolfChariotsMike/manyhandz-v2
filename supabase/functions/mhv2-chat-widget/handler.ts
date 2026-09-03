@@ -28,7 +28,8 @@ import {
   type ChatToolExecutors,
 } from "./tools.ts";
 import type { CreateJobEnv, LookupCustomerResult, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
-import { leadNotifyHooks } from "../mhv2-simpro-create-job/notify.ts";
+import { leadNotifyHooks, sendLeadNotifySms } from "../mhv2-simpro-create-job/notify.ts";
+import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import type { SaveMessageEnv } from "../mh-save-message/save.ts";
 import type { SendSmsEnv } from "../mh-send-sms/send.ts";
 
@@ -106,6 +107,7 @@ export type ChatStore = {
   loadSimproConnection: (customerId: string) => Promise<SimproConnection | null>;
   saveSimproTokens?: (connectionId: string, encryptedToken: string, expiresAt: string) => Promise<void>;
   cacheJob?: CreateJobEnv["cacheJob"];
+  saveSmsConfirm?: (row: SmsConfirmPending) => Promise<void>;
 };
 
 export type ChatEnv = {
@@ -245,6 +247,24 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
         };
       },
     }),
+    loadSmsConfirmContext: async (id) => {
+      const [voice, row] = await Promise.all([
+        store.loadVoice(id),
+        store.loadCustomer(id),
+      ]);
+      return {
+        cap_send_sms: voice?.cap_send_sms ?? true,
+        country: row?.country ?? null,
+        twilio_number: row?.twilio_number ?? null,
+        business_name: row?.business_name ?? null,
+      };
+    },
+    sendConfirmSms: (msg) =>
+      sendLeadNotifySms(env.fetch, {
+        accountSid: env.twilioAccountSid,
+        authToken: env.twilioAuthToken,
+      }, msg),
+    savePendingConfirm: store.saveSmsConfirm,
   };
   const saveMessageEnv: SaveMessageEnv = {
     accountSid: env.twilioAccountSid,

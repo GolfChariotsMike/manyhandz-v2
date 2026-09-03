@@ -2,6 +2,14 @@
  * Twilio SMS webhook for ManyHandz v2 numbers.
  * Resolve customer by mh_v2_customers.twilio_number = To, reply from the KB.
  */
+import {
+  parseSmsCorrection,
+  pendingConfirmIsLive,
+  pendingLookupVariants,
+  SMS_CONFIRM_UPDATED,
+  type SmsConfirmPending,
+  type SmsCorrection,
+} from "../_shared/sms-confirm.ts";
 import { field, flattenWebhookBody, phoneLookupVariants } from "../_shared/sms-send.ts";
 
 export const INACTIVE_REPLY = "Thanks for texting. This number is not taking messages right now.";
@@ -37,6 +45,16 @@ export type InboundEnv = {
     system: string;
     user: string;
   }) => Promise<string | null>;
+  loadPendingConfirm?: (
+    customerId: string,
+    fromVariants: string[],
+    now: Date,
+  ) => Promise<SmsConfirmPending | null>;
+  consumePendingConfirm?: (id: string) => Promise<void>;
+  applySmsCorrection?: (
+    pending: SmsConfirmPending,
+    correction: SmsCorrection,
+  ) => Promise<boolean>;
 };
 
 export function parseTwilioSms(body: unknown): { from: string; to: string; body: string } {
@@ -134,6 +152,34 @@ export async function handleInboundSms(
   const blocked = voiceUnavailableReason(customer, voice, env.now());
   if (blocked || !customer) {
     return { twiml: twimlMessage(blocked || INACTIVE_REPLY), status: 200 };
+  }
+
+  if (env.loadPendingConfirm) {
+    try {
+      const pending = await env.loadPendingConfirm(
+        customer.id,
+        pendingLookupVariants(fields.from),
+        env.now(),
+      );
+      if (pendingConfirmIsLive(pending, env.now()) && pending) {
+        const correction = parseSmsCorrection(fields.body);
+        if (correction.name || correction.email) {
+          let patched = true;
+          if (env.applySmsCorrection) {
+            patched = await env.applySmsCorrection(pending, correction);
+          }
+          if (patched) {
+            if (pending.id && env.consumePendingConfirm) {
+              await env.consumePendingConfirm(pending.id);
+            }
+            console.log(`[mh-sms-inbound] customer=${customer.id} confirm=updated body_len=${fields.body.length}`);
+            return { twiml: twimlMessage(SMS_CONFIRM_UPDATED), status: 200, customerId: customer.id };
+          }
+        }
+      }
+    } catch {
+      /* fall through to KB — never fail the Twilio webhook */
+    }
   }
 
   const kb = await env.loadKb(customer.id);
