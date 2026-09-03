@@ -1,5 +1,6 @@
 /**
- * Shared staff-transfer primitives for mh-customer-transfer and mh-ossie-tools.
+ * Shared staff-transfer primitives for mh-customer-transfer, mh-ossie-tools,
+ * and mh-nextride-tools.
  *
  * Race this module exists to kill:
  * - waitForResult(25s) returned accepted:false while staff was still ringing

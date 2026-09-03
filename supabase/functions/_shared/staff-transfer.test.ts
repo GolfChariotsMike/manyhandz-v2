@@ -15,6 +15,7 @@ import {
   dropInboundTwiml,
   inboundParkTwiml,
   isStillLive,
+  noContent,
   outboundCallFields,
   ringingOnlyFilter,
   screenGatherTwiml,
@@ -136,7 +137,7 @@ test("staff join TwiML starts the conference with the same hold music", () => {
   assert.match(xml, /Connecting you now/);
 });
 
-test("screen gather uses a 10s press-1 timeout", () => {
+test("screen gather uses a 10s press-1 timeout and Polly.Matthew-Neural", () => {
   const xml = screenGatherTwiml({
     actionUrl: "https://example.test/transfer-accept?id=1",
     prompt: "Press 1 to accept",
@@ -145,6 +146,14 @@ test("screen gather uses a 10s press-1 timeout", () => {
   assert.match(xml, /timeout="10"/);
   assert.match(xml, /numDigits="1"/);
   assert.match(xml, /transfer-accept\?id=1/);
+  assert.match(xml, /Polly\.Matthew-Neural/);
+  assert.equal(xml.includes("Nicole"), false);
+});
+
+test("noContent is 204 with a null body — Deno treats Response('', {status:204}) as 500", () => {
+  const res = noContent();
+  assert.equal(res.status, 204);
+  assert.equal(res.body, null);
 });
 
 test("outbound dial is 20s with AMD Enable", () => {
