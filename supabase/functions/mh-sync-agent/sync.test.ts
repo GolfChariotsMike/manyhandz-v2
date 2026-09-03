@@ -241,7 +241,8 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(endCall.tool_call_sound, undefined);
   assert.match(agent.prompt.prompt, /create_simpro_job/);
   assert.match(agent.prompt.prompt, /transfer_to_staff/);
-  assert.match(agent.prompt.prompt, /call the transfer_to_staff tool FIRST/);
+  assert.match(agent.prompt.prompt, /I'll transfer you to Jason now/);
+  assert.match(agent.prompt.prompt, /THEN call the transfer_to_staff tool/);
   assert.doesNotMatch(agent.prompt.prompt, /Take messages when callers want to speak to a staff member/);
   assert.match(JSON.stringify(save), /mh-save-message\?customer_id=cust-1/);
   assert.match(JSON.stringify(transfer), /mh-customer-transfer\/transfer\?customer_id=cust-1/);

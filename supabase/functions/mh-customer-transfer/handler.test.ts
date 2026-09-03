@@ -200,18 +200,59 @@ test("/transfer returns accepted:true when staff presses 1 after 30s", async () 
   assert.equal(dropTwiml.length, 0);
 });
 
-test("/transfer drops the conference and returns accepted:false only on no-answer", async () => {
-  const { env, dropTwiml } = makeEnv({
+test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies, transfers } = makeEnv({
+    staffRows: GLACIER_STAFF,
     statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
   });
   const res = await handleCustomerTransfer(
-    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak" }),
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Alex",
+      caller_need: "speak to Jason",
+      staff_name: "Jason",
+    }),
     env,
   );
   const json = await res.json() as { accepted?: boolean };
   assert.equal(json.accepted, false);
+  assert.equal(dropTwiml.length, 0);
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /<Stream /);
+  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.doesNotMatch(returnTwiml[0] || "", /Someone will call you back/);
+  assert.equal(registerBodies.length, 1);
+  const init = registerBodies[0].conversation_initiation_client_data as {
+    dynamic_variables: Record<string, string>;
+    conversation_config_override: { agent: { first_message: string } };
+  };
+  assert.equal(init.dynamic_variables.return_from_staff, "true");
+  assert.match(init.dynamic_variables.return_instruction, /Sorry, Jason isn't available/);
+  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Jason isn't available/);
+  assert.equal([...transfers.values()][0]?.status, RETURNED);
+});
+
+test("/transfer no-answer uses a short say only when EL reconnect fails", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
+  });
+  env.elApiKey = "";
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Alex",
+      caller_need: "speak to Jason",
+      staff_name: "Jason",
+    }),
+    env,
+  );
+  const json = await res.json() as { accepted?: boolean };
+  assert.equal(json.accepted, false);
+  assert.equal(registerBodies.length, 0);
+  assert.equal(returnTwiml.length, 0);
   assert.ok(dropTwiml.length >= 1);
   assert.match(dropTwiml[0], /Hangup/);
+  assert.match(dropTwiml[0], /not available right now/);
+  assert.doesNotMatch(dropTwiml[0], /Someone will call you back/);
 });
 
 test("/transfer-status completed never marks accepted as no-answer (hangup sends caller back)", async () => {
