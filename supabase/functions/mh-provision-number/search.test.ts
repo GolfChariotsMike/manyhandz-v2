@@ -139,4 +139,11 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.doesNotMatch(src, /ask for their name early/);
   assert.doesNotMatch(provision, /ask for their name early/);
   assert.doesNotMatch(src, /sms-webhook/);
+  assert.match(src, /mh-sms-inbound/);
+  assert.match(src, /mh-call-status\?customer_id=/);
+  assert.match(src, /mh-voice-router/);
+  assert.match(src, /twilioVoiceBindFields|VoiceApplicationSid/);
+  assert.doesNotMatch(src, /a77816d9-3b5f-4635-a77d-095e767a532e/);
+  assert.doesNotMatch(src, /Jason Bond|nick\.studer/i);
+  assert.doesNotMatch(src, /mh_staff/);
 });
