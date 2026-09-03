@@ -14,7 +14,8 @@
  *   completed-without-accept.
  * - Status callbacks PATCH only rows still status=ringing — never overwrite accepted.
  * - Park the inbound CallSid into a conference with hold music as soon as
- *   transfer starts; staff joins that conference on 1. On a real fail, drop it.
+ *   transfer starts; staff joins that conference on 1. On a real fail,
+ *   reconnect the parked inbound to EL Stream while it is still in conference.
  */
 
 export const WAIT_FOR_RESULT_MS = 90_000;
@@ -130,12 +131,17 @@ export function screenGatherTwiml(opts: {
   const voice = opts.voice || "Polly.Matthew-Neural";
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Gather numDigits="1" action="${opts.actionUrl}" timeout="${GATHER_TIMEOUT_SECS}">
+  <Gather numDigits="1" action="${opts.actionUrl}" actionOnEmptyResult="true" timeout="${GATHER_TIMEOUT_SECS}">
     <Say voice="${voice}">${opts.prompt}</Say>
   </Gather>
   <Say voice="${voice}">${opts.timeoutSay}</Say>
   <Hangup/>
 </Response>`;
+}
+
+/** Staff-leg hangup after a failed screen — inbound stays parked until we Stream it. */
+export function staffScreenHangupTwiml(): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
 }
 
 export type WaitClock = {

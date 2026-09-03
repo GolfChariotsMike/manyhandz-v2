@@ -125,6 +125,7 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.match(on, /transfer_to_staff/);
   assert.match(on, /I'll transfer you to Jason now/);
   assert.match(on, /Never call the tool silently/);
+  assert.match(on, /say_to_caller/);
   assert.match(on, /THEN call the transfer_to_staff tool/);
   assert.match(on, /accepted:false/);
   assert.match(on, /Do not take a message until the webhook returns accepted:false/);

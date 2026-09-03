@@ -36,6 +36,7 @@ import {
   elReconnectTwimlLooksLive,
   failedTransferInstruction,
   fetchRegisterCallTwiml,
+  reconnectKindForStatus,
   resolvedReturnInstruction,
   returnRegisterCallBody,
   shouldReturnToAi,
@@ -57,11 +58,19 @@ import {
   ringingOnlyFilter,
   screenGatherTwiml,
   staffJoinTwiml,
+  staffScreenHangupTwiml,
   transferToolResponse,
   twimlResponse,
   waitForResult,
   type WaitClock,
 } from "../_shared/staff-transfer.ts";
+import {
+  isSpokenTransferAck,
+  missingSpokenAckResponse,
+  spokenAckFromBody,
+} from "../_shared/transfer-to-staff-tool.ts";
+import { nameFromLookupResult, whisperCallerName } from "../_shared/whisper-caller-name.ts";
+import { lookupSimproCustomer, type CreateJobEnv } from "../mhv2-simpro-create-job/create.ts";
 import type { LastJobEnv } from "../_shared/last-job-technician.ts";
 import type { SimproConnection } from "../_shared/simpro-access.ts";
 
@@ -79,6 +88,7 @@ export type CustomerTransferEnv = {
   encryptionKey?: string;
   elApiKey?: string;
   lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
+  lookupCallerName?: (input: { customerId: string; callerPhone: string }) => Promise<string | null>;
 };
 
 function auth(env: CustomerTransferEnv): string {
@@ -215,6 +225,40 @@ async function lastJobForCaller(
   return lookupLastJobTechnician({ customer_id: customerId, caller_phone: callerPhone }, simproEnvFromTransfer(env));
 }
 
+function lookupEnvFromTransfer(env: CustomerTransferEnv): CreateJobEnv {
+  const last = simproEnvFromTransfer(env);
+  return {
+    fetch: last.fetch,
+    now: last.now,
+    encryptionKey: last.encryptionKey,
+    loadConnection: last.loadConnection,
+    saveTokens: last.saveTokens,
+  };
+}
+
+/** Server-side lookup_simpro_customer — never blocks the transfer on a miss. */
+async function resolveWhisperCallerName(
+  env: CustomerTransferEnv,
+  customerId: string,
+  callerPhone: string,
+  providedName: string,
+): Promise<string> {
+  const phone = String(callerPhone || "").trim();
+  if (!phone) return whisperCallerName(null, providedName);
+  try {
+    if (env.lookupCallerName) {
+      return whisperCallerName(await env.lookupCallerName({ customerId, callerPhone: phone }), providedName);
+    }
+    const result = await lookupSimproCustomer(
+      { customer_id: customerId, caller_phone: phone },
+      lookupEnvFromTransfer(env),
+    );
+    return whisperCallerName(nameFromLookupResult(result), providedName);
+  } catch {
+    return whisperCallerName(null, providedName);
+  }
+}
+
 async function resolveTransferDestination(
   env: CustomerTransferEnv,
   opts: {
@@ -311,11 +355,18 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     const bridgeTo = vc?.bridge_to_number;
     const fromNumber = cust?.twilio_number;
 
-    const callerName = String(json.caller_name || "someone");
-    const callerNeed = String(json.caller_need || "general enquiry");
     const staffName = String(json.staff_name || json.transfer_to || "").trim();
-    const callerPhone = String(json.caller_number || json.caller_phone || "").trim();
+    if (!isSpokenTransferAck(spokenAckFromBody(json))) {
+      return jsonResponse(missingSpokenAckResponse(staffName));
+    }
+
+    const providedName = String(json.caller_name || "").trim();
+    const callerNeed = String(json.caller_need || "general enquiry");
+    const callerPhoneFromBody = String(json.caller_number || json.caller_phone || "").trim();
     const nameUnknown = truthyFlag(json.name_unknown);
+    const sidRows = await dbGet(env, CALL_SIDS_TABLE, `number=eq.${customerId}&select=call_sid,caller`);
+    const sidRow = firstRow<{ call_sid?: string; caller?: string | null }>(sidRows);
+    const callerPhone = callerPhoneFromBody || String(sidRow?.caller || "").trim();
 
     const resolved = await resolveTransferDestination(env, {
       customerId,
@@ -340,8 +391,8 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     }
 
     const dest = resolved;
-    const sidRows = await dbGet(env, CALL_SIDS_TABLE, `number=eq.${customerId}&select=call_sid`);
-    const callSid = firstRow<{ call_sid?: string }>(sidRows)?.call_sid || null;
+    const callSid = sidRow?.call_sid || null;
+    const callerName = await resolveWhisperCallerName(env, customerId, callerPhone, providedName);
     const transferId = Date.now().toString(36);
     const confName = conferenceName(CONF_PREFIX, transferId);
 
@@ -377,7 +428,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action !== "accept") {
+      if (decision.action === "fail") {
         await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
       }
 
@@ -429,7 +480,9 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     }
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
-    return twimlResponse(dropInboundTwiml("Okay, declining the call."));
+    // Reconnect the parked inbound NOW — do not wait for outbound completed.
+    await returnCallerToAi(env, { id, customerId, mode: "failed-transfer" });
+    return twimlResponse(staffScreenHangupTwiml());
   }
 
   if (path === "/staff-left") {
@@ -461,7 +514,11 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     await dbPatch(env, TRANSFERS_TABLE, ringingOnlyFilter(id), { status: "no-answer" });
     const callStatus = String(params.get("CallStatus") || json.CallStatus || "").toLowerCase();
     if (callStatus === "completed" && id) {
-      await returnCallerToAi(env, { id, customerId });
+      const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=status`);
+      const status = firstRow<{ status?: string }>(rows)?.status;
+      const kind = reconnectKindForStatus(status);
+      // Failed transfer: Stream the parked inbound NOW, before conference teardown.
+      if (kind) await returnCallerToAi(env, { id, customerId, mode: kind });
     }
     return noContent();
   }

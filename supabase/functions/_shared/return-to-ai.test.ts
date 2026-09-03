@@ -10,6 +10,7 @@ import {
   RETURN_FIRST_MESSAGE,
   canReconnectFailedTransfer,
   elReconnectTwimlLooksLive,
+  reconnectKindForStatus,
   failedTransferInstruction,
   resolvedReturnInstruction,
   returnFromStaffPromptRule,
@@ -126,4 +127,12 @@ test("canReconnectFailedTransfer allows no-answer but not an accepted conference
   assert.equal(canReconnectFailedTransfer("ringing"), true);
   assert.equal(canReconnectFailedTransfer("accepted"), false);
   assert.equal(canReconnectFailedTransfer("returned"), false);
+});
+
+test("reconnectKindForStatus reconnects failed transfers immediately, not after teardown", () => {
+  assert.equal(reconnectKindForStatus("ringing"), "failed-transfer");
+  assert.equal(reconnectKindForStatus("no-answer"), "failed-transfer");
+  assert.equal(reconnectKindForStatus("declined"), "failed-transfer");
+  assert.equal(reconnectKindForStatus("accepted"), "staff-return");
+  assert.equal(reconnectKindForStatus("returned"), null);
 });
