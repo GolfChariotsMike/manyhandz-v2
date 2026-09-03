@@ -47,7 +47,8 @@ import {
   waitForResult,
   type WaitClock,
 } from "../_shared/staff-transfer.ts";
-import type { CreateJobEnv, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
+import type { LastJobEnv } from "../_shared/last-job-technician.ts";
+import type { SimproConnection } from "../_shared/simpro-access.ts";
 
 export const CONF_PREFIX = "mh-transfer";
 export const TRANSFERS_TABLE = "mh_ossie_transfers";
@@ -167,7 +168,7 @@ async function loadActiveStaff(env: CustomerTransferEnv, customerId: string): Pr
   }
 }
 
-function simproEnvFromTransfer(env: CustomerTransferEnv): CreateJobEnv {
+function simproEnvFromTransfer(env: CustomerTransferEnv): LastJobEnv {
   return {
     fetch: env.fetch,
     now: () => new Date(),

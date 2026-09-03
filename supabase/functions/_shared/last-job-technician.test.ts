@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { encryptSecret, type CreateJobEnv, type SimproConnection } from "../mhv2-simpro-create-job/create.ts";
-import { lookupLastJobTechnician, staffNameFromJob } from "./last-job-technician.ts";
+import { lookupLastJobTechnician, staffNameFromJob, type LastJobEnv } from "./last-job-technician.ts";
+import { encryptSecret, type SimproConnection } from "./simpro-access.ts";
 
 const KEY = "test-encryption-key-not-a-secret";
 const CUST = "a77816d9-3b5f-4635-a77d-095e767a532e";
@@ -20,8 +20,8 @@ async function conn(): Promise<SimproConnection> {
   };
 }
 
-function envFor(fetchImpl: CreateJobEnv["fetch"], connection: SimproConnection | null): {
-  env: CreateJobEnv;
+function envFor(fetchImpl: LastJobEnv["fetch"], connection: SimproConnection | null): {
+  env: LastJobEnv;
   calls: string[];
 } {
   const calls: string[] = [];

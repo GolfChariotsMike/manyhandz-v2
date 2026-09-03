@@ -9,9 +9,13 @@ import {
   digitsOnly,
   getAccessToken,
   sanitizeSimproError,
-  type CreateJobEnv,
+  type SimproAccessEnv,
   type SimproConnection,
-} from "../mhv2-simpro-create-job/create.ts";
+} from "./simpro-access.ts";
+
+export type LastJobEnv = SimproAccessEnv & {
+  loadConnection: (customerId: string) => Promise<SimproConnection | null>;
+};
 
 export type LastJobTechnicianResult =
   | { status: "found"; technicianName: string; jobId?: string }
@@ -72,7 +76,7 @@ function phoneMatches(recordPhone: unknown, callerDigits: string): boolean {
 }
 
 async function findCustomerIdByPhone(
-  env: CreateJobEnv,
+  env: LastJobEnv,
   conn: SimproConnection,
   token: string,
   phone: string,
@@ -102,7 +106,7 @@ function listJobsUrl(conn: SimproConnection, simproCustomerId: number, customerF
   );
 }
 
-async function simproGet(env: CreateJobEnv, token: string, url: string): Promise<{ ok: boolean; data: unknown }> {
+async function simproGet(env: LastJobEnv, token: string, url: string): Promise<{ ok: boolean; data: unknown }> {
   const res = await env.fetch(url, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
@@ -120,7 +124,7 @@ async function simproGet(env: CreateJobEnv, token: string, url: string): Promise
 }
 
 async function listCustomerJobs(
-  env: CreateJobEnv,
+  env: LastJobEnv,
   conn: SimproConnection,
   token: string,
   simproCustomerId: number,
@@ -141,7 +145,7 @@ async function listCustomerJobs(
  */
 export async function lookupLastJobTechnician(
   input: { customer_id: string; caller_phone: string },
-  env: CreateJobEnv,
+  env: LastJobEnv,
 ): Promise<LastJobTechnicianResult> {
   const phone = String(input.caller_phone || "").trim();
   const customerId = String(input.customer_id || "").trim();
