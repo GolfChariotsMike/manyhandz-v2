@@ -173,7 +173,7 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   assert.equal(prompt.tools[2].tool_call_sound, undefined);
   assert.deepEqual(prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey");
-  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(agent.disable_first_message_interruptions, false);
   assert.deepEqual(
     (patch.conversation_config as { turn: { transcribe_on_disabled_interruptions: boolean } }).turn,
     { transcribe_on_disabled_interruptions: true },
@@ -261,7 +261,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.equal(agent.prompt.tools.some((t) => t.name === "send_signup_sms"), false);
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
-  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(agent.disable_first_message_interruptions, false);
   assert.deepEqual(
     (customerPatch.body as {
       conversation_config: { turn: { transcribe_on_disabled_interruptions: boolean } };
@@ -282,7 +282,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
         turn: { transcribe_on_disabled_interruptions: boolean };
       };
     }).conversation_config;
-    assert.equal(extraCfg.agent.disable_first_message_interruptions, true);
+    assert.equal(extraCfg.agent.disable_first_message_interruptions, false);
     assert.equal(extraCfg.turn.transcribe_on_disabled_interruptions, true);
     const extraTools = extraCfg.agent.prompt.tools;
     const extraSave = extraTools.find((t) => t.name === "save_message");
@@ -694,7 +694,7 @@ test("saved system_prompt is what ElevenLabs gets and is not concatenated onto c
   assert.equal(restPatches.some((p) => p.url.includes("/rest/v1/mh_voice_config")), false);
 });
 
-test("generic customer sync keeps greeting locked and transcribes disabled interruptions", async () => {
+test("generic customer sync allows greeting barge-in and transcribes disabled interruptions", async () => {
   const { env, patches } = makeEnv({
     customers: [{ business_name: "Acme Plumbing", el_agent_id: "agent-cust" }],
     voice: [{
@@ -716,7 +716,7 @@ test("generic customer sync keeps greeting locked and transcribes disabled inter
       turn: { transcribe_on_disabled_interruptions: boolean };
     };
   }).conversation_config;
-  assert.equal(config.agent.disable_first_message_interruptions, true);
+  assert.equal(config.agent.disable_first_message_interruptions, false);
   assert.equal(config.turn.transcribe_on_disabled_interruptions, true);
   assert.doesNotMatch(JSON.stringify(customerPatch.body), /a77816d9-3b5f-4635-a77d-095e767a532e/);
   assert.doesNotMatch(JSON.stringify(customerPatch.body), /github\.com/);

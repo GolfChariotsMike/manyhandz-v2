@@ -106,7 +106,7 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
     fs.readFile(new URL("./provision.ts", import.meta.url), "utf8"),
   );
   assert.match(provision, /first_message:\s*padCallOpening\(greeting\)/);
-  assert.match(provision, /disable_first_message_interruptions:\s*true/);
+  assert.match(provision, /disable_first_message_interruptions:\s*false/);
   assert.match(provision, /transcribe_on_disabled_interruptions:\s*true/);
   assert.match(provision, /turn_eagerness:\s*"patient"/);
   assert.match(provision, /greeting_script:\s*provisionGreeting/);
