@@ -31,12 +31,43 @@ export const RETURN_FIRST_MESSAGE = "How can I help you from here?";
 export const STAFF_RETURN_HINT =
   "Press star, then 9, to send the caller back to the assistant. Or hang up when you are done.";
 
+/** Charlie speaks this as herself after no-answer / reject / timeout. Dashboard optional later. */
+export const FAILED_TRANSFER_INSTRUCTION =
+  "Sorry, Jason isn't available. Can I take a message, or is there someone else who can help?";
+
+/** Only if register-call reconnect fails — never the happy path. */
+export const FAILED_TRANSFER_FALLBACK_SAY = "Sorry, they are not available right now.";
+
+export type ReturnReconnectKind = "staff-return" | "failed-transfer";
+
+export function spokenStaffFirstName(staffName?: string | null): string {
+  const first = String(staffName || "").trim().split(/\s+/)[0] || "";
+  if (!first || /^owner$/i.test(first) || /^they$/i.test(first)) return "";
+  return first;
+}
+
+/** Default failed-transfer line, with the staff first name when we have one. */
+export function failedTransferInstruction(staffName?: string | null): string {
+  const first = spokenStaffFirstName(staffName);
+  if (!first) {
+    return "Sorry, they aren't available. Can I take a message, or is there someone else who can help?";
+  }
+  return `Sorry, ${first} isn't available. Can I take a message, or is there someone else who can help?`;
+}
+
 export function resolvedReturnInstruction(raw?: string | null): string {
   const trimmed = String(raw || "").trim();
   return trimmed || GENERIC_RETURN_TO_AI_PROMPT;
 }
 
-export function returnPromptPrefix(instruction: string): string {
+export function returnPromptPrefix(instruction: string, kind: ReturnReconnectKind = "staff-return"): string {
+  if (kind === "failed-transfer") {
+    return (
+      `FAILED TRANSFER: Staff did not answer, declined, or timed out. ` +
+      `This is a new conversation. Speak as yourself (do not sound like a recording): ${instruction} ` +
+      `Then take a message or transfer to someone else if they ask. Skip a long re-introduction.`
+    );
+  }
   return (
     `RETURN FROM STAFF: A team member just sent this caller back to you. ` +
     `This is a new conversation. Follow this instruction (do not read it aloud): ${instruction} ` +
@@ -59,16 +90,31 @@ export function shouldReturnToAi(digits: string, fallback = false): boolean {
   return d === "" || d === "9";
 }
 
+/** Press-9 hangup fallback is accepted-only. Failed transfer may reconnect from ringing / no-answer / declined. */
+export function canReconnectFailedTransfer(status?: string | null): boolean {
+  const s = String(status || "").trim();
+  if (s === RETURNED || s === "accepted") return false;
+  return true;
+}
+
 export function returnRegisterCallBody(opts: {
   agentId: string;
   callerId: string;
   to: string;
   instruction?: string | null;
   standingPrompt?: string | null;
+  kind?: ReturnReconnectKind;
+  staffName?: string | null;
+  firstMessage?: string | null;
 }): Record<string, unknown> {
-  const instruction = resolvedReturnInstruction(opts.instruction);
-  const prefix = returnPromptPrefix(instruction);
+  const kind = opts.kind || "staff-return";
+  const instruction = kind === "failed-transfer"
+    ? (String(opts.instruction || "").trim() || failedTransferInstruction(opts.staffName))
+    : resolvedReturnInstruction(opts.instruction);
+  const prefix = returnPromptPrefix(instruction, kind);
   const standing = String(opts.standingPrompt || "").trim();
+  const spoken = String(opts.firstMessage || "").trim()
+    || (kind === "failed-transfer" ? instruction : RETURN_FIRST_MESSAGE);
   return {
     agent_id: opts.agentId,
     from_number: opts.callerId,
@@ -82,7 +128,7 @@ export function returnRegisterCallBody(opts: {
       },
       conversation_config_override: {
         agent: {
-          first_message: padCallOpening(RETURN_FIRST_MESSAGE),
+          first_message: padCallOpening(spoken),
           disable_first_message_interruptions: true,
           prompt: { prompt: standing ? `${prefix}\n\n${standing}` : prefix },
         },
@@ -91,7 +137,17 @@ export function returnRegisterCallBody(opts: {
   };
 }
 
-export function wrapCallerReturnTwiml(elTwiml: string, say = CALLER_RETURN_SAY): string {
+/** True when EL returned stream TwiML we can attach to the inbound CallSid. */
+export function elReconnectTwimlLooksLive(twiml: string): boolean {
+  return /<(Connect|Stream)\b/i.test(String(twiml || ""));
+}
+
+export function wrapCallerReturnTwiml(elTwiml: string, say: string | null = CALLER_RETURN_SAY): string {
+  if (!elReconnectTwimlLooksLive(elTwiml)) {
+    const fallback = say || FAILED_TRANSFER_FALLBACK_SAY;
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Matthew-Neural">${escapeXml(fallback)}</Say><Hangup/></Response>`;
+  }
+  if (!say) return elTwiml;
   const sayXml = `<Say voice="Polly.Matthew-Neural">${escapeXml(say)}</Say>`;
   if (/<Response>/i.test(elTwiml)) {
     return elTwiml.replace(/<Response>/i, `<Response>${sayXml}`);

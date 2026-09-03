@@ -6,13 +6,18 @@
  * +61440134550; staff map is Gavin / Mike / Adam.
  *
  * Parks the inbound call into a hold-music conference as soon as /transfer
- * starts. Staff joins on 1. On a real fail the conference is dropped; the
- * agent must not take a message until this webhook returns accepted:false.
+ * starts. Staff joins on 1. On no-answer / reject / timeout the inbound
+ * CallSid is reconnected to ElevenLabs (same register-call as press-9) —
+ * not Polly-Say + Hangup.
  */
 import {
   CALLER_RETURN_SAY,
+  FAILED_TRANSFER_FALLBACK_SAY,
   OSSIE_RETURN_TO_AI_PROMPT,
   RETURNED,
+  canReconnectFailedTransfer,
+  elReconnectTwimlLooksLive,
+  failedTransferInstruction,
   fetchRegisterCallTwiml,
   resolvedReturnInstruction,
   returnRegisterCallBody,
@@ -182,14 +187,6 @@ async function parkInbound(env: OssieToolsEnv, callSid: string | null, confName:
   return true;
 }
 
-async function dropParked(env: OssieToolsEnv, callSid: string | null): Promise<void> {
-  if (!callSid) return;
-  await twilioUpdateCall(
-    env,
-    callSid,
-    dropInboundTwiml("Sorry, they are not available right now. Someone will call you back."),
-  );
-}
 
 export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promise<Response> {
   const url = new URL(req.url);
@@ -309,7 +306,7 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
       const result = await twilioMakeCall(env, staff.number, OSSIE_FROM, screenUrl, statusUrl);
       if (!result.sid) {
         console.error(`[transfer] ${transferId} — failed to create call:`, result);
-        await dropParked(env, callSid);
+        await returnOssieCallerToAi(env, transferId, "failed-transfer");
         return jsonResponse({ success: false, error: "Could not reach staff member" });
       }
 
@@ -321,8 +318,8 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action === "fail") {
-        await dropParked(env, callSid);
+      if (decision.action !== "accept") {
+        await returnOssieCallerToAi(env, transferId, "failed-transfer");
       }
 
       return jsonResponse(transferToolResponse(decision, {
@@ -331,7 +328,7 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
         pending: `${staff.name} is still being reached. Keep the caller on hold.`,
       }));
     } catch (e) {
-      await dropParked(env, callSid);
+      await returnOssieCallerToAi(env, transferId, "failed-transfer");
       return jsonResponse({ success: false, error: String(e) });
     }
   }
@@ -413,25 +410,45 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
   return new Response("Not found", { status: 404 });
 }
 
-async function returnOssieCallerToAi(env: OssieToolsEnv, id: string): Promise<{ ok: boolean; callerSid?: string }> {
-  const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=call_sid,outbound_sid,status`);
-  const transfer = firstRow<{ call_sid?: string | null; outbound_sid?: string | null; status?: string }>(rows);
+async function returnOssieCallerToAi(
+  env: OssieToolsEnv,
+  id: string,
+  mode: "staff-return" | "failed-transfer" = "staff-return",
+): Promise<{ ok: boolean; callerSid?: string }> {
+  const rows = await dbGet(
+    env,
+    TRANSFERS_TABLE,
+    `id=eq.${encodeURIComponent(id)}&select=call_sid,outbound_sid,status,staff_name`,
+  );
+  const transfer = firstRow<{
+    call_sid?: string | null;
+    outbound_sid?: string | null;
+    status?: string;
+    staff_name?: string | null;
+  }>(rows);
   const callerSid = String(transfer?.call_sid || "").trim();
   if (!callerSid || transfer?.status === RETURNED) return { ok: Boolean(callerSid), callerSid };
-  if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
+  if (mode === "failed-transfer") {
+    if (!canReconnectFailedTransfer(transfer?.status)) return { ok: false, callerSid };
+  } else if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
     return { ok: false };
   }
 
   const cfgRows = await dbGet(env, "mh_ossie_config", `id=eq.ossie&select=return_to_ai_prompt`);
   const cfg = firstRow<{ return_to_ai_prompt?: string | null }>(cfgRows);
-  const instruction = resolvedReturnInstruction(
-    env.returnToAiPrompt || cfg?.return_to_ai_prompt || OSSIE_RETURN_TO_AI_PROMPT,
-  );
+  const instruction = mode === "failed-transfer"
+    ? failedTransferInstruction(transfer?.staff_name)
+    : resolvedReturnInstruction(
+      env.returnToAiPrompt || cfg?.return_to_ai_prompt || OSSIE_RETURN_TO_AI_PROMPT,
+    );
   const sidRows = await dbGet(env, CALL_SIDS_TABLE, `number=eq.ossie-latest&select=call_sid,caller`);
   const callerId = String(firstRow<{ caller?: string | null }>(sidRows)?.caller || "").trim() || "anonymous";
   const agentId = String(env.elAgentId || "").trim();
   if (!env.elApiKey || !agentId) {
     console.error("[ossie return-to-ai] missing EL agent or key");
+    if (mode === "failed-transfer") {
+      await twilioUpdateCall(env, callerSid, dropInboundTwiml(FAILED_TRANSFER_FALLBACK_SAY));
+    }
     return { ok: false, callerSid };
   }
 
@@ -439,11 +456,21 @@ async function returnOssieCallerToAi(env: OssieToolsEnv, id: string): Promise<{ 
     agentId,
     callerId,
     to: OSSIE_FROM,
+    kind: mode,
+    staffName: transfer?.staff_name,
     instruction,
   });
   const elTwiml = await fetchRegisterCallTwiml(env.fetch, env.elApiKey, body);
-  await twilioUpdateCall(env, callerSid, wrapCallerReturnTwiml(elTwiml, CALLER_RETURN_SAY));
+  if (mode === "failed-transfer" && !elReconnectTwimlLooksLive(elTwiml)) {
+    await twilioUpdateCall(env, callerSid, dropInboundTwiml(FAILED_TRANSFER_FALLBACK_SAY));
+    return { ok: false, callerSid };
+  }
+  await twilioUpdateCall(
+    env,
+    callerSid,
+    wrapCallerReturnTwiml(elTwiml, mode === "failed-transfer" ? null : CALLER_RETURN_SAY),
+  );
   await dbPatch(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}`, { status: RETURNED });
-  console.log(`[ossie return-to-ai] ${id} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
+  console.log(`[ossie return-to-ai] ${id} ${mode} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
   return { ok: true, callerSid };
 }

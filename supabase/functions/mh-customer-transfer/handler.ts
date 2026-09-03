@@ -3,8 +3,9 @@
  * Routes: /transfer, /transfer-screen, /transfer-accept, /transfer-status.
  *
  * Parks the inbound EL call into a hold-music conference as soon as /transfer
- * starts. Staff joins that conference on 1. On a real fail the conference is
- * dropped and the webhook may return accepted:false (then the agent may save_message).
+ * starts. Staff joins that conference on 1. On no-answer / reject / timeout
+ * the inbound CallSid is reconnected to ElevenLabs (same register-call as
+ * press-9) so Charlie can keep talking — not Polly-Say + Hangup.
  *
  * Uses mh_staff (active) when the caller names a person or role.
  * Generic "the technician" looks up the last SimPRO job (not leads) and
@@ -29,7 +30,11 @@ import {
 } from "../_shared/staff-match.ts";
 import {
   CALLER_RETURN_SAY,
+  FAILED_TRANSFER_FALLBACK_SAY,
   RETURNED,
+  canReconnectFailedTransfer,
+  elReconnectTwimlLooksLive,
+  failedTransferInstruction,
   fetchRegisterCallTwiml,
   resolvedReturnInstruction,
   returnRegisterCallBody,
@@ -277,15 +282,6 @@ async function parkInbound(env: CustomerTransferEnv, callSid: string | null, con
   return true;
 }
 
-async function dropParked(env: CustomerTransferEnv, callSid: string | null): Promise<void> {
-  if (!callSid) return;
-  await twilioUpdateCall(
-    env,
-    callSid,
-    dropInboundTwiml("Sorry, they are not available right now. Someone will call you back."),
-  );
-}
-
 export async function handleCustomerTransfer(req: Request, env: CustomerTransferEnv): Promise<Response> {
   const url = new URL(req.url);
   const path = routePath(url);
@@ -369,7 +365,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       const result = await twilioMakeCall(env, dest.staffNumber, fromNumber, screenUrl, statusUrl);
       if (!result.sid) {
         console.error(`[transfer] ${transferId} — Twilio error:`, result);
-        await dropParked(env, callSid);
+        await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
         return jsonResponse({ success: false, error: "Could not reach staff" });
       }
 
@@ -381,8 +377,8 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action === "fail") {
-        await dropParked(env, callSid);
+      if (decision.action !== "accept") {
+        await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
       }
 
       return jsonResponse(transferToolResponse(decision, {
@@ -391,7 +387,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
         pending: "Staff is still being reached. Keep the caller on hold.",
       }));
     } catch (e) {
-      await dropParked(env, callSid);
+      await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
       return jsonResponse({ success: false, error: String(e) });
     }
   }
@@ -475,17 +471,25 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
 
 async function returnCallerToAi(
   env: CustomerTransferEnv,
-  opts: { id: string; customerId: string },
+  opts: { id: string; customerId: string; mode?: "staff-return" | "failed-transfer" },
 ): Promise<{ ok: boolean; callerSid?: string }> {
+  const mode = opts.mode || "staff-return";
   const rows = await dbGet(
     env,
     TRANSFERS_TABLE,
-    `id=eq.${encodeURIComponent(opts.id)}&select=call_sid,outbound_sid,status`,
+    `id=eq.${encodeURIComponent(opts.id)}&select=call_sid,outbound_sid,status,staff_name`,
   );
-  const transfer = firstRow<{ call_sid?: string | null; outbound_sid?: string | null; status?: string }>(rows);
+  const transfer = firstRow<{
+    call_sid?: string | null;
+    outbound_sid?: string | null;
+    status?: string;
+    staff_name?: string | null;
+  }>(rows);
   const callerSid = String(transfer?.call_sid || "").trim();
   if (!callerSid || transfer?.status === RETURNED) return { ok: Boolean(callerSid), callerSid };
-  if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
+  if (mode === "failed-transfer") {
+    if (!canReconnectFailedTransfer(transfer?.status)) return { ok: false, callerSid };
+  } else if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
     return { ok: false };
   }
 
@@ -506,6 +510,9 @@ async function returnCallerToAi(
   const callerId = String(sidRow?.caller || "").trim() || "anonymous";
   if (!env.elApiKey || !agentId || !toNumber) {
     console.error("[return-to-ai] missing EL agent, number, or key");
+    if (mode === "failed-transfer") {
+      await twilioUpdateCall(env, callerSid, dropInboundTwiml(FAILED_TRANSFER_FALLBACK_SAY));
+    }
     return { ok: false, callerSid };
   }
 
@@ -513,13 +520,21 @@ async function returnCallerToAi(
     agentId,
     callerId,
     to: toNumber,
-    instruction: resolvedReturnInstruction(vc?.return_to_ai_prompt),
+    kind: mode,
+    staffName: transfer?.staff_name,
+    instruction: mode === "failed-transfer"
+      ? failedTransferInstruction(transfer?.staff_name)
+      : resolvedReturnInstruction(vc?.return_to_ai_prompt),
     standingPrompt: vc?.system_prompt,
   });
   const elTwiml = await fetchRegisterCallTwiml(env.fetch, env.elApiKey, body);
-  const twiml = wrapCallerReturnTwiml(elTwiml, CALLER_RETURN_SAY);
+  if (mode === "failed-transfer" && !elReconnectTwimlLooksLive(elTwiml)) {
+    await twilioUpdateCall(env, callerSid, dropInboundTwiml(FAILED_TRANSFER_FALLBACK_SAY));
+    return { ok: false, callerSid };
+  }
+  const twiml = wrapCallerReturnTwiml(elTwiml, mode === "failed-transfer" ? null : CALLER_RETURN_SAY);
   await twilioUpdateCall(env, callerSid, twiml);
   await dbPatch(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(opts.id)}`, { status: RETURNED });
-  console.log(`[return-to-ai] ${opts.id} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
+  console.log(`[return-to-ai] ${opts.id} ${mode} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
   return { ok: true, callerSid };
 }

@@ -123,7 +123,9 @@ test("servicem8 and xero rules stay off the prompt unless connected and capped",
 test("transfer rule names transfer_to_staff first and does not tell the agent to take a message instead", () => {
   const on = buildSystemPrompt(base);
   assert.match(on, /transfer_to_staff/);
-  assert.match(on, /call the transfer_to_staff tool FIRST/);
+  assert.match(on, /I'll transfer you to Jason now/);
+  assert.match(on, /Never call the tool silently/);
+  assert.match(on, /THEN call the transfer_to_staff tool/);
   assert.match(on, /accepted:false/);
   assert.match(on, /Do not take a message until the webhook returns accepted:false/);
   assert.match(on, /staff_name/);
@@ -135,7 +137,7 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.doesNotMatch(on, /Take messages when callers want to speak to a staff member/);
   const off = buildSystemPrompt({ ...base, capTransferCalls: false });
   assert.match(off, /Do not transfer calls/);
-  assert.doesNotMatch(off, /call the transfer_to_staff tool FIRST/);
+  assert.doesNotMatch(off, /THEN call the transfer_to_staff tool/);
   assert.match(off, /Take messages when callers want to speak to a staff member/);
 });
 

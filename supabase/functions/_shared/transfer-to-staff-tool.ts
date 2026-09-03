@@ -5,7 +5,9 @@
  * Do not strip it when transfers are enabled. The function returns accepted:false
  * if the bridge cannot take the call — then the agent should save_message.
  *
- * Typing is applied by mergeToolCallTyping. Never put this shape on end_call.
+ * The agent must speak a short acknowledgement before calling this tool
+ * (never a silent tool-call). Typing is applied by mergeToolCallTyping.
+ * Never put this shape on end_call.
  */
 
 export const TRANSFER_TO_STAFF_TOOL_NAME = "transfer_to_staff";
@@ -28,7 +30,7 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: TRANSFER_TO_STAFF_TOOL_NAME,
     description:
-      "Transfer the caller to a staff member when they ask for a person or to be put through. Call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
+      "Transfer the caller to a staff member when they ask for a person or to be put through. Before you call this tool, speak a short acknowledgement (e.g. if they asked for Jason, say \"No problem, I'll transfer you to Jason now.\"). Never call this tool silently. Then call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
     response_timeout_secs: 120,
     api_schema: {
       kind: "webhook",

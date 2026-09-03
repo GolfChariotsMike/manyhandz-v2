@@ -151,6 +151,29 @@ test("/transfer parks inbound, dials from Ossie From, and does not fail while ri
   assert.equal(dropTwiml.length, 0);
 });
 
+test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies } = makeEnv({
+    statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
+  });
+  const res = await handleOssieTools(
+    post("/transfer", { caller_name: "Sam", caller_need: "court hire", transfer_to: "mike" }),
+    env,
+  );
+  const json = await res.json() as { accepted?: boolean };
+  assert.equal(json.accepted, false);
+  assert.equal(dropTwiml.length, 0);
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /<Stream /);
+  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.equal(registerBodies.length, 1);
+  const init = registerBodies[0].conversation_initiation_client_data as {
+    dynamic_variables: Record<string, string>;
+    conversation_config_override: { agent: { first_message: string } };
+  };
+  assert.match(init.dynamic_variables.return_instruction, /Sorry, Mike isn't available/);
+  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Mike isn't available/);
+});
+
 test("/transfer accepted:true after a late press 1 does not drop the conference", async () => {
   const { env, dropTwiml } = makeEnv({
     statusAt: (elapsed) => (elapsed >= 30_000 ? "accepted" : RINGING),
