@@ -178,7 +178,8 @@ test("provision tools match Glacier product tools on a generic customer id", () 
   assert.match(String(create?.description), /Do not collect or confirm email this way for existing customers/);
   assert.doesNotMatch(JSON.stringify(tools), new RegExp(GLACIER_ID));
   assert.doesNotMatch(JSON.stringify(tools), /github\.com/);
-  assert.doesNotMatch(JSON.stringify(tools), /Jason Bond|nick\.studer/i);
+  assert.doesNotMatch(JSON.stringify(tools), /nick\.studer/i);
+  assert.doesNotMatch(JSON.stringify(tools), /\+61422962169|\+61400000000/);
   assert.equal(JSON.stringify(lookup).includes("system__"), false);
   assert.equal((lookup as { tool_call_sound?: string }).tool_call_sound, "typing");
   assert.equal((toolByName(tools, "end_call") as { tool_call_sound?: string }).tool_call_sound, undefined);

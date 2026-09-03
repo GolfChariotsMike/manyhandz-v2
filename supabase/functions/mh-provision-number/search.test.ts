@@ -120,6 +120,9 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   const provision = await import("node:fs/promises").then((fs) =>
     fs.readFile(new URL("./provision.ts", import.meta.url), "utf8"),
   );
+  const search = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("./search.ts", import.meta.url), "utf8"),
+  );
   assert.match(provision, /first_message:\s*padCallOpening\(greeting\)/);
   assert.match(provision, /disable_first_message_interruptions:\s*false/);
   assert.match(provision, /transcribe_on_disabled_interruptions:\s*true/);
@@ -142,7 +145,8 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /mh-sms-inbound/);
   assert.match(src, /mh-call-status\?customer_id=/);
   assert.match(src, /mh-voice-router/);
-  assert.match(src, /twilioVoiceBindFields|VoiceApplicationSid/);
+  assert.match(search, /VoiceApplicationSid:\s*""/);
+  assert.match(search, /twilioVoiceBindFields/);
   assert.doesNotMatch(src, /a77816d9-3b5f-4635-a77d-095e767a532e/);
   assert.doesNotMatch(src, /Jason Bond|nick\.studer/i);
   assert.doesNotMatch(src, /mh_staff/);
