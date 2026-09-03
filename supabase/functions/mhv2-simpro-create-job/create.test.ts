@@ -18,6 +18,7 @@ import {
   parseCreateJobInput,
   parseLookupCustomerInput,
   parseSiteAddress,
+  simproAddressBody,
   patchSimproCustomerDetails,
   personNameFromSpoken,
   SITE_LIST_COLUMNS,
@@ -461,6 +462,8 @@ test("createSimproJob Micycle-style street+suburb POSTs individual createSite th
         assert.equal(body.Phone, "0433 121 933");
         assert.equal(body.Address?.Address, "37 Derictoe Way");
         assert.equal(body.Address?.City, "Greenwood");
+        assert.equal(body.Address?.State, "WA");
+        assert.equal(body.Address?.PostalCode, "6024");
         assert.equal(url.includes("/customers/companies/"), false);
         return Response.json({ ID: 1201 }, { status: 201 });
       }
@@ -497,6 +500,148 @@ test("createSimproJob Micycle-style street+suburb POSTs individual createSite th
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/")), true);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/sites/")), false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
+});
+
+test("simproAddressBody fills WA postcode for spoken street+suburb and keeps a full AU address", () => {
+  const inferred = simproAddressBody("37 Derictoe Way Greenwood");
+  assert.equal(inferred.State, "WA");
+  assert.equal(inferred.PostalCode, "6024");
+  const given = simproAddressBody("12 Frost St, Malaga WA 6090");
+  assert.equal(given.State, "WA");
+  assert.equal(given.PostalCode, "6090");
+  const failed = simproAddressBody("67 Mars Street");
+  assert.equal(failed.State, "WA");
+  assert.equal(failed.PostalCode, "");
+  const us = simproAddressBody("37 Derictoe Way Greenwood", "US");
+  assert.equal(us.State, "");
+  assert.equal(us.PostalCode, "");
+});
+
+test("createSimproJob new customer without postcode still POSTs inferred WA address", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{
+          ID: 51,
+          Name: "12 Frost St",
+          Address: { Address: "12 Frost St", City: "Malaga", State: "WA", PostalCode: "6090" },
+        }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        assert.equal(body.Address?.City, "Malaga");
+        assert.equal(body.Address?.State, "WA");
+        assert.equal(body.Address?.PostalCode, "6090");
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Glacier",
+    caller_phone: "+61411122333",
+    site_address: "12 Frost St Malaga",
+    description: "Split system not cooling",
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.customer_created, true);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/")), true);
+});
+
+test("createSimproJob does not invent a postcode when suburb lookup is ambiguous", async () => {
+  const conn = await connected();
+  let customerAddress: Record<string, string> | null = null;
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 7, Name: "Perth", Address: { Address: "Perth", City: "Perth", State: "WA" } }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        customerAddress = body.Address;
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Glacier",
+    caller_phone: "+61411122333",
+    site_address: "Perth",
+    description: "Quote for the CBD",
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(customerAddress?.State, "WA");
+  assert.equal(customerAddress?.PostalCode, "");
+  assert.equal(customerAddress?.City, "Perth");
+});
+
+test("createSimproJob US market does not force WA or invent an AU postcode", async () => {
+  const conn = await connected();
+  let customerAddress: Record<string, string> | null = null;
+  const { env } = envFor({
+    connection: conn,
+    smsConfirm: { country: "US" },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 51, Name: "37 Derictoe Way", Address: { Address: "37 Derictoe Way", City: "Greenwood" } }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        customerAddress = body.Address;
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Glacier",
+    caller_phone: "+16175551212",
+    site_address: "37 Derictoe Way Greenwood",
+    description: "Install",
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(customerAddress?.State, "");
+  assert.equal(customerAddress?.PostalCode, "");
+  assert.equal(customerAddress?.City, "Greenwood");
 });
 
 test("createSimproJob 201 Location-only still yields customer and lead IDs", async () => {
@@ -1609,6 +1754,8 @@ test("createSimproJob extra site on 4708 POSTs /sites/ + Customers array then Op
         assert.ok(body.Address);
         assert.match(String(body.Address.Address || ""), /37 Dericote Way/);
         assert.equal(body.Address.City, "Greenwood");
+        assert.equal(body.Address.State, "WA");
+        assert.equal(body.Address.PostalCode, "6024");
         return Response.json({ ID: 8801 }, { status: 201 });
       }
       if (isUntypedCustomerSitesUrl(url) && method === "POST") {

@@ -15,7 +15,15 @@
  * On success, notifies the ManyHandz customer (email + notify_sms). Office
  * notify lives here so voice and chat both fire — do not rely on send_sms.
  * Never dumps jobs or other customers' leads into the tool result.
+ * New customer/site Address: infer a unique AU street postcode from suburb
+ * and default State to WA for AU/Perth (Glacier default). US market does
+ * not get WA. Never invent a postcode when lookup is ambiguous or fails.
  */
+import {
+  bookingMarket,
+  enrichAuSiteAddress,
+  type BookingMarket,
+} from "../_shared/au-postcode.ts";
 import { maybeSendNewCustomerConfirm, type SmsConfirmEnv } from "../_shared/sms-confirm.ts";
 import { notifySimproLeadCreated, type LeadNotifyEnv, type LeadNotifyTargets } from "./notify.ts";
 
@@ -256,9 +264,14 @@ export function parseSiteAddress(raw: string): {
   };
 }
 
-/** Street + suburb-only / street-only still get an Address so SimPRO can auto-site. */
-export function simproAddressBody(siteAddress: string): Record<string, string> {
-  const parsed = parseSiteAddress(siteAddress);
+/** Street + suburb-only / street-only still get an Address so SimPRO can auto-site.
+ * AU/Perth (the Glacier default): infer a unique street postcode and default
+ * State to WA. US market: do not guess AU postcodes or force WA. */
+export function simproAddressBody(
+  siteAddress: string,
+  market: BookingMarket = "AU",
+): Record<string, string> {
+  const parsed = enrichAuSiteAddress(parseSiteAddress(siteAddress), market);
   return {
     Address: parsed.address || siteAddress || "Site",
     City: parsed.city,
@@ -856,9 +869,10 @@ async function createCustomer(
   conn: SimproConnection,
   token: string,
   input: CreateJobInput,
+  market: BookingMarket = "AU",
 ): Promise<number> {
   const company = inferCompanyName(input.caller_name, input.company_name);
-  const address = simproAddressBody(input.site_address);
+  const address = simproAddressBody(input.site_address, market);
   const path = company
     ? `${apiBase(conn)}/customers/companies/?createSite=true`
     : `${apiBase(conn)}/customers/individuals/?createSite=true`;
@@ -1195,19 +1209,26 @@ function customerSiteCreateUrls(
   return [individual, company];
 }
 
-function siteNameAndAddress(siteAddress: string): { Name: string; Address: Record<string, string> } {
+function siteNameAndAddress(
+  siteAddress: string,
+  market: BookingMarket = "AU",
+): { Name: string; Address: Record<string, string> } {
   const parsed = parseSiteAddress(siteAddress);
   return {
     Name: parsed.name.slice(0, 80) || "Site",
-    Address: simproAddressBody(siteAddress),
+    Address: simproAddressBody(siteAddress, market),
   };
 }
 
 /** Company-wide POST /sites/ bodies. Customers is an integer array first —
  * Glacier 422s `[{ID}]` (`/Customers` Must be an integer). Never a scalar
  * `Customer` column (`Invalid column /Customer`). */
-function extraSiteLinkBodies(siteAddress: string, customerId: number): Array<Record<string, unknown>> {
-  const base = siteNameAndAddress(siteAddress);
+function extraSiteLinkBodies(
+  siteAddress: string,
+  customerId: number,
+  market: BookingMarket = "AU",
+): Array<Record<string, unknown>> {
+  const base = siteNameAndAddress(siteAddress, market);
   return [
     { ...base, Customers: [customerId] },
     { ...base, CustomerIDs: [customerId] },
@@ -1215,8 +1236,11 @@ function extraSiteLinkBodies(siteAddress: string, customerId: number): Array<Rec
   ];
 }
 
-function extraSiteUnlinkedBodies(siteAddress: string): Array<Record<string, unknown>> {
-  const base = siteNameAndAddress(siteAddress);
+function extraSiteUnlinkedBodies(
+  siteAddress: string,
+  market: BookingMarket = "AU",
+): Array<Record<string, unknown>> {
+  const base = siteNameAndAddress(siteAddress, market);
   return [{ ...base }, { Address: base.Address }];
 }
 
@@ -1363,6 +1387,7 @@ async function createSite(
   customerId: number,
   siteAddress: string,
   isCompany?: boolean,
+  market: BookingMarket = "AU",
 ): Promise<number> {
   const sitesUrl = `${apiBase(conn)}/sites/`;
   await simproOptions(env, token, sitesUrl);
@@ -1371,7 +1396,7 @@ async function createSite(
   let linked201 = false;
   let customersInteger201 = false;
 
-  for (const body of extraSiteLinkBodies(siteAddress, customerId)) {
+  for (const body of extraSiteLinkBodies(siteAddress, customerId, market)) {
     assertNoCustomerScalar(body);
     const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
     lastText = res.text || lastText;
@@ -1403,7 +1428,7 @@ async function createSite(
     );
   }
 
-  for (const body of extraSiteUnlinkedBodies(siteAddress)) {
+  for (const body of extraSiteUnlinkedBodies(siteAddress, market)) {
     assertNoCustomerScalar(body);
     const res = await simproJson(env, token, sitesUrl, { method: "POST", body });
     logSiteAttempt(env, "POST", sitesUrl, res);
@@ -1418,7 +1443,7 @@ async function createSite(
 
   for (const url of customerSiteCreateUrls(conn, customerId, isCompany)) {
     await simproOptions(env, token, url);
-    for (const body of extraSiteUnlinkedBodies(siteAddress)) {
+    for (const body of extraSiteUnlinkedBodies(siteAddress, market)) {
       assertNoCustomerScalar(body);
       const res = await simproJson(env, token, url, { method: "POST", body });
       logSiteAttempt(env, "POST", url, res);
@@ -1623,6 +1648,7 @@ async function resolveSiteForLead(
   customerCreated: boolean,
   explicitSiteId?: number,
   isCompany?: boolean,
+  market: BookingMarket = "AU",
 ): Promise<{ siteId: number; siteCreated: boolean } | { choice: CreateJobResult }> {
   const sites = await listCustomerSites(env, conn, token, customerId);
 
@@ -1643,7 +1669,7 @@ async function resolveSiteForLead(
 
   if (!siteId && siteAddress) {
     try {
-      siteId = await createSite(env, conn, token, customerId, siteAddress, isCompany);
+      siteId = await createSite(env, conn, token, customerId, siteAddress, isCompany, market);
       siteCreated = true;
     } catch (err) {
       siteId = pickSiteId(sites, siteAddress, true);
@@ -1679,6 +1705,13 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
 
   try {
     const token = await getAccessToken(conn, env);
+    let market: BookingMarket = "AU";
+    try {
+      const confirm = await env.loadSmsConfirmContext?.(input.customer_id);
+      market = bookingMarket(confirm?.country);
+    } catch {
+      market = "AU";
+    }
     let customerCreated = false;
     let siteCreated = false;
 
@@ -1728,7 +1761,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
             "This phone is not on file in SimPRO. Need the caller's name and site address to create a new customer. Do not claim a lead was created.",
         };
       }
-      simproCustomerId = await createCustomer(env, conn, token, input);
+      simproCustomerId = await createCustomer(env, conn, token, input, market);
       customerCreated = true;
     }
 
@@ -1741,6 +1774,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       customerCreated,
       input.site_id,
       isCompanyCustomer,
+      market,
     );
     if ("choice" in resolvedSite) return resolvedSite.choice;
     let siteId = resolvedSite.siteId;
