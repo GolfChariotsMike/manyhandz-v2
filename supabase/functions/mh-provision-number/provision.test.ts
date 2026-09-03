@@ -147,7 +147,7 @@ test("provision EL payload and voice_config defaults match the product notify sh
   };
   const turn = el.turn as { transcribe_on_disabled_interruptions: boolean };
   assert.match(agent.first_message, /^\.\.\. \.\.\. /);
-  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(agent.disable_first_message_interruptions, false);
   assert.equal(turn.transcribe_on_disabled_interruptions, true);
   assert.equal(agent.prompt.prompt, systemPrompt);
   assert.equal(toolNames(agent.prompt.tools as unknown[]).includes("lookup_simpro_customer"), true);
@@ -183,7 +183,7 @@ test("provision EL payload and voice_config defaults match the product notify sh
   assert.doesNotMatch(JSON.stringify(el), /Tradify/);
 });
 
-test("generic customer provision locks the greeting and transcribes speech during it", () => {
+test("generic customer provision allows greeting barge-in and transcribes speech during it", () => {
   const el = provisionElConversationConfig({
     ...acmeInput,
     systemPrompt: "You are Acme Plumbing AI.",
@@ -191,7 +191,7 @@ test("generic customer provision locks the greeting and transcribes speech durin
   });
   const agent = el.agent as { disable_first_message_interruptions: boolean };
   const turn = el.turn as { transcribe_on_disabled_interruptions: boolean };
-  assert.equal(agent.disable_first_message_interruptions, true);
+  assert.equal(agent.disable_first_message_interruptions, false);
   assert.equal(turn.transcribe_on_disabled_interruptions, true);
   assert.equal(el.turn && typeof el.turn === "object" && "mode" in el.turn, true);
   assert.doesNotMatch(JSON.stringify(el), new RegExp(GLACIER_ID));

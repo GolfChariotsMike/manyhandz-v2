@@ -11,14 +11,14 @@ test("preview_tts defaults match the live 0.75/0.75 settings when sliders are om
   });
 });
 
-test("agentVoicePatch pads greeting and disables first-message interruptions", () => {
+test("agentVoicePatch pads greeting and allows first-message interruptions", () => {
   const patch = agentVoicePatch({
     voice_id: "voice-1",
     greeting: "Hey, thanks for calling Acme.",
   });
   assert.deepEqual(patch.conversation_config.agent, {
     first_message: "... ... Hey, thanks for calling Acme.",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 
   assert.deepEqual(agentVoicePatch({
@@ -26,7 +26,7 @@ test("agentVoicePatch pads greeting and disables first-message interruptions", (
     greeting: "Hey, thanks",
   }).conversation_config.agent, {
     first_message: "... ... Hey, thanks",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 
   assert.deepEqual(agentVoicePatch({
@@ -34,7 +34,7 @@ test("agentVoicePatch pads greeting and disables first-message interruptions", (
     greeting: "... Hey",
   }).conversation_config.agent, {
     first_message: "... ... Hey",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 
   assert.deepEqual(agentVoicePatch({
@@ -42,7 +42,7 @@ test("agentVoicePatch pads greeting and disables first-message interruptions", (
     greeting: "… Hi",
   }).conversation_config.agent, {
     first_message: "... ... Hi",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 
   assert.deepEqual(agentVoicePatch({
@@ -50,7 +50,7 @@ test("agentVoicePatch pads greeting and disables first-message interruptions", (
     greeting: "... ... Hi",
   }).conversation_config.agent, {
     first_message: "... ... Hi",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 });
 
@@ -84,7 +84,7 @@ test("update_agent_voice sends tts + turn + greeting when provided", () => {
       },
       agent: {
         first_message: "... ... G'day, thanks for calling.",
-        disable_first_message_interruptions: true,
+        disable_first_message_interruptions: false,
       },
     },
   });
@@ -156,7 +156,7 @@ test("handleElProxy keeps existing actions and forwards slider voice_settings", 
   });
   assert.deepEqual(patch.conversation_config.agent, {
     first_message: "... ... Hey, thanks for calling.",
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   });
 
   const transcript = await handleElProxy(new Request("https://example.com", {

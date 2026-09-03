@@ -153,7 +153,7 @@ export function provisionElConversationConfig(input: ProvisionAgentInput & { sys
   return {
     agent: {
       first_message: padCallOpening(greeting),
-      disable_first_message_interruptions: true,
+      disable_first_message_interruptions: false,
       prompt: {
         prompt: input.systemPrompt,
         llm: "gpt-4o-mini",
@@ -174,7 +174,7 @@ export function provisionElConversationConfig(input: ProvisionAgentInput & { sys
       mode: "turn",
       turn_timeout: 7,
       turn_eagerness: "patient",
-      // Greeting stays locked (job-site noise). Speech during it is still transcribed.
+      // Callers can talk over the opening greeting. Speech during disabled interruptions is still transcribed.
       transcribe_on_disabled_interruptions: true,
     },
   };

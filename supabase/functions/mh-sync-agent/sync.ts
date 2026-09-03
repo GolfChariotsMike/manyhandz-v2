@@ -173,13 +173,13 @@ export function hangupAgentPatch(input: {
   };
   const agent: Record<string, unknown> = {
     prompt,
-    disable_first_message_interruptions: true,
+    disable_first_message_interruptions: false,
   };
   if (input.firstMessage) agent.first_message = input.firstMessage;
   return {
     conversation_config: {
       agent,
-      // Greeting stays locked (job-site noise). Speech during it is still transcribed.
+      // Callers can talk over the opening greeting. Speech during disabled interruptions is still transcribed.
       turn: { transcribe_on_disabled_interruptions: true },
     },
   };

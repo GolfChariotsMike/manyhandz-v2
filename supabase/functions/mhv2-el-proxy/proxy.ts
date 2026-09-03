@@ -87,7 +87,7 @@ export function agentVoicePatch(body: Record<string, unknown>) {
   if (greeting) {
     conversation_config.agent = {
       first_message: padCallOpening(greeting),
-      disable_first_message_interruptions: true,
+      disable_first_message_interruptions: false,
     };
   }
 
