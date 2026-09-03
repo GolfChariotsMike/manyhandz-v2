@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { LastJobTechnicianResult } from "../_shared/last-job-technician.ts";
+import {
+  CALLER_RETURN_SAY,
+  GENERIC_RETURN_TO_AI_PROMPT,
+  GLACIER_RETURN_TO_AI_PROMPT,
+  RETURNED,
+} from "../_shared/return-to-ai.ts";
 import { HOLD_MUSIC_URL, RINGING } from "../_shared/staff-transfer.ts";
 import { handleCustomerTransfer, type CustomerTransferEnv } from "./handler.ts";
 
@@ -27,17 +33,24 @@ function makeEnv(opts?: {
   startStatus?: string;
   staffRows?: unknown;
   lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
+  returnPrompt?: string | null;
 }): {
   env: CustomerTransferEnv;
   transfers: Map<string, TransferRow>;
   twilioBodies: string[];
   parkTwiml: string[];
   dropTwiml: string[];
+  returnTwiml: string[];
+  staffTwiml: string[];
+  registerBodies: Record<string, unknown>[];
 } {
   const transfers = new Map<string, TransferRow>();
   const twilioBodies: string[] = [];
   const parkTwiml: string[] = [];
   const dropTwiml: string[] = [];
+  const returnTwiml: string[] = [];
+  const staffTwiml: string[] = [];
+  const registerBodies: Record<string, unknown>[] = [];
   let clock = 0;
 
   const env: CustomerTransferEnv = {
@@ -45,6 +58,7 @@ function makeEnv(opts?: {
     serviceKey: "service-key",
     twilioSid: "ACtest",
     twilioToken: "secret-token",
+    elApiKey: "el-test-key",
     lookupLastJob: opts?.lookupLastJob,
     clock: {
       timeoutMs: 50_000,
@@ -64,13 +78,26 @@ function makeEnv(opts?: {
         return Response.json(opts.staffRows);
       }
       if (url.includes("/rest/v1/mh_voice_config")) {
-        return Response.json([{ bridge_to_number: "+61400000000" }]);
+        return Response.json([{
+          bridge_to_number: "+61400000000",
+          el_agent_id: "agent-glacier",
+          return_to_ai_prompt: opts?.returnPrompt === undefined
+            ? "Staff just spoke to this caller and sent them back. They want to make a booking. Skip a long re-introduction. Collect what you need and create the SimPRO lead."
+            : opts.returnPrompt,
+          system_prompt: "You are Charlie for Glacier Air.",
+        }]);
       }
       if (url.includes("/rest/v1/mh_v2_customers")) {
-        return Response.json([{ twilio_number: "+61485000000", business_name: "Acme" }]);
+        return Response.json([{ twilio_number: "+61485000000", business_name: "Acme", el_agent_id: "agent-glacier" }]);
       }
       if (url.includes("/rest/v1/mh_ossie_call_sids")) {
-        return Response.json([{ call_sid: "CAinbound" }]);
+        return Response.json([{ call_sid: "CAinbound", caller: "+61411122333" }]);
+      }
+      if (url.includes("api.elevenlabs.io/v1/convai/twilio/register-call")) {
+        registerBodies.push(JSON.parse(body) as Record<string, unknown>);
+        return new Response(
+          `<?xml version="1.0"?><Response><Connect><Stream url="wss://el.example/stream"></Stream></Connect></Response>`,
+        );
       }
       if (url.includes("/rest/v1/mh_ossie_transfers") && method === "POST") {
         const row = JSON.parse(body) as TransferRow;
@@ -103,14 +130,20 @@ function makeEnv(opts?: {
       if (url.includes("/Calls/CAinbound.json") && method === "POST") {
         const twiml = decodeURIComponent((body.match(/Twiml=([^&]*)/) || [])[1] || "").replace(/\+/g, " ");
         if (twiml.includes("Hangup")) dropTwiml.push(twiml);
+        else if (twiml.includes("Stream") || twiml.includes("putting you back")) returnTwiml.push(twiml);
         else parkTwiml.push(twiml);
         return Response.json({ sid: "CAinbound" });
+      }
+      if (url.includes("/Calls/CAoutbound.json") && method === "POST") {
+        const twiml = decodeURIComponent((body.match(/Twiml=([^&]*)/) || [])[1] || "").replace(/\+/g, " ");
+        staffTwiml.push(twiml);
+        return Response.json({ sid: "CAoutbound" });
       }
       return Response.json({});
     }) as typeof fetch,
   };
 
-  return { env, transfers, twilioBodies, parkTwiml, dropTwiml };
+  return { env, transfers, twilioBodies, parkTwiml, dropTwiml, returnTwiml, staffTwiml, registerBodies };
 }
 
 function post(path: string, body: unknown): Request {
@@ -181,15 +214,16 @@ test("/transfer drops the conference and returns accepted:false only on no-answe
   assert.match(dropTwiml[0], /Hangup/);
 });
 
-test("/transfer-status completed never overwrites accepted", async () => {
-  const { env, transfers } = makeEnv();
+test("/transfer-status completed never marks accepted as no-answer (hangup sends caller back)", async () => {
+  const { env, transfers, returnTwiml } = makeEnv();
   transfers.set("abc", {
     id: "abc",
     status: "accepted",
     call_sid: "CAinbound",
+    outbound_sid: "CAoutbound",
   });
   const res = await handleCustomerTransfer(
-    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-status?id=abc", {
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-status?id=abc&customer_id=cust-1", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: "CallStatus=completed",
@@ -197,7 +231,9 @@ test("/transfer-status completed never overwrites accepted", async () => {
     env,
   );
   assert.equal(res.status, 204);
-  assert.equal(transfers.get("abc")?.status, "accepted");
+  assert.notEqual(transfers.get("abc")?.status, "no-answer");
+  assert.equal(transfers.get("abc")?.status, RETURNED);
+  assert.equal(returnTwiml.length, 1);
 });
 
 test("/transfer-status completed can mark a still-ringing row no-answer", async () => {
@@ -244,6 +280,9 @@ test("/transfer-accept 1 joins the parked conference with hold music", async () 
   assert.equal(transfers.get("xyz")?.status, "accepted");
   assert.match(xml, /mh-transfer-xyz/);
   assert.match(xml, /startConferenceOnEnter="true"/);
+  assert.match(xml, /endConferenceOnExit="false"/);
+  assert.match(xml, /hangupOnStar="true"/);
+  assert.match(xml, /staff-left\?id=xyz/);
   assert.ok(xml.includes(HOLD_MUSIC_URL));
 });
 
@@ -386,4 +425,80 @@ test("/transfer unknown named person falls back to owner, missing staff table us
   );
   assert.equal(postedTo(missingTable.twilioBodies[0] || ""), "+61400000000");
   assert.equal([...missingTable.transfers.values()][0]?.staff_name, "Owner");
+});
+
+test("/return-to-ai press 9 reconnects the caller CallSid, not staff, with Glacier instruction", async () => {
+  const { env, transfers, returnTwiml, staffTwiml, registerBodies } = makeEnv();
+  transfers.set("xyz", {
+    id: "xyz",
+    status: "accepted",
+    call_sid: "CAinbound",
+    outbound_sid: "CAoutbound",
+  });
+  const res = await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/return-to-ai?id=xyz&customer_id=cust-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "Digits=9",
+    }),
+    env,
+  );
+  const staffXml = await res.text();
+  assert.match(staffXml, /Sending them back/);
+  assert.equal(transfers.get("xyz")?.status, RETURNED);
+  assert.equal(returnTwiml.length, 1);
+  assert.match(returnTwiml[0] || "", /CAinbound|putting you back|Stream/);
+  assert.match(returnTwiml[0] || "", new RegExp(CALLER_RETURN_SAY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.equal(staffTwiml.length, 0);
+  assert.equal(registerBodies.length, 1);
+  const dyn = (registerBodies[0].conversation_initiation_client_data as {
+    dynamic_variables: Record<string, string>;
+  }).dynamic_variables;
+  assert.equal(dyn.return_from_staff, "true");
+  assert.equal(dyn.return_instruction, GLACIER_RETURN_TO_AI_PROMPT);
+  assert.equal(registerBodies[0].from_number, "+61411122333");
+  assert.equal(JSON.stringify(registerBodies[0]).includes("CAoutbound"), false);
+});
+
+test("/return-to-ai blank prompt uses the generic default", async () => {
+  const { env, transfers, registerBodies } = makeEnv({ returnPrompt: "" });
+  transfers.set("xyz", { id: "xyz", status: "accepted", call_sid: "CAinbound", outbound_sid: "CAoutbound" });
+  await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/return-to-ai?id=xyz&customer_id=cust-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "Digits=9",
+    }),
+    env,
+  );
+  const dyn = (registerBodies[0].conversation_initiation_client_data as {
+    dynamic_variables: Record<string, string>;
+  }).dynamic_variables;
+  assert.equal(dyn.return_instruction, GENERIC_RETURN_TO_AI_PROMPT);
+  assert.notEqual(dyn.return_instruction, GLACIER_RETURN_TO_AI_PROMPT);
+});
+
+test("/staff-left gathers 9; hangup fallback on accepted completed reconnects caller", async () => {
+  const { env, transfers, returnTwiml } = makeEnv();
+  transfers.set("xyz", { id: "xyz", status: "accepted", call_sid: "CAinbound", outbound_sid: "CAoutbound" });
+  const left = await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/staff-left?id=xyz&customer_id=cust-1", {
+      method: "POST",
+    }),
+    env,
+  );
+  const xml = await left.text();
+  assert.match(xml, /Press 9/);
+  assert.match(xml, /return-to-ai\?id=xyz/);
+
+  await handleCustomerTransfer(
+    new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-status?id=xyz&customer_id=cust-1", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "CallStatus=completed",
+    }),
+    env,
+  );
+  assert.equal(transfers.get("xyz")?.status, RETURNED);
+  assert.equal(returnTwiml.length, 1);
 });

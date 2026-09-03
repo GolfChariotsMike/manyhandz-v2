@@ -6,6 +6,7 @@
  */
 import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
 import { hangupOnGoodbyePromptRule } from "../_shared/hangup-on-goodbye.ts";
+import { returnFromStaffPromptRule } from "../_shared/return-to-ai.ts";
 import { staffTransferEnabled } from "../_shared/transfer-to-staff-tool.ts";
 
 export type PriceItem = {
@@ -284,11 +285,12 @@ export function composeSystemPrompt(data: PromptInput): string {
 
   const hangupRule = hangupOnGoodbyePromptRule(capHangupOnGoodbye, closingMessage);
   const hangupCap = hangupRule ? `\n- HANG UP AFTER GOODBYE: ${hangupRule}` : "";
+  const returnRule = capTransferCalls ? `\n${returnFromStaffPromptRule()}` : "";
 
   const extraJobRules = [servicem8JobRule, xeroInvoiceRule].filter(Boolean).map((r) => `\n${r}`).join("");
 
   const capabilitySection =
-    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}`;
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}${returnRule}`;
 
   // Live function always asked "anything else?" — that is why two bots goodbye-looped.
   const callHandlingEnd = capHangupOnGoodbye

@@ -119,6 +119,8 @@ test("registerCallBody keeps from/to and never sends system__* dynamic variables
   const dyn = (body.conversation_initiation_client_data as { dynamic_variables: Record<string, string> })
     .dynamic_variables;
   assert.equal(dyn.caller_id, MIKE);
+  assert.equal(dyn.return_from_staff, "false");
+  assert.equal(dyn.return_instruction, "");
   assert.equal(Object.keys(dyn).some((k) => k.startsWith("system__")), false);
   assert.equal(JSON.stringify(body).includes("system__"), false);
   assert.equal(JSON.stringify(body).includes(GLACIER_TO.slice(-3)), true);

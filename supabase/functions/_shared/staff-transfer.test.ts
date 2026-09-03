@@ -137,6 +137,19 @@ test("staff join TwiML starts the conference with the same hold music", () => {
   assert.match(xml, /Connecting you now/);
 });
 
+test("staff join with return-to-AI uses hangupOnStar and keeps the caller in conference", () => {
+  const xml = staffJoinTwiml("mh-transfer-1", "Connecting now.", {
+    returnAfterStar: {
+      dialActionUrl: "https://x/staff-left?id=1",
+      gatherActionUrl: "https://x/return-to-ai?id=1",
+    },
+  });
+  assert.match(xml, /hangupOnStar="true"/);
+  assert.match(xml, /endConferenceOnExit="false"/);
+  assert.match(xml, /staff-left\?id=1/);
+  assert.match(xml, /Press star, then 9/);
+});
+
 test("screen gather uses a 10s press-1 timeout and Polly.Matthew-Neural", () => {
   const xml = screenGatherTwiml({
     actionUrl: "https://example.test/transfer-accept?id=1",

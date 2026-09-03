@@ -10,6 +10,17 @@
  * agent must not take a message until this webhook returns accepted:false.
  */
 import {
+  CALLER_RETURN_SAY,
+  OSSIE_RETURN_TO_AI_PROMPT,
+  RETURNED,
+  fetchRegisterCallTwiml,
+  resolvedReturnInstruction,
+  returnRegisterCallBody,
+  shouldReturnToAi,
+  staffLeftGatherTwiml,
+  wrapCallerReturnTwiml,
+} from "../_shared/return-to-ai.ts";
+import {
   ACCEPTED,
   DECLINED,
   DO_NOT_TAKE_MESSAGE,
@@ -50,6 +61,9 @@ export type OssieToolsEnv = {
   fetch: typeof fetch;
   clock?: WaitClock;
   nowDate?: () => Date;
+  elApiKey?: string;
+  elAgentId?: string;
+  returnToAiPrompt?: string | null;
 };
 
 function auth(env: OssieToolsEnv): string {
@@ -350,7 +364,12 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     if (digit === "1") {
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: ACCEPTED });
       console.log(`[transfer-accept] ${id} — ${transfer.staff_name} ACCEPTED`);
-      return twimlResponse(staffJoinTwiml(conferenceName(CONF_PREFIX, id), "Connecting you now."));
+      return twimlResponse(staffJoinTwiml(conferenceName(CONF_PREFIX, id), "Connecting you now.", {
+        returnAfterStar: {
+          dialActionUrl: `${baseUrl}/staff-left?id=${id}`,
+          gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}`,
+        },
+      }));
     }
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
@@ -358,10 +377,73 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     return twimlResponse(dropInboundTwiml("No worries, I'll take a message."));
   }
 
+  if (path === "/staff-left") {
+    return twimlResponse(staffLeftGatherTwiml({
+      gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}`,
+    }));
+  }
+
+  if (path === "/return-to-ai") {
+    const digit = String(params.get("Digits") || json.Digits || "");
+    const fallback = String(json.fallback || url.searchParams.get("fallback") || "") === "1";
+    if (!shouldReturnToAi(digit, fallback)) {
+      return twimlResponse(staffJoinTwiml(conferenceName(CONF_PREFIX, id), "Rejoining the caller.", {
+        returnAfterStar: {
+          dialActionUrl: `${baseUrl}/staff-left?id=${id}`,
+          gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}`,
+        },
+      }));
+    }
+    const result = await returnOssieCallerToAi(env, id);
+    if (!result.ok) {
+      return twimlResponse(dropInboundTwiml("I could not reconnect them just now."));
+    }
+    return twimlResponse(dropInboundTwiml("Sending them back to the assistant."));
+  }
+
   if (path === "/transfer-status") {
     await dbPatch(env, TRANSFERS_TABLE, ringingOnlyFilter(id), { status: "no-answer" });
+    const callStatus = String(params.get("CallStatus") || json.CallStatus || "").toLowerCase();
+    if (callStatus === "completed" && id) {
+      await returnOssieCallerToAi(env, id);
+    }
     return noContent();
   }
 
   return new Response("Not found", { status: 404 });
+}
+
+async function returnOssieCallerToAi(env: OssieToolsEnv, id: string): Promise<{ ok: boolean; callerSid?: string }> {
+  const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=call_sid,outbound_sid,status`);
+  const transfer = firstRow<{ call_sid?: string | null; outbound_sid?: string | null; status?: string }>(rows);
+  const callerSid = String(transfer?.call_sid || "").trim();
+  if (!callerSid || transfer?.status === RETURNED) return { ok: Boolean(callerSid), callerSid };
+  if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
+    return { ok: false };
+  }
+
+  const cfgRows = await dbGet(env, "mh_ossie_config", `id=eq.ossie&select=return_to_ai_prompt`);
+  const cfg = firstRow<{ return_to_ai_prompt?: string | null }>(cfgRows);
+  const instruction = resolvedReturnInstruction(
+    env.returnToAiPrompt || cfg?.return_to_ai_prompt || OSSIE_RETURN_TO_AI_PROMPT,
+  );
+  const sidRows = await dbGet(env, CALL_SIDS_TABLE, `number=eq.ossie-latest&select=call_sid,caller`);
+  const callerId = String(firstRow<{ caller?: string | null }>(sidRows)?.caller || "").trim() || "anonymous";
+  const agentId = String(env.elAgentId || "").trim();
+  if (!env.elApiKey || !agentId) {
+    console.error("[ossie return-to-ai] missing EL agent or key");
+    return { ok: false, callerSid };
+  }
+
+  const body = returnRegisterCallBody({
+    agentId,
+    callerId,
+    to: OSSIE_FROM,
+    instruction,
+  });
+  const elTwiml = await fetchRegisterCallTwiml(env.fetch, env.elApiKey, body);
+  await twilioUpdateCall(env, callerSid, wrapCallerReturnTwiml(elTwiml, CALLER_RETURN_SAY));
+  await dbPatch(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}`, { status: RETURNED });
+  console.log(`[ossie return-to-ai] ${id} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
+  return { ok: true, callerSid };
 }

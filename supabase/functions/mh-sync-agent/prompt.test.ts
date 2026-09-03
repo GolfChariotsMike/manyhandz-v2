@@ -130,6 +130,8 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.match(on, /named person/);
   assert.match(on, /no_technician_on_file/);
   assert.match(on, /name_unknown/);
+  assert.match(on, /return_from_staff/);
+  assert.match(on, /return_instruction/);
   assert.doesNotMatch(on, /Take messages when callers want to speak to a staff member/);
   const off = buildSystemPrompt({ ...base, capTransferCalls: false });
   assert.match(off, /Do not transfer calls/);

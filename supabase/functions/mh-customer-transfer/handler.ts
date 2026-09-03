@@ -28,6 +28,16 @@ import {
   type TransferStaff,
 } from "../_shared/staff-match.ts";
 import {
+  CALLER_RETURN_SAY,
+  RETURNED,
+  fetchRegisterCallTwiml,
+  resolvedReturnInstruction,
+  returnRegisterCallBody,
+  shouldReturnToAi,
+  staffLeftGatherTwiml,
+  wrapCallerReturnTwiml,
+} from "../_shared/return-to-ai.ts";
+import {
   ACCEPTED,
   DECLINED,
   RINGING,
@@ -62,6 +72,7 @@ export type CustomerTransferEnv = {
   fetch: typeof fetch;
   clock?: WaitClock;
   encryptionKey?: string;
+  elApiKey?: string;
   lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
 };
 
@@ -352,7 +363,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     await parkInbound(env, callSid, confName);
 
     const screenUrl = `${baseUrl}/transfer-screen?id=${transferId}&customer_id=${customerId}`;
-    const statusUrl = `${baseUrl}/transfer-status?id=${transferId}`;
+    const statusUrl = `${baseUrl}/transfer-status?id=${transferId}&customer_id=${customerId}`;
 
     try {
       const result = await twilioMakeCall(env, dest.staffNumber, fromNumber, screenUrl, statusUrl);
@@ -394,7 +405,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       );
     }
     return twimlResponse(screenGatherTwiml({
-      actionUrl: `${baseUrl}/transfer-accept?id=${id}`,
+      actionUrl: `${baseUrl}/transfer-accept?id=${id}&customer_id=${customerId}`,
       prompt: `Hi, you have a call from ${transfer.caller_name} about ${transfer.caller_need}. Press 1 to accept, or hang up to decline.`,
       timeoutSay: "No response received. Declining the transfer.",
     }));
@@ -413,18 +424,102 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     if (digit === "1") {
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: ACCEPTED });
       const confName = conferenceName(CONF_PREFIX, id);
-      return twimlResponse(staffJoinTwiml(confName, "Connecting now."));
+      return twimlResponse(staffJoinTwiml(confName, "Connecting now.", {
+        returnAfterStar: {
+          dialActionUrl: `${baseUrl}/staff-left?id=${id}&customer_id=${customerId}`,
+          gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}&customer_id=${customerId}`,
+        },
+      }));
     }
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
     return twimlResponse(dropInboundTwiml("Okay, declining the call."));
   }
 
+  if (path === "/staff-left") {
+    return twimlResponse(staffLeftGatherTwiml({
+      gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}&customer_id=${customerId}`,
+    }));
+  }
+
+  if (path === "/return-to-ai") {
+    const digit = String(params.get("Digits") || json.Digits || "");
+    const fallback = truthyFlag(json.fallback) || url.searchParams.get("fallback") === "1";
+    if (!shouldReturnToAi(digit, fallback)) {
+      return twimlResponse(staffJoinTwiml(conferenceName(CONF_PREFIX, id), "Rejoining the caller.", {
+        returnAfterStar: {
+          dialActionUrl: `${baseUrl}/staff-left?id=${id}&customer_id=${customerId}`,
+          gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}&customer_id=${customerId}`,
+        },
+      }));
+    }
+    const result = await returnCallerToAi(env, { id, customerId });
+    if (!result.ok) {
+      return twimlResponse(dropInboundTwiml("I could not reconnect them just now."));
+    }
+    return twimlResponse(dropInboundTwiml("Sending them back to the assistant."));
+  }
+
   if (path === "/transfer-status") {
     // Never overwrite accepted — only a still-ringing row can become no-answer.
     await dbPatch(env, TRANSFERS_TABLE, ringingOnlyFilter(id), { status: "no-answer" });
+    const callStatus = String(params.get("CallStatus") || json.CallStatus || "").toLowerCase();
+    if (callStatus === "completed" && id) {
+      await returnCallerToAi(env, { id, customerId });
+    }
     return noContent();
   }
 
   return new Response("Not found", { status: 404 });
+}
+
+async function returnCallerToAi(
+  env: CustomerTransferEnv,
+  opts: { id: string; customerId: string },
+): Promise<{ ok: boolean; callerSid?: string }> {
+  const rows = await dbGet(
+    env,
+    TRANSFERS_TABLE,
+    `id=eq.${encodeURIComponent(opts.id)}&select=call_sid,outbound_sid,status`,
+  );
+  const transfer = firstRow<{ call_sid?: string | null; outbound_sid?: string | null; status?: string }>(rows);
+  const callerSid = String(transfer?.call_sid || "").trim();
+  if (!callerSid || transfer?.status === RETURNED) return { ok: Boolean(callerSid), callerSid };
+  if (transfer?.status && transfer.status !== ACCEPTED && transfer.status !== RETURNED) {
+    return { ok: false };
+  }
+
+  const [vcRows, custRows, sidRows] = await Promise.all([
+    dbGet(
+      env,
+      "mh_voice_config",
+      `customer_id=eq.${encodeURIComponent(opts.customerId)}&select=return_to_ai_prompt,el_agent_id,system_prompt`,
+    ),
+    dbGet(env, "mh_v2_customers", `id=eq.${encodeURIComponent(opts.customerId)}&select=twilio_number,el_agent_id`),
+    dbGet(env, CALL_SIDS_TABLE, `number=eq.${encodeURIComponent(opts.customerId)}&select=call_sid,caller`),
+  ]);
+  const vc = firstRow<{ return_to_ai_prompt?: string | null; el_agent_id?: string | null; system_prompt?: string | null }>(vcRows);
+  const cust = firstRow<{ twilio_number?: string | null; el_agent_id?: string | null }>(custRows);
+  const sidRow = firstRow<{ call_sid?: string | null; caller?: string | null }>(sidRows);
+  const agentId = String(vc?.el_agent_id || cust?.el_agent_id || "").trim();
+  const toNumber = String(cust?.twilio_number || "").trim();
+  const callerId = String(sidRow?.caller || "").trim() || "anonymous";
+  if (!env.elApiKey || !agentId || !toNumber) {
+    console.error("[return-to-ai] missing EL agent, number, or key");
+    return { ok: false, callerSid };
+  }
+
+  const body = returnRegisterCallBody({
+    agentId,
+    callerId,
+    to: toNumber,
+    instruction: resolvedReturnInstruction(vc?.return_to_ai_prompt),
+    standingPrompt: vc?.system_prompt,
+  });
+  const elTwiml = await fetchRegisterCallTwiml(env.fetch, env.elApiKey, body);
+  const twiml = wrapCallerReturnTwiml(elTwiml, CALLER_RETURN_SAY);
+  await twilioUpdateCall(env, callerSid, twiml);
+  await dbPatch(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(opts.id)}`, { status: RETURNED });
+  console.log(`[return-to-ai] ${opts.id} — caller ${callerSid} (not staff ${transfer?.outbound_sid || ""})`);
+  return { ok: true, callerSid };
 }

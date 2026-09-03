@@ -6,6 +6,7 @@ import { provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
 import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-name";
 import { closingMessagePlaceholder, greetingSettingsDbPatch } from "../lib/closing-message";
+import { returnToAiPromptDbPatch, returnToAiPromptPlaceholder } from "../lib/return-to-ai-prompt";
 import {
   previewVoiceSettings,
   updateAgentVoicePayload,
@@ -377,6 +378,9 @@ export default function Voice() {
   const [aiName, setAiName] = useState("");
   const [savingAiName, setSavingAiName] = useState(false);
   const [aiNameSaved, setAiNameSaved] = useState(false);
+  const [returnToAiPrompt, setReturnToAiPrompt] = useState("");
+  const [savingReturnToAi, setSavingReturnToAi] = useState(false);
+  const [returnToAiSaved, setReturnToAiSaved] = useState(false);
   const [controls, setControls] = useState<VoiceControls>(() => voiceControlsFromConfig(null));
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -394,6 +398,7 @@ export default function Voice() {
         if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
         if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
         setClosing(typeof cfgRow?.closing_message === "string" ? cfgRow.closing_message : "");
+        setReturnToAiPrompt(typeof cfgRow?.return_to_ai_prompt === "string" ? cfgRow.return_to_ai_prompt : "");
         setAiName(resolveAiName(cfgRow?.ai_name, c?.business_name));
         setControls(voiceControlsFromConfig(cfgRow));
       }
@@ -521,6 +526,29 @@ export default function Voice() {
       setTimeout(() => setGreetingSaved(false), 2500);
     } catch (e) { console.error("Save greeting error:", e); }
     finally { setSavingGreeting(false); }
+  }
+
+  async function handleSaveReturnToAi() {
+    if (!config?.id || !customer?.id) return;
+    const payload = returnToAiPromptDbPatch(returnToAiPrompt);
+    setSavingReturnToAi(true);
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+        method: "PATCH",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
+        method: "POST",
+        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ customer_id: customer.id }),
+      }).catch(() => {});
+      setReturnToAiPrompt(payload.return_to_ai_prompt || "");
+      setConfig((prev: any) => prev ? { ...prev, ...payload } : prev);
+      setReturnToAiSaved(true);
+      setTimeout(() => setReturnToAiSaved(false), 2500);
+    } catch (e) { console.error("Save return-to-AI prompt error:", e); }
+    finally { setSavingReturnToAi(false); }
   }
 
   async function handleSaveVoice() {
@@ -693,6 +721,31 @@ export default function Voice() {
           placeholder={closingMessagePlaceholder()}
           className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
         />
+      </div>
+
+      <div className="aurora-card p-6 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="font-semibold">When staff press 9, tell the AI…</h3>
+            <p className="text-sm text-white/40 mt-0.5">Instruction for the assistant after a human sends the caller back. Not played to the caller.</p>
+          </div>
+          <button
+            onClick={handleSaveReturnToAi}
+            disabled={savingReturnToAi || !config?.id}
+            className="btn-primary text-sm flex items-center gap-2"
+          >
+            {savingReturnToAi ? <Loader size={14} className="animate-spin" /> : returnToAiSaved ? <Check size={14} /> : null}
+            {returnToAiSaved ? "Saved!" : savingReturnToAi ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <textarea
+          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 resize-none focus:outline-none focus:border-violet-500 transition-colors"
+          rows={4}
+          placeholder={returnToAiPromptPlaceholder()}
+          value={returnToAiPrompt}
+          onChange={e => setReturnToAiPrompt(e.target.value)}
+        />
+        <p className="text-xs text-white/30 mt-2">Leave blank for the generic default: staff sent them back, help with whatever they need next. Staff press star then 9 (or hang up) during a transfer.</p>
       </div>
 
       {/* Voice Picker */}
