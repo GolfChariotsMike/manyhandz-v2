@@ -1,10 +1,15 @@
 /**
- * Press-9 / hangup send-back-to-AI after a staff transfer.
+ * Press-9 / hangup send-back-to-AI after a staff transfer, and
+ * no-answer / reject / timeout reconnect after a failed warm transfer.
  *
  * Twilio cannot Gather DTMF while a participant is inside <Conference>.
  * Real DTMF path: Dial hangupOnStar (*) exits staff from the conference,
  * then Gather digit 9. Staff hanging up the phone is the fallback and
  * also reconnects the *caller* CallSid — never the outbound staff leg.
+ *
+ * Failed transfer uses the same register-call on the inbound CallSid,
+ * with a spoken Charlie line (not Polly-Say + Hangup). Hangup only if
+ * reconnect itself fails.
  *
  * Reconnect is a new ElevenLabs pickup (register-call), not the old stream.
  */
