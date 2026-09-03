@@ -1,7 +1,8 @@
 /**
  * Product provision payload — same prompt, SimPRO tools, notify shape, and
  * SMS caps Glacier uses today. Customer-scoped URLs only. No Glacier IDs,
- * emails, or Grok Bot tools.
+ * emails, staff (Jason/Nick), booking whisper, or Grok Bot tools.
+ * Staff names/numbers are dashboard, not signup.
  */
 import { padCallOpening } from "../_shared/voice-greeting.ts";
 import {
@@ -137,6 +138,7 @@ export function provisionSystemPrompt(input: ProvisionAgentInput): string {
   return liveSystemPromptFromSource(provisionPromptSource(input));
 }
 
+/** Same webhook set Glacier uses. URLs are this customer only — never Glacier. */
 export function provisionAgentTools(supabaseUrl: string, customerId: string): unknown[] {
   return mergeToolCallTyping(mergeEndCallTools(
     mergeProductVoiceTools(supabaseUrl, customerId, {
@@ -204,6 +206,9 @@ export function provisionVoiceConfigInsert(input: ProvisionAgentInput & {
     turn_eagerness: "patient",
     ...PRODUCT_VOICE_CAP_DEFAULTS,
     ...(ownerNotify ? { notify_sms: ownerNotify } : {}),
+    // Blank — mh-customer-transfer uses generic reconnect copy at runtime.
+    // Do not seed Glacier's booking whisper. Glacier id is never written here.
+    return_to_ai_prompt: null,
   };
 }
 

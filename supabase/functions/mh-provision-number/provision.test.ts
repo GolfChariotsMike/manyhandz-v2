@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { GLACIER_RETURN_TO_AI_PROMPT } from "../_shared/return-to-ai.ts";
 import { composeSystemPrompt } from "../mh-sync-agent/prompt.ts";
 import {
   CUSTOMER_FILL_INS,
@@ -79,6 +80,13 @@ test("new-signup provision prompt is the Glacier booking compose, not the name-f
   assert.match(prompt, /the function notifies/);
   assert.match(prompt, /Open lead|create_simpro_job/i);
   assert.match(prompt, /NEVER create a new customer/);
+  assert.match(prompt, /THEN collect name, email, site address/);
+  assert.match(prompt, /do not read them back or spell the email/);
+  assert.match(prompt, /say you will text to confirm/);
+  assert.match(prompt, /Do not collect or confirm email this way for existing customers/);
+  assert.match(prompt, /say_to_caller/);
+  assert.match(prompt, /staff_name/);
+  assert.match(prompt, /no_technician_on_file/);
   assert.doesNotMatch(prompt, /ask for their name early/);
   assert.doesNotMatch(prompt, /lookup_jobs/);
   assert.doesNotMatch(prompt, /Tradify/);
@@ -86,6 +94,8 @@ test("new-signup provision prompt is the Glacier booking compose, not the name-f
   assert.doesNotMatch(prompt, new RegExp(GLACIER_ID));
   assert.doesNotMatch(prompt, /glacier\.simpro/i);
   assert.doesNotMatch(prompt, /nick\.studer/i);
+  assert.doesNotMatch(prompt, /Jason Bond/);
+  assert.doesNotMatch(prompt, new RegExp(GLACIER_RETURN_TO_AI_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   const composed = composeSystemPrompt({
     aiName: "Acme Plumbing AI",
     businessName: "Acme Plumbing",
@@ -127,11 +137,49 @@ test("provision tools match Glacier product tools on a generic customer id", () 
   const lookup = toolByName(tools, "lookup_simpro_customer");
   const create = toolByName(tools, "create_simpro_job");
   const sms = toolByName(tools, "send_sms");
+  const transfer = toolByName(tools, "transfer_to_staff") as {
+    description?: string;
+    pre_tool_speech?: string;
+    force_pre_tool_speech?: boolean;
+    execution_mode?: string;
+    api_schema?: {
+      url?: string;
+      request_body_schema?: {
+        required?: string[];
+        properties?: { say_to_caller?: unknown; staff_name?: unknown };
+      };
+    };
+  };
   assert.match(JSON.stringify(lookup), /mhv2-simpro-lookup-customer\?customer_id=cust-acme-0001/);
   assert.match(JSON.stringify(create), /mhv2-simpro-create-job\?customer_id=cust-acme-0001/);
   assert.match(JSON.stringify(sms), /mh-send-sms\?customer_id=cust-acme-0001/);
+  assert.equal(
+    transfer.api_schema?.url,
+    `${SUPABASE}/functions/v1/mh-customer-transfer/transfer?customer_id=${ACME_ID}`,
+  );
+  assert.doesNotMatch(String(transfer.api_schema?.url || ""), new RegExp(GLACIER_ID));
+  assert.equal(transfer.pre_tool_speech, "force");
+  assert.equal(transfer.force_pre_tool_speech, true);
+  assert.equal(transfer.execution_mode, "post_tool_speech");
+  const required = transfer.api_schema?.request_body_schema?.required || [];
+  assert.equal(required.includes("say_to_caller"), true);
+  assert.equal(required.includes("staff_name"), true);
+  assert.match(String(transfer.description), /say_to_caller/);
+  assert.match(String(transfer.description), /staff_name/);
+  assert.match(String(transfer.description), /staff_name=technician|staff_name set to technician/i);
+  assert.match(String(transfer.description), /last job/);
+  assert.match(String(lookup?.description), /ask name and email once/);
+  assert.match(String(lookup?.description), /do not read them back or spell the email/);
+  assert.match(String(lookup?.description), /say you will text to confirm/);
+  assert.match(String(lookup?.description), /Do not collect or confirm email this way for existing customers/);
+  assert.match(String(create?.description), /ask name and email once/);
+  assert.match(String(create?.description), /do not read them back or spell the email/);
+  assert.match(String(create?.description), /say you will text to confirm/);
+  assert.match(String(create?.description), /Do not collect or confirm email this way for existing customers/);
   assert.doesNotMatch(JSON.stringify(tools), new RegExp(GLACIER_ID));
   assert.doesNotMatch(JSON.stringify(tools), /github\.com/);
+  assert.doesNotMatch(JSON.stringify(tools), /nick\.studer/i);
+  assert.doesNotMatch(JSON.stringify(tools), /\+61422962169|\+61400000000/);
   assert.equal(JSON.stringify(lookup).includes("system__"), false);
   assert.equal((lookup as { tool_call_sound?: string }).tool_call_sound, "typing");
   assert.equal((toolByName(tools, "end_call") as { tool_call_sound?: string }).tool_call_sound, undefined);
@@ -169,6 +217,10 @@ test("provision EL payload and voice_config defaults match the product notify sh
   assert.equal(insert.notify_sms_enabled, true);
   assert.equal(insert.notify_sms, "+61412345678");
   assert.equal("notify_email" in insert, false);
+  assert.equal(insert.return_to_ai_prompt, null);
+  assert.doesNotMatch(JSON.stringify(insert), new RegExp(GLACIER_RETURN_TO_AI_PROMPT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(JSON.stringify(insert), /They want to make a booking/);
+  assert.doesNotMatch(JSON.stringify(insert), /Jason Bond/);
   assert.deepEqual(PRODUCT_VOICE_CAP_DEFAULTS, {
     cap_send_sms: true,
     cap_transfer_calls: true,
@@ -211,6 +263,7 @@ test("re-provision does not overwrite an existing notify_sms or a real operator 
   assert.equal("system_prompt" in keepSms, false);
   assert.equal(keepSms.cap_create_simpro_job, true);
   assert.equal(keepSms.notify_sms_enabled, true);
+  assert.equal("return_to_ai_prompt" in keepSms, false);
 
   const healStub = provisionVoiceConfigPatch({
     elAgentId: "agent-2",
@@ -235,7 +288,21 @@ test("customer fill-ins document host, API key, notify mobile, and notify email"
   assert.match(fields, /API key/);
   assert.match(fields, /notify mobile/i);
   assert.match(fields, /notify email/i);
+  assert.equal(CUSTOMER_FILL_INS.length, 4);
+  assert.equal(CUSTOMER_FILL_INS.some((row) => /staff/i.test(row.field)), false);
   assert.equal(CUSTOMER_FILL_INS.some((row) => /Glacier/i.test(row.example) && !/never Glacier/i.test(row.example)), false);
+});
+
+test("CUSTOMER_SETUP.md lists only SimPRO + office notify; staff is dashboard", async () => {
+  const doc = await readFile(new URL("./CUSTOMER_SETUP.md", import.meta.url), "utf8");
+  assert.match(doc, /SimPRO host/);
+  assert.match(doc, /SimPRO API key/);
+  assert.match(doc, /Office notify mobile/);
+  assert.match(doc, /Office notify email/);
+  assert.match(doc, /Staff names\/numbers are dashboard, not signup/);
+  assert.doesNotMatch(doc, /Jason Bond/);
+  assert.doesNotMatch(doc, /nick\.studer/i);
+  assert.doesNotMatch(doc, new RegExp(GLACIER_ID));
 });
 
 test("provision index uses the shared product builder and no longer asks for name early", async () => {
@@ -249,4 +316,7 @@ test("provision index uses the shared product builder and no longer asks for nam
   assert.doesNotMatch(src, /Grok Bot|mhv2-grokbot/);
   assert.doesNotMatch(src, /Tradify/);
   assert.doesNotMatch(src, /a77816d9-3b5f-4635-a77d-095e767a532e/);
+  assert.doesNotMatch(src, /mh_staff/);
+  assert.doesNotMatch(src, /Jason Bond/);
+  assert.doesNotMatch(src, /GLACIER_RETURN_TO_AI_PROMPT/);
 });

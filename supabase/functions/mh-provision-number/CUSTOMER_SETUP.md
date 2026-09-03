@@ -18,5 +18,8 @@ Off switches (`notify_email_enabled`, `notify_sms_enabled`) skip a channel
 without deleting the address or number. Email/SMS alerts fire only after
 `create_simpro_job` returns `ok:true`.
 
+Staff names/numbers are dashboard, not signup. Empty staff is fine — they
+add people in Team; transfers fall back to owner/bridge until then.
+
 Not required at signup: Tradify (not a product), Grok Bot GitHub (operator
 only — never attached to a customer ElevenLabs agent).

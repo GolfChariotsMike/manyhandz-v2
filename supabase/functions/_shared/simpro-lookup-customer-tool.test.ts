@@ -54,6 +54,10 @@ test("lookup_simpro_customer never creates, never lists jobs, never sends system
   assert.match(created.description, /never site IDs/i);
   assert.match(created.description, /simpro_customer_id/);
   assert.match(created.description, /site_id/);
+  assert.match(created.description, /ask name and email once/);
+  assert.match(created.description, /do not read them back or spell the email/);
+  assert.match(created.description, /say you will text to confirm/);
+  assert.match(created.description, /Do not collect or confirm email this way for existing customers/);
   assert.doesNotMatch(created.description, /lookup_jobs/);
   assert.doesNotMatch(created.description, /job number/i);
   assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
