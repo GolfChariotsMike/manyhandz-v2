@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import type { LastJobTechnicianResult } from "../_shared/last-job-technician.ts";
 import { HOLD_MUSIC_URL, RINGING } from "../_shared/staff-transfer.ts";
 import { handleCustomerTransfer, type CustomerTransferEnv } from "./handler.ts";
 
@@ -10,11 +11,22 @@ type TransferRow = {
   outbound_sid?: string | null;
   caller_name?: string;
   caller_need?: string;
+  staff_name?: string;
+  staff_number?: string;
 };
+
+const GLACIER_STAFF = [
+  { name: "Niklaus Studer", role: "Director", is_owner: true, sort_order: 0, phone: "+61422962169" },
+  { name: "Jason Bond", role: "Lead Service Technician", is_owner: false, sort_order: 1, phone: "+61487111000" },
+  { name: "Tony Muni", role: "Senior Service Technician", is_owner: false, sort_order: 2, phone: "+61422111000" },
+  { name: "Lachlan Thomas", role: "Apprentice", is_owner: false, sort_order: 3, phone: "+61460111000" },
+];
 
 function makeEnv(opts?: {
   statusAt?: (elapsedMs: number) => string;
   startStatus?: string;
+  staffRows?: unknown;
+  lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
 }): {
   env: CustomerTransferEnv;
   transfers: Map<string, TransferRow>;
@@ -33,6 +45,7 @@ function makeEnv(opts?: {
     serviceKey: "service-key",
     twilioSid: "ACtest",
     twilioToken: "secret-token",
+    lookupLastJob: opts?.lookupLastJob,
     clock: {
       timeoutMs: 50_000,
       pollMs: 10_000,
@@ -46,6 +59,10 @@ function makeEnv(opts?: {
       const method = (init?.method || "GET").toUpperCase();
       const body = String(init?.body || "");
 
+      if (url.includes("/rest/v1/mh_staff")) {
+        if (opts?.staffRows === undefined) return Response.json({ code: "PGRST205", message: "Could not find the table" });
+        return Response.json(opts.staffRows);
+      }
       if (url.includes("/rest/v1/mh_voice_config")) {
         return Response.json([{ bridge_to_number: "+61400000000" }]);
       }
@@ -228,4 +245,145 @@ test("/transfer-accept 1 joins the parked conference with hold music", async () 
   assert.match(xml, /mh-transfer-xyz/);
   assert.match(xml, /startConferenceOnEnter="true"/);
   assert.ok(xml.includes(HOLD_MUSIC_URL));
+});
+
+function postedTo(body: string): string {
+  return new URLSearchParams(body).get("To") || "";
+}
+
+function postedFrom(body: string): string {
+  return new URLSearchParams(body).get("From") || "";
+}
+
+test("/transfer rings Jason Bond when staff_name is Jason", async () => {
+  const { env, transfers, twilioBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+  });
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Mike",
+      caller_need: "Transfer to technician Jason",
+      staff_name: "Jason",
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const row = [...transfers.values()][0];
+  assert.equal(row?.staff_name, "Jason Bond");
+  assert.equal(row?.staff_number, "+61487111000");
+  assert.equal(postedTo(twilioBodies[0] || ""), "+61487111000");
+  assert.equal(postedFrom(twilioBodies[0] || ""), "+61485000000");
+  assert.notEqual(postedTo(twilioBodies[0] || ""), "+61400000000");
+  assert.notEqual(postedTo(twilioBodies[0] || ""), "+61422962169");
+});
+
+test("/transfer generic technician + last job tech matching staff rings that person", async () => {
+  const { env, transfers, twilioBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+    lookupLastJob: async () => ({ status: "found", technicianName: "Jason Bond" }),
+  });
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Mike",
+      caller_need: "had work done recently",
+      staff_name: "technician",
+      caller_number: "+61411122333",
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const row = [...transfers.values()][0];
+  assert.equal(row?.staff_name, "Jason Bond");
+  assert.equal(postedTo(twilioBodies[0] || ""), "+61487111000");
+});
+
+test("/transfer generic technician + last job with no tech returns no_technician_on_file and does not call Twilio", async () => {
+  const { env, twilioBodies, parkTwiml } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    lookupLastJob: async () => ({ status: "no_technician_on_file" }),
+  });
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Mike",
+      caller_need: "my technician",
+      staff_name: "the technician",
+      caller_number: "+61411122333",
+    }),
+    env,
+  );
+  const json = await res.json() as { accepted?: boolean; no_technician_on_file?: boolean; message: string };
+  assert.equal(json.accepted, false);
+  assert.equal(json.no_technician_on_file, true);
+  assert.match(json.message, /none on your file/i);
+  assert.equal(twilioBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
+});
+
+test("/transfer SimPRO error asks for a name and does not ring the owner", async () => {
+  const { env, twilioBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    lookupLastJob: async () => ({ status: "could_not_see_job" }),
+  });
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Mike",
+      caller_need: "the technician",
+      staff_name: "technician",
+      caller_number: "+61411122333",
+    }),
+    env,
+  );
+  const json = await res.json() as { accepted?: boolean; could_not_see_job?: boolean };
+  assert.equal(json.accepted, false);
+  assert.equal(json.could_not_see_job, true);
+  assert.equal(twilioBodies.length, 0);
+});
+
+test("/transfer unknown name after ask rings first Lead/Senior tech not owner", async () => {
+  const { env, transfers, twilioBodies } = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+  });
+  const res = await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Mike",
+      caller_need: "don't know",
+      staff_name: "unknown",
+      name_unknown: true,
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const row = [...transfers.values()][0];
+  assert.equal(row?.staff_name, "Jason Bond");
+  assert.equal(postedTo(twilioBodies[0] || ""), "+61487111000");
+  assert.notEqual(postedTo(twilioBodies[0] || ""), "+61422962169");
+  assert.notEqual(postedTo(twilioBodies[0] || ""), "+61400000000");
+});
+
+test("/transfer unknown named person falls back to owner, missing staff table uses bridge_to", async () => {
+  const withStaff = makeEnv({
+    staffRows: GLACIER_STAFF,
+    statusAt: () => RINGING,
+  });
+  await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", {
+      caller_name: "Alex",
+      caller_need: "a leak",
+      staff_name: "Steve",
+    }),
+    withStaff.env,
+  );
+  assert.equal(postedTo(withStaff.twilioBodies[0] || ""), "+61422962169");
+  assert.equal([...withStaff.transfers.values()][0]?.staff_name, "Niklaus Studer");
+
+  const missingTable = makeEnv({ statusAt: () => RINGING });
+  await handleCustomerTransfer(
+    post("/transfer?customer_id=cust-1", { caller_name: "Alex", caller_need: "a leak" }),
+    missingTable.env,
+  );
+  assert.equal(postedTo(missingTable.twilioBodies[0] || ""), "+61400000000");
+  assert.equal([...missingTable.transfers.values()][0]?.staff_name, "Owner");
 });

@@ -6,9 +6,27 @@
  * starts. Staff joins that conference on 1. On a real fail the conference is
  * dropped and the webhook may return accepted:false (then the agent may save_message).
  *
- * Uses mh_voice_config.bridge_to_number and the customer's twilio_number.
- * Does not touch notify_sms.
+ * Uses mh_staff (active) when the caller names a person or role.
+ * Generic "the technician" looks up the last SimPRO job (not leads) and
+ * matches that name to mh_staff. No technician on file → ask for a name
+ * (no Twilio). Owner / bridge_to_number is last resort. From number is
+ * the customer's twilio_number. Does not touch notify_sms.
  */
+import {
+  lookupLastJobTechnician,
+  type LastJobTechnicianResult,
+} from "../_shared/last-job-technician.ts";
+import {
+  asStaffRows,
+  destinationFromStaff,
+  isGenericTechnicianQuery,
+  isNameUnknownQuery,
+  matchNamedStaff,
+  resolveAfterNameAsk,
+  resolveOwnerFallback,
+  type TransferDestination,
+  type TransferStaff,
+} from "../_shared/staff-match.ts";
 import {
   ACCEPTED,
   DECLINED,
@@ -29,6 +47,7 @@ import {
   waitForResult,
   type WaitClock,
 } from "../_shared/staff-transfer.ts";
+import type { CreateJobEnv, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
 
 export const CONF_PREFIX = "mh-transfer";
 export const TRANSFERS_TABLE = "mh_ossie_transfers";
@@ -41,6 +60,8 @@ export type CustomerTransferEnv = {
   twilioToken: string;
   fetch: typeof fetch;
   clock?: WaitClock;
+  encryptionKey?: string;
+  lookupLastJob?: (input: { customerId: string; callerPhone: string }) => Promise<LastJobTechnicianResult>;
 };
 
 function auth(env: CustomerTransferEnv): string {
@@ -112,6 +133,117 @@ function firstRow<T>(rows: unknown): T | null {
   return Array.isArray(rows) && rows[0] ? rows[0] as T : null;
 }
 
+function truthyFlag(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  const s = String(value || "").trim().toLowerCase();
+  return s === "true" || s === "1" || s === "yes";
+}
+
+const NO_TECH_ON_FILE_MESSAGE =
+  "There's none on your file. Did you know the name of the technician? Ask them, then call transfer_to_staff with staff_name set to that name. If they still do not know, call transfer_to_staff with name_unknown true.";
+
+const COULD_NOT_SEE_JOB_MESSAGE =
+  "I couldn't see the job just now. Ask them the technician's name, then call transfer_to_staff with that staff_name. If they still do not know, call transfer_to_staff with name_unknown true. Do not transfer to the owner.";
+
+function noTechnicianResponse(kind: "no_technician_on_file" | "could_not_see_job"): Response {
+  return jsonResponse({
+    success: true,
+    accepted: false,
+    [kind]: true,
+    message: kind === "no_technician_on_file" ? NO_TECH_ON_FILE_MESSAGE : COULD_NOT_SEE_JOB_MESSAGE,
+  });
+}
+
+async function loadActiveStaff(env: CustomerTransferEnv, customerId: string): Promise<TransferStaff[]> {
+  try {
+    const rows = await dbGet(
+      env,
+      "mh_staff",
+      `customer_id=eq.${encodeURIComponent(customerId)}&active=eq.true&select=name,phone,role,is_owner,sort_order&order=sort_order.asc`,
+    );
+    return asStaffRows(rows);
+  } catch {
+    return [];
+  }
+}
+
+function simproEnvFromTransfer(env: CustomerTransferEnv): CreateJobEnv {
+  return {
+    fetch: env.fetch,
+    now: () => new Date(),
+    encryptionKey: env.encryptionKey || "",
+    loadConnection: async (customerId) => {
+      const rows = await dbGet(
+        env,
+        "mh_crm_connections",
+        `customer_id=eq.${encodeURIComponent(customerId)}&platform=eq.simpro&is_active=eq.true&select=id,customer_id,is_active,simpro_build_url,simpro_client_id,simpro_client_secret_encrypted,simpro_access_token_encrypted,simpro_token_expires_at,simpro_company_id`,
+      );
+      return firstRow<SimproConnection>(rows);
+    },
+    saveTokens: async (connectionId, encryptedToken, expiresAt) => {
+      await dbPatch(env, "mh_crm_connections", `id=eq.${encodeURIComponent(connectionId)}`, {
+        simpro_access_token_encrypted: encryptedToken,
+        simpro_token_expires_at: expiresAt,
+      });
+    },
+  };
+}
+
+async function lastJobForCaller(
+  env: CustomerTransferEnv,
+  customerId: string,
+  callerPhone: string,
+): Promise<LastJobTechnicianResult> {
+  if (env.lookupLastJob) return env.lookupLastJob({ customerId, callerPhone });
+  return lookupLastJobTechnician({ customer_id: customerId, caller_phone: callerPhone }, simproEnvFromTransfer(env));
+}
+
+async function resolveTransferDestination(
+  env: CustomerTransferEnv,
+  opts: {
+    customerId: string;
+    staff: TransferStaff[];
+    staffName: string;
+    callerNeed: string;
+    callerPhone: string;
+    nameUnknown: boolean;
+    bridgeTo: string | null | undefined;
+  },
+): Promise<
+  TransferDestination | { ask: "no_technician_on_file" | "could_not_see_job" } | { unconfigured: true }
+> {
+  const named = matchNamedStaff(opts.staff, opts.staffName) ||
+    matchNamedStaff(opts.staff, opts.callerNeed);
+  if (named) {
+    const dest = destinationFromStaff(named, opts.bridgeTo);
+    if (dest) return dest;
+  }
+
+  if (opts.nameUnknown || isNameUnknownQuery(opts.staffName) || isNameUnknownQuery(opts.callerNeed)) {
+    const dest = resolveAfterNameAsk(opts.staff, opts.bridgeTo);
+    if (dest) return dest;
+    return { ask: "no_technician_on_file" };
+  }
+
+  const generic = isGenericTechnicianQuery(opts.staffName) ||
+    (!opts.staffName && isGenericTechnicianQuery(opts.callerNeed));
+  if (generic) {
+    const last = await lastJobForCaller(env, opts.customerId, opts.callerPhone);
+    if (last.status === "found") {
+      const fromJob = matchNamedStaff(opts.staff, last.technicianName);
+      const dest = destinationFromStaff(fromJob, null);
+      if (dest) return dest;
+      return { ask: "no_technician_on_file" };
+    }
+    if (last.status === "could_not_see_job") return { ask: "could_not_see_job" };
+    return { ask: "no_technician_on_file" };
+  }
+
+  const dest = resolveOwnerFallback(opts.staff, opts.bridgeTo);
+  if (dest) return dest;
+  return { unconfigured: true };
+}
+
 function parseBody(bodyText: string): { params: URLSearchParams; json: Record<string, unknown> } {
   const params = new URLSearchParams(bodyText);
   let json: Record<string, unknown> = {};
@@ -161,17 +293,37 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       return jsonResponse({ success: false, error: "Missing customer_id" });
     }
 
-    const [vcRows, custRows] = await Promise.all([
+    const [vcRows, custRows, staff] = await Promise.all([
       dbGet(env, "mh_voice_config", `customer_id=eq.${customerId}&select=bridge_to_number`),
       dbGet(env, "mh_v2_customers", `id=eq.${customerId}&select=twilio_number,business_name`),
+      loadActiveStaff(env, customerId),
     ]);
     const vc = firstRow<{ bridge_to_number?: string | null }>(vcRows);
     const cust = firstRow<{ twilio_number?: string | null; business_name?: string | null }>(custRows);
     const bridgeTo = vc?.bridge_to_number;
     const fromNumber = cust?.twilio_number;
 
-    if (!bridgeTo || !fromNumber) {
-      console.error(`[transfer] Missing config for ${customerId}: bridge_to=${bridgeTo} from=${fromNumber}`);
+    const callerName = String(json.caller_name || "someone");
+    const callerNeed = String(json.caller_need || "general enquiry");
+    const staffName = String(json.staff_name || json.transfer_to || "").trim();
+    const callerPhone = String(json.caller_number || json.caller_phone || "").trim();
+    const nameUnknown = truthyFlag(json.name_unknown);
+
+    const resolved = await resolveTransferDestination(env, {
+      customerId,
+      staff,
+      staffName,
+      callerNeed,
+      callerPhone,
+      nameUnknown,
+      bridgeTo,
+    });
+
+    if ("ask" in resolved) {
+      return noTechnicianResponse(resolved.ask);
+    }
+    if ("unconfigured" in resolved || !fromNumber) {
+      console.error(`[transfer] Missing config for ${customerId}: dest=${"unconfigured" in resolved} from=${fromNumber}`);
       return jsonResponse({
         success: false,
         accepted: false,
@@ -179,8 +331,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       });
     }
 
-    const callerName = String(json.caller_name || "someone");
-    const callerNeed = String(json.caller_need || "general enquiry");
+    const dest = resolved;
     const sidRows = await dbGet(env, CALL_SIDS_TABLE, `number=eq.${customerId}&select=call_sid`);
     const callSid = firstRow<{ call_sid?: string }>(sidRows)?.call_sid || null;
     const transferId = Date.now().toString(36);
@@ -190,8 +341,8 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       id: transferId,
       caller_name: callerName,
       caller_need: callerNeed,
-      staff_name: "Owner",
-      staff_number: bridgeTo,
+      staff_name: dest.staffName,
+      staff_number: dest.staffNumber,
       call_sid: callSid,
       status: RINGING,
       created_at: new Date().toISOString(),
@@ -203,11 +354,11 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     const statusUrl = `${baseUrl}/transfer-status?id=${transferId}`;
 
     try {
-      const result = await twilioMakeCall(env, bridgeTo, fromNumber, screenUrl, statusUrl);
+      const result = await twilioMakeCall(env, dest.staffNumber, fromNumber, screenUrl, statusUrl);
       if (!result.sid) {
         console.error(`[transfer] ${transferId} — Twilio error:`, result);
         await dropParked(env, callSid);
-        return jsonResponse({ success: false, error: "Could not reach the owner" });
+        return jsonResponse({ success: false, error: "Could not reach staff" });
       }
 
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { outbound_sid: result.sid });

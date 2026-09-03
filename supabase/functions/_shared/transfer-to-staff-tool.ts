@@ -28,7 +28,7 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: TRANSFER_TO_STAFF_TOOL_NAME,
     description:
-      "Transfer the caller to a staff member when they ask for a person or to be put through. Call this FIRST — do not just take a message. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
+      "Transfer the caller to a staff member when they ask for a person or to be put through. Call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
     response_timeout_secs: 120,
     api_schema: {
       kind: "webhook",
@@ -36,16 +36,28 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
       method: "POST",
       request_body_schema: {
         type: "object",
-        required: ["caller_name", "caller_need"],
+        required: ["caller_name", "caller_need", "staff_name"],
         properties: {
           caller_name: {
             type: "string",
-            description: "Name the caller gave you",
+            description: "Name the CALLER gave you — not the staff member to ring",
             is_system_provided: false,
           },
           caller_need: {
             type: "string",
             description: "Brief summary of what the caller needs",
+            is_system_provided: false,
+          },
+          staff_name: {
+            type: "string",
+            description:
+              "Who the caller asked to speak to — first name, full name, or role (e.g. Jason, Jason Bond, technician, director). Required. This is NOT the caller's name.",
+            is_system_provided: false,
+          },
+          name_unknown: {
+            type: "boolean",
+            description:
+              "Set true only after you asked for the technician's name and they still do not know. Do not set this on the first transfer.",
             is_system_provided: false,
           },
           caller_number: {
