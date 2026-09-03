@@ -63,6 +63,10 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
   assert.match(description, /I'll transfer you to Jason now/);
   assert.match(description, /Never call this tool silently/);
   assert.match(description, /say_to_caller/);
+  assert.match(description, /SAME TURN/);
+  assert.match(description, /speech is not a replacement/);
+  assert.match(description, /Speaking without calling this tool is a failure/);
+  assert.match(description, /are you still there/);
   assert.equal(tool.pre_tool_speech, "force");
   assert.equal(tool.force_pre_tool_speech, true);
   assert.equal(tool.execution_mode, "post_tool_speech");
@@ -73,6 +77,8 @@ test("mergeTransferToStaffTool attaches the webhook and replaces a stale copy", 
     "staff_name",
   ]);
   assert.match(String(tool.api_schema.request_body_schema.properties.say_to_caller.description), /exact sentence/i);
+  assert.match(String(tool.api_schema.request_body_schema.properties.say_to_caller.description), /same turn/i);
+  assert.match(String(tool.api_schema.request_body_schema.properties.say_to_caller.description), /not a substitute/i);
   assert.match(String(tool.api_schema.request_body_schema.properties.staff_name.description), /NOT the caller/i);
   assert.match(String(tool.api_schema.request_body_schema.properties.caller_name.description), /CALLER/i);
   assert.equal(tool.api_schema.request_body_schema.properties.name_unknown?.type, "boolean");

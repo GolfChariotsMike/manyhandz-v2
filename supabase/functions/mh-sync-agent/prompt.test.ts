@@ -127,7 +127,7 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.match(on, /I'll transfer you to Jason now/);
   assert.match(on, /Never call the tool silently/);
   assert.match(on, /say_to_caller/);
-  assert.match(on, /THEN call the transfer_to_staff tool/);
+  assert.match(on, /SAME TURN call transfer_to_staff/);
   assert.match(on, /accepted:false/);
   assert.match(on, /Do not take a message until the webhook returns accepted:false/);
   assert.match(on, /staff_name/);
@@ -139,8 +139,28 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.doesNotMatch(on, /Take messages when callers want to speak to a staff member/);
   const off = buildSystemPrompt({ ...base, capTransferCalls: false });
   assert.match(off, /Do not transfer calls/);
-  assert.doesNotMatch(off, /THEN call the transfer_to_staff tool/);
+  assert.doesNotMatch(off, /SAME TURN call transfer_to_staff/);
   assert.match(off, /Take messages when callers want to speak to a staff member/);
+});
+
+test("composed prompt forbids speaking-only transfers and requires same-turn transfer_to_staff", () => {
+  const on = composeSystemPrompt(base);
+  assert.match(on, /SAME TURN call transfer_to_staff/);
+  assert.match(on, /The spoken sentence is the say_to_caller argument/);
+  assert.match(on, /Speaking that acknowledgement without calling the tool is a failure/);
+  assert.match(on, /Speaking without the tool is a failure/);
+  assert.match(on, /Do not wait/);
+  assert.match(on, /are you still there/);
+  assert.match(on, /Do not say "one moment" as a substitute for the webhook/);
+  assert.match(on, /Never call the tool silently/);
+  assert.match(on, /webhook rejects a missing say_to_caller/);
+  assert.doesNotMatch(on, /THEN call the transfer_to_staff tool/);
+  assert.doesNotMatch(on, /first speak a short acknowledgement/);
+  assert.doesNotMatch(on, /first say e\.g\./);
+  const glacier = composeSystemPrompt({ ...base, businessName: "Glacier Air", aiName: "Charlie" });
+  assert.match(glacier, /SAME TURN call transfer_to_staff/);
+  assert.match(glacier, /Speaking without the tool is a failure/);
+  assert.doesNotMatch(glacier, /THEN call the transfer_to_staff tool/);
 });
 
 test("disclosure and pricing sections still match the live builder", () => {
