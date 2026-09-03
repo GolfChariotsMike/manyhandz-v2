@@ -12,7 +12,8 @@ import {
   type CachedJobRow,
   type SimproConnection,
 } from "./create.ts";
-import { leadNotifyHooks } from "./notify.ts";
+import { sendLeadNotifySms, leadNotifyHooks } from "./notify.ts";
+import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -78,6 +79,42 @@ Deno.serve(async (req) => {
           };
         },
       }),
+      loadSmsConfirmContext: async (customerId) => {
+        const [{ data: customer }, { data: voice }] = await Promise.all([
+          admin.from("mh_v2_customers")
+            .select("twilio_number,business_name,country")
+            .eq("id", customerId)
+            .maybeSingle(),
+          admin.from("mh_voice_config")
+            .select("cap_send_sms")
+            .eq("customer_id", customerId)
+            .maybeSingle(),
+        ]);
+        return {
+          cap_send_sms: voice?.cap_send_sms ?? true,
+          country: customer?.country ?? null,
+          twilio_number: customer?.twilio_number ?? null,
+          business_name: customer?.business_name ?? null,
+        };
+      },
+      sendConfirmSms: (msg) =>
+        sendLeadNotifySms(fetchFn, {
+          accountSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
+          authToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+        }, msg),
+      savePendingConfirm: async (row: SmsConfirmPending) => {
+        await admin.from("mh_sms_confirms").insert({
+          customer_id: row.customer_id,
+          caller_e164: row.caller_e164,
+          simpro_customer_id: row.simpro_customer_id,
+          simpro_is_company: row.simpro_is_company,
+          simpro_contact_id: row.simpro_contact_id ?? null,
+          name: row.name,
+          email: row.email,
+          lead_id: row.lead_id,
+          expires_at: row.expires_at,
+        });
+      },
       loadConnection: async (customerId) => {
         const { data } = await admin
           .from("mh_crm_connections")

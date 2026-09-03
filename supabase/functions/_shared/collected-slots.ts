@@ -13,6 +13,7 @@ export type CollectedSlots = {
   site?: string;
   description?: string;
   quote?: string;
+  email?: string;
 };
 
 const PHONE_RE = /(?:\+?61[\s.-]*|0)4[\d\s.-]{8,}/g;
@@ -60,6 +61,13 @@ export function looksLikePersonName(text: string): boolean {
   const words = t.split(/\s+/);
   if (words.length < 2 || words.length > 4) return false;
   return words.every((w) => /^[A-Z][a-zA-Z'-]+$/.test(w));
+}
+
+const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
+
+export function extractEmailFromText(text: string): string | undefined {
+  const match = String(text || "").match(EMAIL_RE);
+  return match ? match[0] : undefined;
 }
 
 export function extractNameFromText(text: string): string | undefined {
@@ -141,6 +149,8 @@ export function collectSlots(turns: ChatTurn[], country?: string | null): Collec
       if (phone) slots.phone = phone;
       const name = extractNameFromText(text);
       if (name) slots.name = name;
+      const email = extractEmailFromText(text);
+      if (email) slots.email = email;
       const site = extractSiteFromText(text);
       if (site) slots.site = site;
       const desc = jobDescriptionFromUser(text, country);
@@ -160,6 +170,7 @@ export function collectSlots(turns: ChatTurn[], country?: string | null): Collec
 export function formatCollectedSlots(slots: CollectedSlots): string {
   const lines: string[] = [];
   if (slots.name) lines.push(`  Name: ${slots.name}`);
+  if (slots.email) lines.push(`  Email: ${slots.email}`);
   if (slots.phone) lines.push(`  Mobile: ${slots.phone}`);
   if (slots.site) lines.push(`  Site/suburb: ${slots.site}`);
   if (slots.description) lines.push(`  Job: ${slots.description}`);
@@ -188,11 +199,13 @@ export function createJobInputFromSlots(slots: CollectedSlots): {
   caller_phone: string;
   site_address?: string;
   description: string;
+  caller_email?: string;
 } {
   return {
     caller_name: slots.name,
     caller_phone: slots.phone || "",
     site_address: slots.site,
     description: slots.description || "",
+    ...(slots.email ? { caller_email: slots.email } : {}),
   };
 }

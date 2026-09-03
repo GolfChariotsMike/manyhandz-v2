@@ -7,6 +7,7 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleRequest, type ChatStore } from "./handler.ts";
 import type { CachedJobRow, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
+import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 
 function createServiceClient() {
   return createClient(
@@ -110,6 +111,19 @@ function supabaseStore(): ChatStore {
         ...row,
         synced_at: new Date().toISOString(),
       }, { onConflict: "connection_id,platform,external_id" });
+    },
+    async saveSmsConfirm(row: SmsConfirmPending) {
+      await supabase.from("mh_sms_confirms").insert({
+        customer_id: row.customer_id,
+        caller_e164: row.caller_e164,
+        simpro_customer_id: row.simpro_customer_id,
+        simpro_is_company: row.simpro_is_company,
+        simpro_contact_id: row.simpro_contact_id ?? null,
+        name: row.name,
+        email: row.email,
+        lead_id: row.lead_id,
+        expires_at: row.expires_at,
+      });
     },
   };
 }

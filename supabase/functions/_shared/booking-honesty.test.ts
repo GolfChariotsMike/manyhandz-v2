@@ -86,8 +86,12 @@ test("miss-path uses the existing-customer question", () => {
   assert.match(chat, /Are you already a Acme Plumbing customer\?/);
   assert.doesNotMatch(voice, /Have you used Glacier Air before/);
   assert.doesNotMatch(chat, /Have you used Acme Plumbing before/);
-  assert.match(voice, /THEN collect name, site address/);
-  assert.match(chat, /THEN collect name, site address/);
+  assert.match(voice, /THEN collect name, email, site address/);
+  assert.match(chat, /THEN collect name, email, site address/);
+  assert.match(voice, /do not read them back or spell the email/i);
+  assert.match(voice, /say you will text to confirm/i);
+  assert.match(voice, /Do not collect or confirm email this way for existing customers/);
+  assert.match(chat, /Do not collect or confirm email this way for existing customers/);
   assert.match(lookupMissSpokenReply("Glacier Air"), /Are you already a Glacier Air customer\?/);
   assert.match(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /Micycle Kerr/);
   assert.match(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /12 Frost St, Malaga/);

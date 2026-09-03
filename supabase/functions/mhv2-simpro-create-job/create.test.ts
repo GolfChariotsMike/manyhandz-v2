@@ -18,6 +18,7 @@ import {
   parseCreateJobInput,
   parseLookupCustomerInput,
   parseSiteAddress,
+  patchSimproCustomerDetails,
   personNameFromSpoken,
   SITE_LIST_COLUMNS,
   siteBelongsToCustomer,
@@ -30,6 +31,7 @@ import {
   type LeadNotifyTargets,
   type SimproConnection,
 } from "./create.ts";
+import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import {
   LEAD_NOTIFY_FROM,
   leadNotifyEmailSubject,
@@ -95,24 +97,35 @@ function envFor(opts: {
   notify?: LeadNotifyTargets | null;
   notifyEmail?: CreateJobEnv["sendNotifyEmail"];
   notifySms?: CreateJobEnv["sendNotifySms"];
+  smsConfirm?: {
+    capSendSms?: boolean;
+    country?: string | null;
+    twilioNumber?: string | null;
+    businessName?: string | null;
+  } | false;
 }): {
   env: CreateJobEnv;
   calls: string[];
   cached: unknown[];
   emails: unknown[];
   sms: unknown[];
+  confirmSms: unknown[];
+  pendingConfirms: SmsConfirmPending[];
   logs: string[];
 } {
   const calls: string[] = [];
   const cached: unknown[] = [];
   const emails: unknown[] = [];
   const sms: unknown[] = [];
+  const confirmSms: unknown[] = [];
+  const pendingConfirms: SmsConfirmPending[] = [];
   const logs: string[] = [];
   const innerFetch = opts.fetchImpl || (async (inputUrl, init) => {
     const url = String(inputUrl);
     calls.push(`${init?.method || "GET"} ${url}`);
     return new Response("{}", { status: 200 });
   });
+  const confirm = opts.smsConfirm === false ? null : (opts.smsConfirm || {});
   const env: CreateJobEnv = {
     encryptionKey: KEY,
     now: () => new Date("2026-09-01T01:00:00+08:00"),
@@ -136,8 +149,25 @@ function envFor(opts: {
     log: (msg) => {
       logs.push(msg);
     },
+    ...(confirm
+      ? {
+        loadSmsConfirmContext: async () => ({
+          cap_send_sms: confirm.capSendSms ?? true,
+          country: confirm.country ?? "AU",
+          twilio_number: confirm.twilioNumber === undefined ? "+61485000000" : confirm.twilioNumber,
+          business_name: confirm.businessName ?? "Glacier Air",
+        }),
+        sendConfirmSms: async (msg) => {
+          confirmSms.push(msg);
+          return { ok: true };
+        },
+        savePendingConfirm: async (row) => {
+          pendingConfirms.push(row);
+        },
+      }
+      : {}),
   };
-  return { env, calls, cached, emails, sms, logs };
+  return { env, calls, cached, emails, sms, confirmSms, pendingConfirms, logs };
 }
 
 async function runCreate(
@@ -324,7 +354,7 @@ test("createSimproJob fails clearly when SimPRO is not connected", async () => {
 test("createSimproJob new customer POSTs individual createSite+address then lead, not a second site", async () => {
   const conn = await connected();
   const posted: Array<{ method: string; url: string; body: unknown }> = [];
-  const { env, cached } = envFor({
+  const { env, cached, confirmSms, pendingConfirms } = envFor({
     connection: conn,
     fetchImpl: async (inputUrl, init) => {
       const url = String(inputUrl);
@@ -398,6 +428,12 @@ test("createSimproJob new customer POSTs individual createSite+address then lead
   assert.equal(customerAt >= 0 && customerAt < leadAt, true, "customer create must happen before the lead POST");
   assert.equal(JSON.stringify(result).includes("super-secret"), false);
   assert.equal(JSON.stringify(result).includes("live-token"), false);
+  assert.equal(confirmSms.length, 1);
+  assert.equal(pendingConfirms.length, 1);
+  assert.match((confirmSms[0] as { body: string }).body, /Glacier Air booking — Name: Sam Glacier/);
+  assert.equal(pendingConfirms[0].simpro_customer_id, 88);
+  assert.equal(pendingConfirms[0].lead_id, "18421");
+  assert.equal(pendingConfirms[0].caller_e164, "+61411122333");
 });
 
 test("createSimproJob Micycle-style street+suburb POSTs individual createSite then Open lead", async () => {
@@ -646,7 +682,7 @@ test("createSimproJob site fail after existing customer retries lead on first si
 test("createSimproJob existing customer phone + description POSTs lead, no new customer", async () => {
   const conn = await connected();
   const posted: Array<{ method: string; url: string; body: unknown }> = [];
-  const { env } = envFor({
+  const { env, confirmSms, pendingConfirms } = envFor({
     connection: conn,
     fetchImpl: async (inputUrl, init) => {
       const url = String(inputUrl);
@@ -697,6 +733,8 @@ test("createSimproJob existing customer phone + description POSTs lead, no new c
   if (!result.ok) throw new Error(result.error);
   assert.equal(result.lead_number, "8801");
   assert.equal(result.customer_created, false);
+  assert.equal(confirmSms.length, 0);
+  assert.equal(pendingConfirms.length, 0);
   assert.equal(result.site_created, false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/")), false);
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/sites/")), false);
@@ -872,7 +910,9 @@ test("lookupSimproCustomer miss creates nothing", async () => {
   if (!result.ok) throw new Error(result.error);
   assert.equal(result.found, false);
   assert.match(result.message, /already a customer/i);
-  assert.match(result.message, /THEN collect name, site address/);
+  assert.match(result.message, /THEN collect name, email, site address/);
+  assert.match(result.message, /do not read them back or spell the email/);
+  assert.match(result.message, /Do not collect or confirm email this way for existing customers/);
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
 });
 
@@ -2501,6 +2541,9 @@ test("encrypt/decrypt matches the live connect wrap and index has no secrets", a
   assert.match(src, /notify_email/);
   assert.match(src, /notify_sms_enabled/);
   assert.match(src, /notify_email_enabled/);
+  assert.match(src, /mh_sms_confirms/);
+  assert.match(src, /loadSmsConfirmContext/);
+  assert.match(src, /cap_send_sms/);
   assert.equal(/sk_|client_secret\s*[:=]\s*['"][^'"]+['"]/.test(src), false);
   assert.doesNotMatch(src, /Tradify/i);
 });
@@ -2668,4 +2711,142 @@ test("notify helpers redact secrets and use the ManyHandz noreply From", async (
   assert.equal(sent.ok, false);
   assert.equal(String(sent.error || "").includes("leaked-token-value"), false);
   assert.equal(String(sent.error || "").includes("re_live"), false);
+});
+
+test("createSimproJob extra site on existing customer does not send confirm SMS", async () => {
+  const conn = await connected();
+  const { env, confirmSms, pendingConfirms } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      if (url.includes("/customers/4708") && method === "GET" && !url.includes("/sites") && !url.includes("/contacts")) {
+        return Response.json({ ID: 4708, GivenName: "Micycle", FamilyName: "Kerr", Phone: "0433121933" });
+      }
+      if (url.includes("/sites") && method === "GET") {
+        return Response.json([{ ID: 3, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 9908 }, { status: 201 });
+      }
+      return Response.json([]);
+    },
+  });
+  const result = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Micycle Kerr",
+    caller_phone: "+61433121933",
+    site_address: "12 Frost St",
+    description: "3 split services",
+    simpro_customer_id: 4708,
+    existing_customer: true,
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.customer_created, false);
+  assert.equal(confirmSms.length, 0);
+  assert.equal(pendingConfirms.length, 0);
+});
+
+test("createSimproJob new customer POSTs Email and still creates the lead when SMS is off", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env, confirmSms, pendingConfirms } = envFor({
+    connection: conn,
+    smsConfirm: { capSendSms: false },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 44, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        assert.equal(body.Email, "sam@glacier.test");
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        assert.match(body.Description, /Email: sam@glacier.test/);
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return Response.json([]);
+    },
+  });
+  const parsed = parseCreateJobInput({
+    ...input,
+    caller_email: "sam@glacier.test",
+  }, CUST);
+  assert.equal("ok" in parsed, false);
+  const result = await createSimproJob(parsed as typeof input, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.customer_created, true);
+  assert.equal(result.lead_number, "18421");
+  assert.equal(confirmSms.length, 0);
+  assert.equal(pendingConfirms.length, 0);
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/customers/individuals/")), true);
+});
+
+test("createSimproJob new customer on a landline skips confirm SMS", async () => {
+  const conn = await connected();
+  const { env, confirmSms, pendingConfirms } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 44, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return Response.json([]);
+    },
+  });
+  const result = await createSimproJob({
+    ...input,
+    caller_phone: "+61892220000",
+    caller_email: "sam@glacier.test",
+  }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.customer_created, true);
+  assert.equal(confirmSms.length, 0);
+  assert.equal(pendingConfirms.length, 0);
+});
+
+test("patchSimproCustomerDetails PATCHes individual Email and name", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env } = envFor({
+    connection: conn,
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (method === "PATCH") return Response.json({ ID: 88 });
+      return Response.json({});
+    },
+  });
+  const result = await patchSimproCustomerDetails({
+    customer_id: CUST,
+    simpro_customer_id: 88,
+    simpro_is_company: false,
+    simpro_contact_id: 900,
+    name: "Jane Smith",
+    email: "jane@x.com",
+  }, env);
+  assert.equal(result.ok, true);
+  const customerPatch = posted.find((c) => c.method === "PATCH" && String(c.url).includes("/customers/individuals/88"));
+  assert.ok(customerPatch);
+  assert.equal((customerPatch.body as { Email?: string }).Email, "jane@x.com");
+  assert.equal((customerPatch.body as { GivenName?: string }).GivenName, "Jane");
+  assert.equal((customerPatch.body as { FamilyName?: string }).FamilyName, "Smith");
+  const contactPatch = posted.find((c) => c.method === "PATCH" && String(c.url).includes("/contacts/900"));
+  assert.ok(contactPatch);
+  assert.equal((contactPatch.body as { Email?: string }).Email, "jane@x.com");
 });

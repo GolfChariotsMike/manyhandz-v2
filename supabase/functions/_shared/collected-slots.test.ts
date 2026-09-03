@@ -7,6 +7,7 @@ import {
   claimsLeadSuccessAfterFailedCreate,
   collectSlots,
   createJobInputFromSlots,
+  extractEmailFromText,
   extractNameFromText,
   extractPhoneFromText,
   extractSiteFromText,
@@ -30,6 +31,20 @@ const micycleThread = [
 test("extracts AU mobile the visitor typed (no caller ID needed)", () => {
   assert.equal(extractPhoneFromText("0433 121 933"), "+61433121933");
   assert.equal(extractPhoneFromText("call me on +61 433 121 933 thanks"), "+61433121933");
+});
+
+test("extracts an email the visitor typed", () => {
+  assert.equal(extractEmailFromText("email is jane@x.com"), "jane@x.com");
+  const slots = collectSlots([
+    { role: "user", content: "Micycle Kerr" },
+    { role: "user", content: "micycle@kerr.test" },
+  ]);
+  assert.equal(slots.email, "micycle@kerr.test");
+  assert.equal(createJobInputFromSlots({
+    phone: "+61433121933",
+    description: "clean",
+    email: "micycle@kerr.test",
+  }).caller_email, "micycle@kerr.test");
 });
 
 test("recognises a typed full name and a trailing suburb", () => {

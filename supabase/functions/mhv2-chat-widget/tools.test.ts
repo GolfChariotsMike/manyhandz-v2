@@ -93,6 +93,9 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.equal(create.input_schema.required?.includes("site_contact_name"), false);
   assert.ok(create.input_schema.properties.site_contact_name);
   assert.ok(create.input_schema.properties.site_contact_phone);
+  assert.ok(create.input_schema.properties.caller_email);
+  assert.match(create.description, /ask name and email once/i);
+  assert.match(create.description, /Do not collect or confirm email this way for existing customers/);
 });
 
 test("caps strip send_sms and create_simpro_job; transfer and lookup never appear", () => {

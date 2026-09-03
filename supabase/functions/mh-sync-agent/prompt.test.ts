@@ -67,7 +67,8 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   assert.match(on, /do not use send_sms to notify the office/);
   assert.match(on, /Collecting details without invoking the tool is a failure/);
   assert.match(on, /never ask name or address/i);
-  assert.match(on, /THEN collect name, site address/);
+  assert.match(on, /THEN collect name, email, site address/);
+  assert.match(on, /do not read them back or spell the email/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /the function notifies/);
   assert.match(on, /do not call save_message to text the office/i);
@@ -224,7 +225,8 @@ test("booking copy forbids asking name/address before lookup", () => {
 test("miss-path uses the existing-customer question", () => {
   const on = composeSystemPrompt(base);
   assert.match(on, /Are you already a Acme Plumbing customer\?/);
-  assert.match(on, /THEN collect name, site address/);
+  assert.match(on, /THEN collect name, email, site address/);
+  assert.match(on, /do not read them back or spell the email/);
   const glacier = composeSystemPrompt({ ...base, businessName: "Glacier Air", aiName: "Charlie" });
   assert.match(glacier, /Are you already a Glacier Air customer\?/);
   assert.doesNotMatch(glacier, /Have you used Glacier Air before/);

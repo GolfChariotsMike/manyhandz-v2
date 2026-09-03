@@ -3,7 +3,12 @@
  * verify_jwt is false. Do not wire the legacy sms-webhook path here.
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import { parseRequestBody } from "../_shared/sms-send.ts";
+import {
+  patchSimproCustomerDetails,
+  type SimproConnection,
+} from "../mhv2-simpro-create-job/create.ts";
 import { handleInboundSms, parseTwilioSms, twimlMessage, INACTIVE_REPLY } from "./inbound.ts";
 
 const corsHeaders = {
@@ -125,6 +130,56 @@ Deno.serve(async (req) => {
         return data;
       },
       completeSms: (input) => completeWithLlm(input, globalThis.fetch.bind(globalThis)),
+      loadPendingConfirm: async (customerId, fromVariants, now) => {
+        const variants = fromVariants.filter(Boolean);
+        if (!variants.length) return null;
+        const { data } = await admin
+          .from("mh_sms_confirms")
+          .select("id,customer_id,caller_e164,simpro_customer_id,simpro_is_company,simpro_contact_id,name,email,lead_id,expires_at,consumed_at")
+          .eq("customer_id", customerId)
+          .in("caller_e164", variants)
+          .is("consumed_at", null)
+          .gt("expires_at", now.toISOString())
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        return (data || null) as SmsConfirmPending | null;
+      },
+      consumePendingConfirm: async (id) => {
+        await admin.from("mh_sms_confirms").update({
+          consumed_at: new Date().toISOString(),
+        }).eq("id", id);
+      },
+      applySmsCorrection: async (pending, correction) => {
+        const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+        const { data } = await admin
+          .from("mh_crm_connections")
+          .select("id,customer_id,is_active,simpro_build_url,simpro_client_id,simpro_client_secret_encrypted,simpro_access_token_encrypted,simpro_token_expires_at,simpro_company_id")
+          .eq("customer_id", pending.customer_id)
+          .eq("platform", "simpro")
+          .eq("is_active", true)
+          .maybeSingle();
+        const patched = await patchSimproCustomerDetails({
+          customer_id: pending.customer_id,
+          simpro_customer_id: pending.simpro_customer_id,
+          simpro_is_company: pending.simpro_is_company,
+          simpro_contact_id: pending.simpro_contact_id,
+          name: correction.name,
+          email: correction.email,
+        }, {
+          fetch: globalThis.fetch.bind(globalThis),
+          now: () => new Date(),
+          encryptionKey,
+          loadConnection: async () => (data || null) as SimproConnection | null,
+          saveTokens: async (connectionId, encryptedToken, expiresAt) => {
+            await admin.from("mh_crm_connections").update({
+              simpro_access_token_encrypted: encryptedToken,
+              simpro_token_expires_at: expiresAt,
+            }).eq("id", connectionId);
+          },
+        });
+        return patched.ok;
+      },
     });
 
     return xml(result.twiml, result.status);
