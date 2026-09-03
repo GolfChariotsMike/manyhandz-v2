@@ -10,6 +10,7 @@ import {
   resolveMarket,
   searchPathsForMarket,
   twilioPurchaseFields,
+  twilioVoiceBindFields,
   usLocalSearchFallbackPath,
   usLocalSearchPath,
 } from "./search.ts";
@@ -67,10 +68,24 @@ test("US purchase does not attach AU AddressSid or BundleSid", () => {
   assert.equal(us.PhoneNumber, "+12025550123");
   assert.equal(us.VoiceUrl, "https://example.com/mh-voice-router");
   assert.equal(us.StatusCallback, "https://example.com/mh-call-status");
+  assert.equal(us.StatusCallbackMethod, "POST");
+  assert.equal(us.VoiceApplicationSid, "");
   assert.equal(us.SmsUrl, "https://example.com/mh-sms-inbound");
   assert.equal(us.SmsMethod, "POST");
   assert.equal("AddressSid" in us, false);
   assert.equal("BundleSid" in us, false);
+});
+
+test("twilioVoiceBindFields sets StatusCallback POST and clears VoiceApplicationSid", () => {
+  const bind = twilioVoiceBindFields({
+    voiceUrl: "https://example.com/functions/v1/mh-voice-router",
+    statusCallback: "https://example.com/functions/v1/mh-call-status?customer_id=nr",
+  });
+  assert.equal(bind.VoiceUrl, "https://example.com/functions/v1/mh-voice-router");
+  assert.equal(bind.VoiceMethod, "POST");
+  assert.equal(bind.StatusCallback, "https://example.com/functions/v1/mh-call-status?customer_id=nr");
+  assert.equal(bind.StatusCallbackMethod, "POST");
+  assert.equal(bind.VoiceApplicationSid, "");
 });
 
 test("AU purchase still sends AddressSid and BundleSid", () => {

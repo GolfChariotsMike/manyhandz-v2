@@ -76,6 +76,7 @@ test("config.toml leaves Twilio status + owner-notify webhooks verify_jwt false"
   assert.match(toml, /\[functions\.mh-customer-transfer\]\s*\nverify_jwt = false/);
   assert.match(toml, /\[functions\.mh-ossie-tools\]\s*\nverify_jwt = false/);
   assert.match(toml, /\[functions\.mh-nextride-tools\]\s*\nverify_jwt = false/);
+  assert.match(toml, /\[functions\.mh-nextride-bootstrap\]\s*\nverify_jwt = false/);
 });
 
 test("typing attaches to save_message and never to end_call", () => {
