@@ -61,7 +61,7 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
     type: "webhook",
     name: TRANSFER_TO_STAFF_TOOL_NAME,
     description:
-      "Transfer the caller to a staff member when they ask for a person or to be put through. You MUST speak first. Pass say_to_caller as the exact sentence you speak (e.g. \"No problem, I'll transfer you to Jason now.\"). Never call this tool silently (empty message + typing is invalid). Then call this FIRST — do not just take a message. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung — do not ask them for their own details first. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
+      "Transfer the caller to a staff member when they ask for a person or to be put through. SAME TURN: call this tool in the same turn as the acknowledgement. The spoken sentence is say_to_caller (e.g. \"No problem, I'll transfer you to Jason now.\") — speech is not a replacement for this webhook. Speaking without calling this tool is a failure. Never call this tool silently (empty message + typing is invalid). Do not wait, do not ask \"are you still there?\", and do not say \"one moment\" instead of calling this. You MUST pass staff_name as who they asked to speak to (first name, full name, or role such as technician or director). caller_name is the CALLER, not the destination. If they ask for a named person, pass that name so that person is rung — do not ask them for their own details first. If they ask for the technician / my technician and do not give a name, pass staff_name=technician — the webhook looks up their last job. If it returns no_technician_on_file or could_not_see_job, say there is none on their file (or you could not see the job) and ask if they know the technician's name. Wait, then call again with that staff_name. If they still do not know, call again with name_unknown true. Do not take a message until this webhook returns accepted:false. Only use save_message if this returns accepted:false or the transfer fails.",
     response_timeout_secs: 120,
     pre_tool_speech: "force",
     force_pre_tool_speech: true,
@@ -77,7 +77,7 @@ export function transferToStaffWebhookTool(functionUrl: string): Record<string, 
           say_to_caller: {
             type: "string",
             description:
-              "The exact sentence you speak to the caller BEFORE this webhook runs. Must be a spoken acknowledgement such as \"No problem, I'll transfer you to Jason now.\" Empty or missing is invalid.",
+              "The exact sentence spoken this same turn (e.g. \"No problem, I'll transfer you to Jason now.\"). This is the acknowledgement — not a substitute for calling the tool. Empty or missing is invalid.",
             is_system_provided: false,
           },
           caller_name: {
