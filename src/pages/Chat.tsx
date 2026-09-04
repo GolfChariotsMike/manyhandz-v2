@@ -1,15 +1,21 @@
 import { useState, useEffect } from "react";
-import { getMe, getChatConfig, saveChatConfig, getChatSessions } from "../lib/api";
+import { getMe, getChatConfig, saveChatConfig, getChatSession, getChatSessions } from "../lib/api";
 import { chatPageView } from "../lib/chat-page";
+import { type ChatSessionDetail, type ChatSessionListItem } from "../lib/chat-sessions";
+import { ChatSessionsList } from "../components/ChatSessionsList";
 import { chatWidgetEmbedSnippet, mountChatWidgetPreview, unmountChatWidgetPreview } from "../lib/chat-widget-preview";
 import { MessageSquare, Copy, Check, Settings, Eye, Loader2 } from "lucide-react";
 
 export default function Chat() {
   const [customer, setCustomer] = useState<any>(null);
   const [config, setConfig] = useState<any>(null);
-  const [sessions, setSessions] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<ChatSessionListItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, ChatSessionDetail>>({});
+  const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [detailErrors, setDetailErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -62,6 +68,34 @@ export default function Chat() {
     await saveChatConfig(config.id, formData);
     setConfig({ ...config, ...formData });
     setEditing(false);
+  }
+
+  async function openSession(session: ChatSessionListItem) {
+    const id = session.id;
+    if (!id) return;
+    if (expandedId === id) {
+      setExpandedId(null);
+      return;
+    }
+    setExpandedId(id);
+    if (details[id] || detailLoadingId === id) return;
+    setDetailLoadingId(id);
+    try {
+      const row = await getChatSession(id);
+      if (row) setDetails((prev) => ({ ...prev, [id]: row }));
+      setDetailErrors((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (err: unknown) {
+      setDetailErrors((prev) => ({
+        ...prev,
+        [id]: err instanceof Error ? err.message : "Could not load conversation",
+      }));
+    } finally {
+      setDetailLoadingId((current) => (current === id ? null : current));
+    }
   }
 
   function copyEmbed() {
@@ -196,17 +230,14 @@ export default function Chat() {
             ) : !Array.isArray(sessions) || sessions.length === 0 ? (
               <p className="text-sm text-white/40">No conversations yet. Deploy the widget and start chatting!</p>
             ) : (
-              <div className="space-y-2">
-                {sessions.map((s: any) => (
-                  <div key={s.id} className="flex items-center justify-between p-3 bg-white/5 rounded-xl">
-                    <div>
-                      <p className="text-sm font-medium">Session {(s.visitor_id || s.id)?.toString().slice(0, 8)}...</p>
-                      <p className="text-xs text-white/40">{s.created_at ? new Date(s.created_at).toLocaleString() : ""}</p>
-                    </div>
-                    <span className="text-xs text-white/30 capitalize">{s.resolved ? "resolved" : "open"}</span>
-                  </div>
-                ))}
-              </div>
+              <ChatSessionsList
+                sessions={sessions}
+                expandedId={expandedId}
+                details={details}
+                detailLoadingId={detailLoadingId}
+                detailErrors={detailErrors}
+                onOpen={openSession}
+              />
             )}
           </div>
         </div>
