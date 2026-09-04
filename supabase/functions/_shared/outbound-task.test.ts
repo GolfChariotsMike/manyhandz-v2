@@ -119,10 +119,12 @@ test("outbound opening and prompt are the customer's receptionist, not Sam", () 
     contactName: "Adam",
     brief: "find a lunch time",
     standingPrompt: "You are Trinity, the AI receptionist for Glacier Air.",
+    taskId: "task-1",
   });
   assert.match(prompt, /OUTBOUND TASK CALL/);
   assert.match(prompt, /NOT Sam, Jake/);
   assert.match(prompt, /report_outbound_result/);
+  assert.match(prompt, /task_id task-1/);
   assert.match(prompt, /find a lunch time/);
 });
 

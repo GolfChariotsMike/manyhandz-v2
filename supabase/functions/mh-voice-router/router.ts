@@ -1,12 +1,20 @@
 /**
- * Twilio inbound voice webhook → ElevenLabs media stream.
+ * Twilio inbound voice webhook → ElevenLabs media stream, or a whitelist
+ * bridge Dial that skips ElevenLabs.
  *
- * Live contract (mh-voice-router on DraftPilot): look up the customer by To,
- * register the call with ElevenLabs, insert mh_call_log + mh_ossie_call_sids,
- * return EL TwiML. Caller ID is Twilio From unless that is the customer's
- * own twilio_number — then ForwardedFrom / "forwarded via".
+ * Live contract (mh-voice-router on DraftPilot kouembkldbpdbhzeaoth): look up
+ * the customer by To, resolve caller ID, then:
+ *   - If the caller is on mh_voice_config.whitelist and bridge_to_number is
+ *     set → TwiML <Dial> the bridge (callerId = customer DID). No EL stream.
+ *   - If whitelisted but no bridge → Polly "not configured" + Hangup.
+ *   - Else register the call with ElevenLabs and return EL TwiML.
+ * Always insert mh_call_log + mh_ossie_call_sids. Caller ID is Twilio From
+ * unless that is the customer's own twilio_number — then ForwardedFrom.
+ *
+ * Deploy: pin/redeploy this function on DraftPilot (verify_jwt = false).
  */
-import { inboundCallerLog, resolveVoiceCaller } from "../_shared/voice-caller.ts";
+import { normalizePhone, stripPhone } from "../_shared/sms-send.ts";
+import { inboundCallerLog, phonesMatch, resolveVoiceCaller } from "../_shared/voice-caller.ts";
 
 export const CALL_SIDS_TABLE = "mh_ossie_call_sids";
 export const FALLBACK_TWIML =
@@ -15,6 +23,8 @@ export const SUSPENDED_TWIML =
   `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Nicole">Thanks for calling. This service is temporarily unavailable. Please try again later.</Say><Hangup/></Response>`;
 export const ERROR_TWIML =
   `<?xml version="1.0" encoding="UTF-8"?><Response><Say>Sorry, an error occurred. Please try again.</Say><Hangup/></Response>`;
+export const WHITELIST_UNCONFIGURED_TWIML =
+  `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Nicole">This line is not configured to connect. Please try again later.</Say><Hangup/></Response>`;
 
 export type VoiceCustomer = {
   id: string;
@@ -81,10 +91,13 @@ export function registerCallBody(agentId: string, callerId: string, to: string):
     direction: "inbound",
     conversation_initiation_client_data: {
       // EL rejects any dynamic variable name starting with system__.
+      // Always send every tool dyn var — empty outbound_task_id so inbound
+      // never 1008s if report_outbound_result is still attached (PR 78).
       dynamic_variables: {
         caller_id: callerId,
         return_from_staff: "false",
         return_instruction: "",
+        outbound_task_id: "",
       },
     },
   };
@@ -92,6 +105,56 @@ export function registerCallBody(agentId: string, callerId: string, to: string):
 
 export function conversationIdFromTwiml(twiml: string): string {
   return twiml.match(/name="conversation_id"\s+value="([^"]+)"/)?.[1] || "";
+}
+
+export function parseWhitelist(raw: unknown): string[] {
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return [];
+    try {
+      return parseWhitelist(JSON.parse(trimmed));
+    } catch {
+      return trimmed ? [trimmed] : [];
+    }
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw.map((n) => String(n ?? "").trim()).filter(Boolean);
+}
+
+/** AU 04… ↔ +614… plus last-9 digit match (same rule as phonesEquivalent). */
+export function isWhitelistedCaller(caller: string, whitelist: unknown): boolean {
+  const raw = String(caller || "").trim();
+  const list = parseWhitelist(whitelist);
+  if (!raw || !list.length) return false;
+  return list.some((listed) => {
+    if (phonesMatch(raw, listed)) return true;
+    const da = stripPhone(raw).replace(/\D/g, "");
+    const db = stripPhone(listed).replace(/\D/g, "");
+    return da.length >= 8 && db.length >= 8 && (da === db || da.slice(-9) === db.slice(-9));
+  });
+}
+
+export function normalizeBridgeNumber(raw: string | null | undefined): string | null {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return null;
+  return normalizePhone(trimmed) || trimmed;
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+/** Twilio <Dial> to the bridge. callerId is the customer DID when present. */
+export function bridgeDialTwiml(bridgeNumber: string, callerId?: string | null): string {
+  const number = escapeXml(bridgeNumber);
+  const from = String(callerId || "").trim();
+  const callerAttr = from ? ` callerId="${escapeXml(from)}"` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial${callerAttr}>${number}</Dial></Response>`;
 }
 
 function xml(body: string, status = 200): Response {
@@ -177,6 +240,36 @@ export async function handleVoiceRouter(req: Request, env: VoiceRouterEnv): Prom
     if (accountSuspended(customer, env.now())) {
       console.log(`[${customer.id}] Account suspended`);
       return xml(SUSPENDED_TWIML);
+    }
+
+    const voiceRows = await rest<Array<{ whitelist?: unknown; bridge_to_number?: string | null }>>(
+      env,
+      `mh_voice_config?customer_id=eq.${encodeURIComponent(customer.id)}&select=whitelist,bridge_to_number&limit=1`,
+    );
+    const voiceConfig = Array.isArray(voiceRows) ? voiceRows[0] : null;
+    if (isWhitelistedCaller(callerId, voiceConfig?.whitelist)) {
+      const bridge = normalizeBridgeNumber(voiceConfig?.bridge_to_number);
+      if (bridge) {
+        const callerIdForDial = customer.twilio_number || parsed.to;
+        console.log(`[${customer.id}] Whitelist match — dialing bridge ${bridge} (no EL)`);
+        if (parsed.callSid) {
+          await rest(env, `mh_call_log?call_sid=eq.${encodeURIComponent(parsed.callSid)}`, "PATCH", {
+            transcript_summary: `Bridged to ${bridge}`,
+          }, "return=minimal").catch((err) => {
+            console.error("Bridged call log patch error:", err);
+          });
+        }
+        return xml(bridgeDialTwiml(bridge, callerIdForDial));
+      }
+      console.log(`[${customer.id}] Whitelist match but no bridge_to_number`);
+      if (parsed.callSid) {
+        await rest(env, `mh_call_log?call_sid=eq.${encodeURIComponent(parsed.callSid)}`, "PATCH", {
+          transcript_summary: "Whitelist match — no bridge number configured",
+        }, "return=minimal").catch((err) => {
+          console.error("Unconfigured whitelist call log patch error:", err);
+        });
+      }
+      return xml(WHITELIST_UNCONFIGURED_TWIML);
     }
 
     if (!env.elApiKey) {
