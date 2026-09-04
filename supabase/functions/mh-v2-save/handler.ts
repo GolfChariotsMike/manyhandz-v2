@@ -1,5 +1,6 @@
 /**
- * mh-v2-save — persist onboarding profile + knowledge using the dashboard mh_token.
+ * mh-v2-save — persist onboarding profile + knowledge, and list the
+ * signed-in customer's chat sessions, using the dashboard mh_token.
  *
  * Path is the last pathname segment (callFn hits /functions/v1/mh-v2-save/profile).
  * JWT is HMAC-SHA256 with MH_JWT_SECRET; sub is the customer id.
@@ -9,6 +10,7 @@ import { normalizeHomeState } from "../_shared/au-home-state.ts";
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 export const DEFAULT_JWT_SECRET = "mh-v2-secret-key-change-in-prod";
@@ -21,7 +23,13 @@ export type QueryBuilder = {
   insert(row: Record<string, unknown>): QueryBuilder;
   upsert(row: Record<string, unknown>, opts?: { onConflict?: string }): QueryBuilder;
   eq(col: string, val: unknown): QueryBuilder;
+  order(column: string, options?: { ascending?: boolean }): QueryBuilder;
+  limit(count: number): QueryBuilder;
   maybeSingle(): Promise<QueryResult>;
+  then<TResult1 = QueryResult, TResult2 = never>(
+    onfulfilled?: ((value: QueryResult) => TResult1 | PromiseLike<TResult1>) | null,
+    onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null,
+  ): Promise<TResult1 | TResult2>;
 };
 
 export type AdminClient = {
@@ -58,6 +66,41 @@ export type VoiceNotifyPatch = {
   notify_sms: string | null;
   notify_sms_enabled?: boolean;
 };
+
+export const CHAT_SESSION_SELECT = "id,customer_id,visitor_id,created_at,resolved";
+export const CHAT_SESSION_LIMIT = 50;
+
+export type ChatSessionRow = {
+  id: unknown;
+  customer_id: unknown;
+  visitor_id: unknown;
+  created_at: unknown;
+  resolved: boolean;
+};
+
+export function projectChatSession(row: unknown): ChatSessionRow | null {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  const src = row as Record<string, unknown>;
+  if (src.id == null) return null;
+  return {
+    id: src.id,
+    customer_id: src.customer_id ?? null,
+    visitor_id: src.visitor_id ?? null,
+    created_at: src.created_at ?? null,
+    resolved: Boolean(src.resolved),
+  };
+}
+
+export function projectChatSessions(data: unknown): ChatSessionRow[] {
+  if (!Array.isArray(data)) return [];
+  const rows: ChatSessionRow[] = [];
+  for (const item of data) {
+    const row = projectChatSession(item);
+    if (row) rows.push(row);
+    if (rows.length >= CHAT_SESSION_LIMIT) break;
+  }
+  return rows;
+}
 
 export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): string {
   return getEnv("MH_JWT_SECRET") || DEFAULT_JWT_SECRET;
@@ -298,6 +341,18 @@ function emptyKnowledge(customerId: string, now: string): KnowledgeRow {
   };
 }
 
+async function listChatSessions(customerId: string, env: SaveEnv): Promise<Response> {
+  const { data, error } = await env.admin
+    .from("mh_chat_sessions")
+    .select(CHAT_SESSION_SELECT)
+    .eq("customer_id", customerId)
+    .order("created_at", { ascending: false })
+    .limit(CHAT_SESSION_LIMIT);
+
+  if (error) return jsonResponse({ error: error.message || "Could not load chat sessions" }, 500);
+  return jsonResponse({ sessions: projectChatSessions(data) }, 200);
+}
+
 async function customerIdFromRequest(req: Request, env: SaveEnv): Promise<string | Response> {
   const token = bearerToken(req);
   if (!token) return jsonResponse({ error: "Unauthorized" }, 401);
@@ -310,6 +365,12 @@ export async function handleRequest(req: Request, env: SaveEnv): Promise<Respons
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   const action = routeAction(new URL(req.url));
+  if (action === "chat-sessions") {
+    if (req.method !== "GET") return jsonResponse({ error: "Method not allowed" }, 405);
+    const customerId = await customerIdFromRequest(req, env);
+    if (customerId instanceof Response) return customerId;
+    return listChatSessions(customerId, env);
+  }
   if (action !== "profile" && action !== "knowledge" && action !== "voice") {
     return jsonResponse({ error: "Not found" }, 404);
   }

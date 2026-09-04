@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { meCache } from "./meCache.ts";
-import { createOutboundTask, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
+import { createOutboundTask, getChatSessions, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
 
 const origFetch = globalThis.fetch;
 const origLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -186,6 +186,43 @@ test("login requestMagicLink surfaces no_account without creating anything clien
   }) as typeof fetch;
 
   await assert.rejects(() => requestMagicLink("nick@glacier.net.au"), /no_account/);
+});
+
+test("getChatSessions GETs mh-v2-save/chat-sessions with mh_token and returns the array", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  const calls: { url: string; method: string; auth: string }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      method: init?.method || "GET",
+      auth: String((init?.headers as Record<string, string>)?.Authorization || ""),
+    });
+    return new Response(JSON.stringify({
+      sessions: [{ id: "s1", customer_id: "c1", visitor_id: "v1", created_at: "2026-09-02T00:00:00Z", resolved: false }],
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const rows = await getChatSessions();
+  assert.equal(rows[0]?.id, "s1");
+  assert.match(calls[0].url, /\/functions\/v1\/mh-v2-save\/chat-sessions$/);
+  assert.equal(calls[0].url.includes("/rest/v1/mh_chat_sessions"), false);
+  assert.equal(calls[0].method, "GET");
+  assert.match(calls[0].auth, /Bearer mh\.jwt\.token/);
+});
+
+test("getChatSessions surfaces a 401 instead of returning an empty list", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await assert.rejects(() => getChatSessions(), /Unauthorized|Incorrect email or password/);
 });
 
 test("listOutboundTasks GETs mh-outbound-task/list with mh_token", async () => {

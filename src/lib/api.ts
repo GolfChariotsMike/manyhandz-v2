@@ -331,12 +331,10 @@ export async function saveChatConfig(id: string, updates: Record<string, unknown
   return res.json();
 }
 
-export async function getChatSessions(customerId: string) {
-  // mh_chat_sessions has created_at, not last_message_at (ordering by the latter 400s)
-  return supabaseRest(
-    "mh_chat_sessions",
-    `customer_id=eq.${customerId}&select=id,customer_id,visitor_id,created_at,resolved&order=created_at.desc&limit=50`
-  );
+/** List the signed-in customer's mh_chat_sessions via mh-v2-save (JWT + service role). */
+export async function getChatSessions() {
+  const data = await callFn("mh-v2-save", "chat-sessions", "GET");
+  return Array.isArray(data?.sessions) ? data.sessions : [];
 }
 
 
