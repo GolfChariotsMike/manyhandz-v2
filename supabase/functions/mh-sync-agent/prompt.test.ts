@@ -157,6 +157,34 @@ test("transfer rule names transfer_to_staff first and does not tell the agent to
   assert.match(off, /Take messages when callers want to speak to a staff member/);
 });
 
+test("call handling bans hyped acknowledgements and still-there stall for all webhook tools", () => {
+  const on = composeSystemPrompt(base);
+  assert.match(on, /Acknowledgements: calm Aussie receptionist/);
+  assert.match(on, /"Right\."/);
+  assert.match(on, /"Yep\."/);
+  assert.match(on, /"Ok\."/);
+  assert.match(on, /"Sure\."/);
+  assert.match(on, /"No worries\."/);
+  assert.match(on, /"Got it!"/);
+  assert.match(on, /"Perfect!"/);
+  assert.match(on, /"Great!"/);
+  assert.match(on, /"Awesome!"/);
+  assert.match(on, /"Absolutely!"/);
+  assert.match(on, /"Fantastic!"/);
+  assert.match(on, /SAME TURN TOOLS/);
+  assert.match(on, /lookup_simpro_customer, create_simpro_job, save_message, send_sms/);
+  assert.match(on, /transfer_to_staff, create_outbound_task/);
+  assert.match(on, /Never announce an action then wait for the caller/);
+  assert.match(on, /Never use "Are you still there\?" as an idle filler/);
+  assert.match(on, /After a successful tool result, speak the outcome/);
+  assert.match(on, /SAME TURN call create_simpro_job as soon as they confirm/);
+  assert.match(on, /I'll get that booked/);
+  const glacier = composeSystemPrompt({ ...base, businessName: "Glacier Air", aiName: "Charlie" });
+  assert.match(glacier, /Acknowledgements: calm Aussie receptionist/);
+  assert.match(glacier, /SAME TURN TOOLS/);
+  assert.match(glacier, /Never use "Are you still there\?" as an idle filler/);
+});
+
 test("composed prompt forbids speaking-only transfers and requires same-turn transfer_to_staff", () => {
   const on = composeSystemPrompt(base);
   assert.match(on, /SAME TURN call transfer_to_staff/);
