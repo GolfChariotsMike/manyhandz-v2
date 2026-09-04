@@ -693,6 +693,42 @@ describe("GET /chat-sessions/:id", () => {
     assert.equal(detail?.messages.length, 2);
     assert.equal(detail?.messages[0].role, "user");
   });
+
+  it("projects the live Glacier booking thread as preview on list and turns on detail", async () => {
+    const messages = [
+      { role: "user", content: "Hi, I'd like to book an aircon service please." },
+      { role: "assistant", content: "Hi! I'd be happy to help you book an air conditioning service." },
+      { role: "user", content: "0433121933" },
+      { role: "assistant", content: "Great! I've found you on our system." },
+      { role: "user", content: "37 Dericote Way Greenwood WA." },
+      { role: "assistant", content: "Perfect! I have you down for a service." },
+      { role: "user", content: "Yes, a full service, not a quote." },
+      { role: "assistant", content: "I've lodged this with the team — SimPRO lead 5." },
+    ];
+    const store = seed();
+    store.sessions = [{
+      id: "13b64fc6-ec44-4c6d-82ea-cfeb58cc87bc",
+      customer_id: CUST,
+      visitor_id: "sess_3co9e3yznt91788336037710",
+      created_at: "2026-09-02T08:04:44.676Z",
+      resolved: false,
+      messages,
+    }];
+
+    const list = await json(await handleRequest(await authedGet("chat-sessions"), envFor(store)));
+    assert.equal(list.body.sessions[0].preview, "Hi, I'd like to book an aircon service please.");
+    assert.equal(list.body.sessions[0].message_count, 8);
+    assert.equal("messages" in list.body.sessions[0], false);
+    assert.equal(JSON.stringify(list.body).includes("0433121933"), false);
+
+    const detail = await json(await handleRequest(
+      await authedGet("chat-sessions/13b64fc6-ec44-4c6d-82ea-cfeb58cc87bc"),
+      envFor(store),
+    ));
+    assert.equal(detail.status, 200);
+    assert.equal(detail.body.session.messages.length, 8);
+    assert.equal(detail.body.session.messages[7].content, "I've lodged this with the team — SimPRO lead 5.");
+  });
 });
 
 describe("CORS / routing", () => {
