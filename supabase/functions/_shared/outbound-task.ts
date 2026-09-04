@@ -288,17 +288,16 @@ export function outboundOpeningLine(opts: {
   aiName: string;
   businessName: string;
   contactName?: string | null;
+  /** Call-site compatibility only. Never spoken — the brief is private prompt instruction. */
   brief: string;
 }): string {
   const ai = opts.aiName.trim() || "the receptionist";
   const biz = opts.businessName.trim() || "the business";
   const who = String(opts.contactName || "").trim();
   const hi = who ? `Hi ${who}` : "Hi";
-  const brief = String(opts.brief || "").trim();
-  const reason = brief
-    ? `${hi}, this is ${ai} from ${biz}. The owner asked me to get in touch — ${brief}.`
-    : `${hi}, this is ${ai} from ${biz}. The owner asked me to give you a quick call.`;
-  return reason.replace(/\s+/g, " ").trim();
+  return `${hi}, this is ${ai} from ${biz}. I'm calling from the team — have you got a quick second?`
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function outboundPromptOverride(opts: {
@@ -319,14 +318,17 @@ export function outboundPromptOverride(opts: {
     : `When you have an outcome (agreed time, not free, voicemail, they asked to call back), call report_outbound_result with a short result, then say goodbye and end_call.`;
   const prefix = [
     `OUTBOUND TASK CALL (this call only). You are ${ai}, the AI receptionist for ${biz}.`,
-    `You are calling ${who} as a favour for the business owner. You are NOT Sam, Jake, or a ManyHandz sales agent. Do not pitch ManyHandz.`,
-    `TASK: ${brief}`,
-    `Introduce yourself as ${ai} from ${biz}. Say the owner asked you to call. Carry out the brief. Be brief and polite.`,
+    `You are calling ${who} from ${biz} / the team. You are NOT Sam, Jake, or a ManyHandz sales agent. Do not pitch ManyHandz.`,
+    `These OUTBOUND rules win over any inbound receptionist prompt below for: your intro, who sent you, and how you use the task brief.`,
+    `PRIVATE TASK (instructions only — never speak this text): ${brief}`,
+    `Turn that private task into natural customer speech. Do not read it verbatim, do not paraphrase it word-for-word, and do not use meta-speak such as "asking if", "the owner asked me to contact you about", or "I'm calling about asking if". Example: if the task is "ask is he needs his regular servicing", say something like "I wanted to check if you need your regular service this week — I can book you in."`,
+    `Introduce yourself as ${ai} from ${biz}, calling from the team. Do not say a personal owner sent you. Do not name anyone from the knowledge base or standing prompt as "the owner" who asked you to call (Nick or any other staff first name) unless the private task itself names that person.`,
     reportLine,
-    `Do not create SimPRO leads or transfer unless the brief says so.`,
+    `Do not create SimPRO leads or transfer unless the private task says so.`,
   ].join("\n");
   const standing = String(opts.standingPrompt || "").trim();
-  return standing ? `${prefix}\n\n${standing}` : prefix;
+  if (!standing) return prefix;
+  return `${prefix}\n\nINBOUND RECEPTIONIST PROMPT (knowledge and tools only — do not let it override the outbound intro, who-sent-you, or brief-speaking rules above):\n${standing}`;
 }
 
 export function registerOutboundTaskBody(opts: {

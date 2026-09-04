@@ -4,6 +4,12 @@ Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
+## This branch (outbound task spoken copy)
+
+No new SQL. After the first_message override fix, Glacier outbound Tasks stay connected but the spoken opener pasted the raw TASK brief and the prompt said "the owner asked you to call", so the agent named Nick from the inbound standing prompt.
+
+`mh-outbound-task` — opener is name + business + "calling from the team" only. Prompt treats the brief as private instructions and forbids KB staff as "the owner". **Must redeploy** `mh-outbound-task` after merge. No Glacier re-sync needed (prompt is a register-call override).
+
 ## This branch (outbound first_message override permission)
 
 No new SQL. Glacier dashboard outbound Tasks ring, then hang up in ~1s because ElevenLabs rejects the register-call override:

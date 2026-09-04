@@ -112,6 +112,7 @@ test("outbound opening and prompt are the customer's receptionist, not Sam", () 
   assert.match(open, /Trinity/);
   assert.match(open, /Glacier Air/);
   assert.match(open, /Adam/);
+  assert.match(open, /from the team/i);
   assert.doesNotMatch(open, /Sam|ManyHandz sales/i);
   const prompt = outboundPromptOverride({
     aiName: "Trinity",
@@ -126,6 +127,53 @@ test("outbound opening and prompt are the customer's receptionist, not Sam", () 
   assert.match(prompt, /report_outbound_result/);
   assert.match(prompt, /task_id task-1/);
   assert.match(prompt, /find a lunch time/);
+});
+
+test("outbound opening never speaks the raw brief or an owner name", () => {
+  const brief = "ask is he needs his regular servicing this week";
+  const open = outboundOpeningLine({
+    aiName: "Glacier Air AI",
+    businessName: "Glacier Air",
+    contactName: "Mike",
+    brief,
+  });
+  assert.equal(
+    open,
+    "Hi Mike, this is Glacier Air AI from Glacier Air. I'm calling from the team — have you got a quick second?",
+  );
+  assert.doesNotMatch(open, /regular servicing|ask is he|owner asked|Nick/i);
+  const nameless = outboundOpeningLine({
+    aiName: "Glacier Air AI",
+    businessName: "Glacier Air",
+    brief,
+  });
+  assert.equal(
+    nameless,
+    "Hi, this is Glacier Air AI from Glacier Air. I'm calling from the team — have you got a quick second?",
+  );
+});
+
+test("outbound prompt treats the brief as private and forbids KB staff as owner", () => {
+  const brief = "ask is he needs his regular servicing this week";
+  const prompt = outboundPromptOverride({
+    aiName: "Glacier Air AI",
+    businessName: "Glacier Air",
+    contactName: "Mike",
+    brief,
+    standingPrompt: "You are Charlie. Nick is the owner. Staff: Nick.",
+    taskId: "task-1",
+  });
+  assert.match(prompt, /PRIVATE TASK/);
+  assert.match(prompt, /never speak this text/i);
+  assert.match(prompt, /ask is he needs his regular servicing this week/);
+  assert.match(prompt, /OUTBOUND rules win/i);
+  assert.match(prompt, /from Glacier Air \/ the team/);
+  assert.match(prompt, /Nick or any other staff first name/);
+  assert.match(prompt, /unless the private task itself names that person/);
+  assert.match(prompt, /INBOUND RECEPTIONIST PROMPT/);
+  assert.match(prompt, /You are Charlie. Nick is the owner/);
+  assert.doesNotMatch(prompt, /Say the owner asked you to call/);
+  assert.doesNotMatch(prompt, /as a favour for the business owner/);
 });
 
 test("registerOutboundTaskBody is outbound with task id and padded first_message", () => {
