@@ -61,12 +61,23 @@ export type OutboundTaskEnv = {
   elApiKey: string;
 };
 
+/**
+ * Columns that exist on production mh_v2_customers and that this function needs.
+ * Owner/result SMS numbers live on mh_voice_config.notify_sms and mh_staff.phone.
+ * Do not SELECT phone, mobile, owner, notify, or contact columns here — they are
+ * not on the table. PostgREST then returns an error object and loadCustomer
+ * used to treat that as "Account not found."
+ */
+export const CUSTOMER_TASK_SELECT =
+  "id,business_name,twilio_number,el_agent_id,country";
+
 export type CustomerTaskRow = {
   id: string;
   business_name?: string | null;
   twilio_number?: string | null;
   el_agent_id?: string | null;
   country?: string | null;
+  /** Optional extras if a row is passed in-process; never selected from REST. */
   phone?: string | null;
   mobile?: string | null;
   owner_phone?: string | null;
@@ -123,10 +134,11 @@ async function rest<T>(
 }
 
 export async function loadCustomer(env: OutboundTaskEnv, customerId: string): Promise<CustomerTaskRow | null> {
-  const rows = await rest<CustomerTaskRow[]>(
+  const rows = await rest<CustomerTaskRow[] | { message?: string; code?: string }>(
     env,
-    `mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=id,business_name,twilio_number,el_agent_id,country,phone,mobile,owner_phone,owner_mobile,notify_mobile,notify_sms,contact_phone,contact_mobile&limit=1`,
+    `mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=${CUSTOMER_TASK_SELECT}&limit=1`,
   );
+  // PostgREST errors are objects ({ code, message }), not row arrays.
   return Array.isArray(rows) ? rows[0] || null : null;
 }
 
