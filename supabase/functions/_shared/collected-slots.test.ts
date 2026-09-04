@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   asksNameOrAddress,
+  asksWorkDescription,
   canCreateLead,
   claimsLeadSuccess,
   claimsLeadSuccessAfterFailedCreate,
@@ -17,6 +18,7 @@ import {
   looksLikeBookingConfirm,
   looksLikePersonName,
   shouldForceLookup,
+  speaksLeadNumber,
 } from "./collected-slots.ts";
 
 const micycleThread = [
@@ -117,5 +119,36 @@ test("mobile on a booking path must lookup before name/address", () => {
   assert.equal(asksNameOrAddress("Where's the air conditioning unit located? (Street address or suburb)"), true);
   assert.equal(asksNameOrAddress("Are you already a Glacier Air customer?"), false);
   assert.equal(asksNameOrAddress("Thanks — I have you as Micycle Kerr at 12 Frost St."), false);
-  assert.match(honestLeadSuccessReply("4421"), /SimPRO lead 4421/);
+  assert.equal(asksWorkDescription("What work do you need done there?"), true);
+  assert.equal(asksWorkDescription("Can you describe the fault?"), true);
+  assert.equal(asksWorkDescription("a short description of the service needed"), true);
+  assert.equal(asksWorkDescription("Could you please confirm the service description"), true);
+  assert.equal(asksWorkDescription("Thanks - I have you as Glacier Frank at 12 Frost St."), false);
+  assert.equal(speaksLeadNumber("Booked — lead 4421.", "4421"), true);
+  assert.equal(speaksLeadNumber("Your lead number is 10"), true);
+  assert.equal(speaksLeadNumber("I've lodged this with the team. Someone will be in touch."), false);
+  const success = honestLeadSuccessReply("4421");
+  assert.match(success, /Someone will be in touch/);
+  assert.doesNotMatch(success, /4421/);
+  assert.doesNotMatch(success, /lead number|SimPRO lead/i);
+});
+
+test("tech to look at a fault is already a description", () => {
+  const slots = collectSlots([
+    { role: "user", content: "I need a tech to look at a fault" },
+  ]);
+  assert.match(String(slots.description), /tech to look at a fault/i);
+  assert.equal(canCreateLead({ ...slots, phone: "+61400936452" }), true);
+});
+
+test("Frank Fujitsu / F-A95 turns are already a description for create_simpro_job", () => {
+  const slots = collectSlots([
+    { role: "user", content: "looking to get a service technician to look at my Fujitsu air conditioner." },
+    { role: "user", content: "F-A95 fault." },
+  ]);
+  assert.match(String(slots.description), /F-A95 fault/i);
+  assert.match(String(slots.description), /Fujitsu|technician|air conditioner/i);
+  assert.equal(canCreateLead({ ...slots, phone: "+61400936452" }), true);
+  const input = createJobInputFromSlots({ ...slots, phone: "+61400936452" });
+  assert.match(input.description, /F-A95 fault/i);
 });

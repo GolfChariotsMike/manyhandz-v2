@@ -7,6 +7,7 @@ import { normalizePhone, pickSmsFrom, phoneLookupVariants } from "./sms-send.ts"
 
 export const SMS_CONFIRM_TTL_MS = 24 * 60 * 60 * 1000;
 export const SMS_CONFIRM_UPDATED = "Updated. Thanks.";
+export const SMS_CONFIRM_ACCEPTED = "Thanks — you're all set.";
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 const NAME_LEAD =
@@ -28,6 +29,16 @@ export type SmsConfirmPending = {
   lead_id: string;
   expires_at: string;
   consumed_at?: string | null;
+  created_at?: string | null;
+};
+
+/** Matched caller for an inbound SMS — this From number only. */
+export type SmsCallerContext = {
+  name?: string;
+  email?: string;
+  lead_id?: string;
+  recentlyBooked?: boolean;
+  confirmOpen?: boolean;
 };
 
 export type SmsConfirmContext = {
@@ -89,9 +100,76 @@ export function smsConfirmExpiresAt(now: Date, ttlMs = SMS_CONFIRM_TTL_MS): stri
 export function pendingConfirmIsLive(row: SmsConfirmPending | null | undefined, now: Date): boolean {
   if (!row) return false;
   if (row.consumed_at) return false;
+  return confirmWithinTtl(row, now);
+}
+
+/** Pending or recently consumed confirm still inside the 24h window. */
+export function recentConfirmIsUseful(row: SmsConfirmPending | null | undefined, now: Date): boolean {
+  return confirmWithinTtl(row, now);
+}
+
+function confirmWithinTtl(row: SmsConfirmPending | null | undefined, now: Date): boolean {
+  if (!row) return false;
   const expires = new Date(row.expires_at).getTime();
-  if (!Number.isFinite(expires) || expires <= now.getTime()) return false;
-  return true;
+  if (Number.isFinite(expires) && expires > now.getTime()) return true;
+  const created = row.created_at ? new Date(row.created_at).getTime() : NaN;
+  return Number.isFinite(created) && now.getTime() - created < SMS_CONFIRM_TTL_MS;
+}
+
+const CONFIRM_ACCEPTED_RE =
+  /^(?:(?:yes|yep|yeah|yup|ok|okay|cheers|thanks|thank you)[,!.\s]+)*(?:that'?s\s+(?:right|correct|fine|good)|that is\s+(?:right|correct|fine|good)|that'?s all good|all\s+(?:good|correct|ok|okay)|(?:looks|sounds)\s+(?:good|right|correct)|details are correct|all correct|confirmed)(?:[,!.\s]+(?:thanks|thank you|cheers|yes))?[.!]*$/i;
+
+/** Caller said the confirm details are correct — consume the pending row. */
+export function isConfirmAccepted(body: string): boolean {
+  const text = String(body || "").replace(/\s+/g, " ").trim();
+  if (!text) return false;
+  return CONFIRM_ACCEPTED_RE.test(text);
+}
+
+export function smsCallerContextFromConfirm(row: SmsConfirmPending): SmsCallerContext {
+  const name = String(row.name || "").trim();
+  const email = String(row.email || "").trim();
+  const leadId = String(row.lead_id || "").trim();
+  return {
+    ...(name ? { name } : {}),
+    ...(email ? { email } : {}),
+    ...(leadId ? { lead_id: leadId } : {}),
+    recentlyBooked: Boolean(name || leadId),
+    confirmOpen: !row.consumed_at,
+  };
+}
+
+export function smsCallerContextFromSimpro(found: { name?: string | null }): SmsCallerContext {
+  const name = String(found.name || "").trim();
+  return {
+    ...(name ? { name } : {}),
+    recentlyBooked: false,
+    confirmOpen: false,
+  };
+}
+
+/**
+ * System-prompt line for the matched caller only. Never include other
+ * customers, raw SMS bodies, or a multi-match list.
+ */
+export function formatSmsCallerContext(ctx: SmsCallerContext): string {
+  const bits: string[] = [];
+  if (ctx.name) bits.push(`The texter is ${ctx.name} (matched this From number).`);
+  else bits.push("The texter matched a known caller on this number.");
+  if (ctx.recentlyBooked) {
+    bits.push("They recently booked with this business.");
+  } else {
+    bits.push("They are an existing customer on file. Do not treat them as a stranger.");
+  }
+  if (ctx.confirmOpen && (ctx.name || ctx.email)) {
+    const details = [
+      ctx.name ? `Name ${ctx.name}` : "",
+      ctx.email ? `Email ${ctx.email}` : "",
+    ].filter(Boolean).join(", ");
+    bits.push(`A name/email confirm SMS is still open. On file: ${details}.`);
+  }
+  bits.push("Speak as if you already know them. Do not ask them to introduce themselves. Do not mention other customers.");
+  return bits.join(" ");
 }
 
 function cleanCorrectionName(raw: string): string | undefined {
@@ -113,6 +191,7 @@ function cleanCorrectionName(raw: string): string | undefined {
 export function parseSmsCorrection(body: string): SmsCorrection {
   const raw = String(body || "").replace(/\s+/g, " ").trim();
   if (!raw) return {};
+  if (isConfirmAccepted(raw)) return {};
   const email = extractEmailFromText(raw);
   let rest = email ? raw.replace(email, " ").replace(/\s+/g, " ").trim() : raw;
   rest = rest.replace(/email\s*(?:is|:|to)?/gi, " ").replace(/\s+/g, " ").trim();

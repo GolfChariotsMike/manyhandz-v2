@@ -58,7 +58,12 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   const on = buildChatSystemPrompt(base);
   assert.match(on, /create_simpro_job/);
   assert.match(on, /SIMPRO LEADS/);
-  assert.match(on, /lead number/);
+  assert.match(on, /Do not tell them the lead number/);
+  assert.match(on, /already said the fault or work/);
+  assert.match(on, /F-A95 fault/);
+  assert.match(on, /short description of the service needed/);
+  assert.match(on, /Only ask if description is still missing|Only ask for a short description if it is still missing/);
+  assert.doesNotMatch(on, /If the tool returns a lead number/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /the function notifies/);
   assert.match(on, /do not call save_message to text the office/i);

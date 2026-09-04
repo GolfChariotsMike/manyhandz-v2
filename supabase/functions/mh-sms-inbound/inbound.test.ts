@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { SMS_CONFIRM_UPDATED, type SmsConfirmPending } from "../_shared/sms-confirm.ts";
+import { readFile } from "node:fs/promises";
+import { SMS_CONFIRM_ACCEPTED, SMS_CONFIRM_UPDATED, type SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import {
   FALLBACK_REPLY,
   INACTIVE_REPLY,
@@ -22,6 +23,9 @@ function envFor(opts?: {
   applyOk?: boolean;
   patched?: Array<{ pending: SmsConfirmPending; correction: { name?: string; email?: string } }>;
   consumed?: string[];
+  updated?: Array<{ id: string; name?: string; email?: string }>;
+  systems?: string[];
+  simpro?: { name?: string } | null;
 }): InboundEnv {
   const defaultCustomer = {
     id: "cust-1",
@@ -45,17 +49,28 @@ function envFor(opts?: {
       if (opts && "kb" in opts) return opts.kb as never;
       return { about: "Scenic flights", services: ["Flights"], faqs: [{ q: "Hours?", a: "We fly 9 to 5." }] };
     },
-    completeSms: opts && "llm" in opts ? async () => opts.llm ?? null : undefined,
+    completeSms: opts && ("llm" in opts || opts?.systems)
+      ? async ({ system }) => {
+        opts?.systems?.push(system);
+        return opts.llm ?? null;
+      }
+      : undefined,
     loadPendingConfirm: opts && "pending" in opts
       ? async () => opts.pending ?? null
       : undefined,
     consumePendingConfirm: async (id) => {
       opts?.consumed?.push(id);
     },
+    updatePendingConfirm: async (id, fields) => {
+      opts?.updated?.push({ id, ...fields });
+    },
     applySmsCorrection: async (pending, correction) => {
       opts?.patched?.push({ pending, correction });
       return opts?.applyOk !== false;
     },
+    lookupSimproCaller: opts && "simpro" in opts
+      ? async () => opts.simpro ?? null
+      : undefined,
   };
 }
 
@@ -143,15 +158,17 @@ const livePending = (): SmsConfirmPending => ({
   expires_at: "2026-09-02T00:00:00.000Z",
 });
 
-test("inbound email correction patches SimPRO and consumes the pending row", async () => {
+test("inbound email correction patches SimPRO and keeps the pending row open", async () => {
   const patched: Array<{ pending: SmsConfirmPending; correction: { name?: string; email?: string } }> = [];
   const consumed: string[] = [];
+  const updated: Array<{ id: string; name?: string; email?: string }> = [];
   const res = await handleInboundSms(
     { from: "+61411122333", to: "+61485000000", body: "email is jane@x.com" },
     envFor({
       pending: livePending(),
       patched,
       consumed,
+      updated,
       llm: "We fly 9 to 5 every weekday.",
     }),
   );
@@ -159,9 +176,42 @@ test("inbound email correction patches SimPRO and consumes the pending row", asy
   assert.doesNotMatch(res.twiml, /We fly 9 to 5/);
   assert.equal(patched.length, 1);
   assert.equal(patched[0].correction.email, "jane@x.com");
-  assert.deepEqual(consumed, ["pend-1"]);
+  assert.deepEqual(consumed, []);
+  assert.deepEqual(updated, [{ id: "pend-1", email: "jane@x.com" }]);
   assert.equal(res.customerId, "cust-1");
   assert.equal(JSON.stringify({ patched, consumed }).includes("email is jane"), false);
+});
+
+test("a second correction still patches while the confirm stays open", async () => {
+  const patched: Array<{ pending: SmsConfirmPending; correction: { name?: string; email?: string } }> = [];
+  const consumed: string[] = [];
+  const env = envFor({ pending: livePending(), patched, consumed });
+  await handleInboundSms(
+    { from: "+61411122333", to: "+61485000000", body: "email is jane@x.com" },
+    env,
+  );
+  const again = await handleInboundSms(
+    { from: "+61411122333", to: "+61485000000", body: "name is Jane Smith" },
+    env,
+  );
+  assert.match(again.twiml, /Updated\. Thanks/);
+  assert.equal(patched.length, 2);
+  assert.equal(patched[1].correction.name, "Jane Smith");
+  assert.equal(consumed.length, 0);
+});
+
+test("all good / that's right consumes the pending confirm", async () => {
+  const consumed: string[] = [];
+  const patched: Array<{ pending: SmsConfirmPending; correction: { name?: string; email?: string } }> = [];
+  const res = await handleInboundSms(
+    { from: "+61411122333", to: "+61485000000", body: "that's right" },
+    envFor({ pending: livePending(), consumed, patched, llm: "We fly 9 to 5 every weekday." }),
+  );
+  assert.match(res.twiml, /all set/);
+  assert.deepEqual(consumed, ["pend-1"]);
+  assert.equal(patched.length, 0);
+  assert.doesNotMatch(res.twiml, /We fly 9 to 5/);
+  assert.equal(SMS_CONFIRM_ACCEPTED.includes("all set"), true);
 });
 
 test("inbound with no pending row keeps the current KB reply", async () => {
@@ -190,4 +240,74 @@ test("expired pending is ignored so the KB bot still answers", async () => {
   assert.equal(patched.length, 0);
   assert.equal(consumed.length, 0);
   assert.doesNotMatch(res.twiml, new RegExp(SMS_CONFIRM_UPDATED));
+});
+
+test("question after a live confirm injects booked-caller context into the KB prompt", async () => {
+  const systems: string[] = [];
+  const res = await handleInboundSms(
+    { from: "+61400936452", to: "+61485000000", body: "When will someone come?" },
+    envFor({
+      pending: { ...livePending(), name: "Glacier Frank", lead_id: "10" },
+      systems,
+      llm: "We'll be in touch shortly about your booking.",
+    }),
+  );
+  assert.match(res.twiml, /in touch shortly/);
+  assert.match(systems[0], /Glacier Frank/);
+  assert.match(systems[0], /recently booked/i);
+  assert.doesNotMatch(systems[0], /\blead 10\b/);
+  assert.doesNotMatch(systems[0], /When will someone come/);
+});
+
+test("consumed confirm still injects recent-booking context", async () => {
+  const systems: string[] = [];
+  await handleInboundSms(
+    { from: "+61411122333", to: "+61485000000", body: "Hours?" },
+    envFor({
+      pending: { ...livePending(), consumed_at: "2026-09-01T00:00:00.000Z" },
+      systems,
+      llm: "We fly 9 to 5 every weekday.",
+    }),
+  );
+  assert.match(systems[0], /Sam Glacier/);
+  assert.match(systems[0], /recently booked/i);
+});
+
+test("SimPRO phone match injects caller name when there is no confirm row", async () => {
+  const systems: string[] = [];
+  await handleInboundSms(
+    { from: "+61400936452", to: "+61485000000", body: "Hours?" },
+    envFor({
+      pending: null,
+      simpro: { name: "Glacier Frank" },
+      systems,
+      llm: "We fly 9 to 5 every weekday.",
+    }),
+  );
+  assert.match(systems[0], /Glacier Frank/);
+  assert.match(systems[0], /existing customer/i);
+  assert.match(systems[0], /Do not mention other customers/);
+});
+
+test("no confirm and no SimPRO match keeps the current KB fallback", async () => {
+  const systems: string[] = [];
+  const res = await handleInboundSms(
+    { from: "+61400936452", to: "+61485000000", body: "Hours?" },
+    envFor({ pending: null, simpro: null, systems, llm: "We fly 9 to 5 every weekday." }),
+  );
+  assert.match(res.twiml, /We fly 9 to 5 every weekday/);
+  assert.doesNotMatch(systems[0], /The texter is/);
+  assert.doesNotMatch(systems[0], /recently booked/);
+});
+
+test("inbound index looks up recent confirms and SimPRO without logging bodies", async () => {
+  const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+  const inbound = await readFile(new URL("./inbound.ts", import.meta.url), "utf8");
+  assert.match(src, /lookupSimproCustomer/);
+  assert.match(src, /mh_sms_confirms/);
+  assert.match(src, /updatePendingConfirm/);
+  assert.match(inbound, /body_len=/);
+  assert.doesNotMatch(src, /\.is\("consumed_at", null\)/);
+  assert.match(inbound, /body_len=\$\{fields\.body\.length\}/);
+  assert.doesNotMatch(inbound, /console\.log\([^)]*fields\.body\s*[,)]/);
 });

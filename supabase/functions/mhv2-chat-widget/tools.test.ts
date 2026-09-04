@@ -81,7 +81,10 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /save_message as the only close/i);
   assert.match(create.description, /do not call save_message to text the office/i);
-  assert.match(create.description, /lead number/i);
+  assert.match(create.description, /Do not tell them the lead number/i);
+  assert.match(create.description, /F-A95 fault/);
+  assert.match(create.description, /description argument/);
+  assert.doesNotMatch(create.description, /Tell them the lead number only/i);
   assert.match(create.description, /never pretend a lead was created/i);
   assert.match(create.description, /site contact/i);
   assert.match(create.description, /Jane from Woolies/);
@@ -159,7 +162,7 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
         job_number: "4421",
         customer_created: true,
         site_created: true,
-        message: "Created SimPRO lead 4421. Tell the caller this lead number.",
+        message: "Lead created. Confirm success — the team will be in touch. Do not tell the caller the lead number.",
       };
     },
     handleSaveMessage: async () => ({ success: true, notified: true }),
@@ -197,7 +200,7 @@ test("executeChatTool allows create_simpro_job with phone and description only",
         job_number: "8801",
         customer_created: false,
         site_created: false,
-        message: "Created SimPRO lead 8801. Tell the caller this lead number.",
+        message: "Lead created. Confirm success — the team will be in touch. Do not tell the caller the lead number.",
       };
     },
     handleSaveMessage: async () => ({ success: true, notified: true }),
@@ -226,7 +229,7 @@ test("executeChatTool company with a person name reaches create_simpro_job", asy
         job_number: "8803",
         customer_created: true,
         site_created: true,
-        message: "Created SimPRO lead 8803. Tell the caller this lead number.",
+        message: "Lead created. Confirm success — the team will be in touch. Do not tell the caller the lead number.",
       };
     },
     handleSaveMessage: async () => ({ success: true, notified: true }),

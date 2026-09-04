@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   contactMatchesPerson,
+  CREATE_JOB_SUCCESS_SPOKEN_MESSAGE,
   createSimproJob,
   customerDisplayName,
   customerNameMatches,
@@ -417,8 +418,11 @@ test("createSimproJob new customer POSTs individual createSite+address then lead
   assert.equal(result.job_number, "18421");
   assert.equal(result.customer_created, true);
   assert.equal(result.site_created, true);
-  assert.match(result.message, /lead 18421/);
-  assert.match(result.message, /lead number/);
+  assert.equal(result.message, CREATE_JOB_SUCCESS_SPOKEN_MESSAGE);
+  assert.match(result.message, /Do not tell the caller the lead number/);
+  assert.doesNotMatch(result.message, /Tell the caller this lead number/);
+  assert.doesNotMatch(result.message, /your lead number/i);
+  assert.doesNotMatch(result.message, /18421/);
   assert.equal((cached[0] as { job_number: string; status: string }).job_number, "18421");
   assert.equal((cached[0] as { status: string }).status, "Open");
   const methods = posted.filter((c) => c.method === "POST").map((c) => c.url);
@@ -1187,6 +1191,8 @@ test("lookupSimproCustomer miss creates nothing", async () => {
   assert.match(result.message, /already a customer/i);
   assert.match(result.message, /THEN collect name, email, site address/);
   assert.match(result.message, /do not read them back or spell the email/);
+  assert.match(result.message, /F-A95 fault/);
+  assert.match(result.message, /do not ask for a short description of the service needed/i);
   assert.match(result.message, /Do not collect or confirm email this way for existing customers/);
   assert.equal(posted.some((c) => c.startsWith("POST")), false);
 });
@@ -1381,6 +1387,9 @@ test("lookupSimproCustomer one readable site confirms the street and does not as
   assert.match(result.sites[0].address, /12 Frost St/);
   assert.match(result.message, /Confirm the street 12 Frost St/);
   assert.match(result.message, /do not ask for a site ID/i);
+  assert.match(result.message, /already said the fault or work/);
+  assert.match(result.message, /still missing/);
+  assert.doesNotMatch(result.message, /Then collect the job description/);
   assert.doesNotMatch(result.message, /site_id 3/);
 });
 
@@ -2805,6 +2814,18 @@ test("SiteContact reject fails clearly and does not retry without SiteContact", 
   assert.ok(leadBodies.length >= 1);
   assert.equal(leadBodies.every((body) => body.SiteContact === 77), true);
   assert.equal(leadBodies.some((body) => body.SiteContact == null), false);
+});
+
+test("create_simpro_job success message never tells the caller a lead number", async () => {
+  const src = await readFile(new URL("./create.ts", import.meta.url), "utf8");
+  assert.equal(
+    CREATE_JOB_SUCCESS_SPOKEN_MESSAGE,
+    "Lead created. Confirm success — the team will be in touch. Do not tell the caller the lead number.",
+  );
+  assert.match(src, /CREATE_JOB_SUCCESS_SPOKEN_MESSAGE/);
+  assert.doesNotMatch(src, /Tell the caller this lead number/);
+  assert.doesNotMatch(CREATE_JOB_SUCCESS_SPOKEN_MESSAGE, /your lead number/i);
+  assert.doesNotMatch(CREATE_JOB_SUCCESS_SPOKEN_MESSAGE, /\blead \d+/);
 });
 
 test("encrypt/decrypt matches the live connect wrap and index has no secrets", async () => {

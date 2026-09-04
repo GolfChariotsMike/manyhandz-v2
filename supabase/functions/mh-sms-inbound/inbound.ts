@@ -3,10 +3,17 @@
  * Resolve customer by mh_v2_customers.twilio_number = To, reply from the KB.
  */
 import {
+  formatSmsCallerContext,
+  isConfirmAccepted,
   parseSmsCorrection,
   pendingConfirmIsLive,
   pendingLookupVariants,
+  recentConfirmIsUseful,
+  smsCallerContextFromConfirm,
+  smsCallerContextFromSimpro,
+  SMS_CONFIRM_ACCEPTED,
   SMS_CONFIRM_UPDATED,
+  type SmsCallerContext,
   type SmsConfirmPending,
   type SmsCorrection,
 } from "../_shared/sms-confirm.ts";
@@ -51,10 +58,12 @@ export type InboundEnv = {
     now: Date,
   ) => Promise<SmsConfirmPending | null>;
   consumePendingConfirm?: (id: string) => Promise<void>;
+  updatePendingConfirm?: (id: string, fields: { name?: string; email?: string }) => Promise<void>;
   applySmsCorrection?: (
     pending: SmsConfirmPending,
     correction: SmsCorrection,
   ) => Promise<boolean>;
+  lookupSimproCaller?: (customerId: string, from: string) => Promise<{ name?: string } | null>;
 };
 
 export function parseTwilioSms(body: unknown): { from: string; to: string; body: string } {
@@ -126,6 +135,26 @@ export function clipSms(text: string, max = SMS_MAX_CHARS): string {
   return `${cleaned.slice(0, max - 1).trimEnd()}…`;
 }
 
+export async function resolveSmsCallerContext(
+  customerId: string,
+  from: string,
+  env: InboundEnv,
+  pending: SmsConfirmPending | null,
+  now: Date,
+): Promise<SmsCallerContext | null> {
+  if (recentConfirmIsUseful(pending, now) && pending) {
+    return smsCallerContextFromConfirm(pending);
+  }
+  if (!env.lookupSimproCaller || !from.trim()) return null;
+  try {
+    const found = await env.lookupSimproCaller(customerId, from);
+    if (found?.name) return smsCallerContextFromSimpro(found);
+  } catch {
+    /* never fail the Twilio webhook */
+  }
+  return null;
+}
+
 export function fallbackFromKb(kb: InboundKb | null, businessName: string, inbound: string): string {
   const needle = inbound.toLowerCase();
   const faqs = Array.isArray(kb?.faqs) ? kb!.faqs as Array<{ q?: string; a?: string }> : [];
@@ -154,14 +183,22 @@ export async function handleInboundSms(
     return { twiml: twimlMessage(blocked || INACTIVE_REPLY), status: 200 };
   }
 
+  let pending: SmsConfirmPending | null = null;
   if (env.loadPendingConfirm) {
     try {
-      const pending = await env.loadPendingConfirm(
+      pending = await env.loadPendingConfirm(
         customer.id,
         pendingLookupVariants(fields.from),
         env.now(),
       );
       if (pendingConfirmIsLive(pending, env.now()) && pending) {
+        if (isConfirmAccepted(fields.body)) {
+          if (pending.id && env.consumePendingConfirm) {
+            await env.consumePendingConfirm(pending.id);
+          }
+          console.log(`[mh-sms-inbound] customer=${customer.id} confirm=accepted body_len=${fields.body.length}`);
+          return { twiml: twimlMessage(SMS_CONFIRM_ACCEPTED), status: 200, customerId: customer.id };
+        }
         const correction = parseSmsCorrection(fields.body);
         if (correction.name || correction.email) {
           let patched = true;
@@ -169,9 +206,18 @@ export async function handleInboundSms(
             patched = await env.applySmsCorrection(pending, correction);
           }
           if (patched) {
-            if (pending.id && env.consumePendingConfirm) {
-              await env.consumePendingConfirm(pending.id);
+            if (pending.id && env.updatePendingConfirm) {
+              try {
+                await env.updatePendingConfirm(pending.id, {
+                  ...(correction.name ? { name: correction.name } : {}),
+                  ...(correction.email ? { email: correction.email } : {}),
+                });
+              } catch {
+                /* keep the confirm open even if the row patch fails */
+              }
             }
+            if (correction.name) pending = { ...pending, name: correction.name };
+            if (correction.email) pending = { ...pending, email: correction.email };
             console.log(`[mh-sms-inbound] customer=${customer.id} confirm=updated body_len=${fields.body.length}`);
             return { twiml: twimlMessage(SMS_CONFIRM_UPDATED), status: 200, customerId: customer.id };
           }
@@ -184,10 +230,17 @@ export async function handleInboundSms(
 
   const kb = await env.loadKb(customer.id);
   const businessName = customer.business_name || "our business";
+  let callerCtx: SmsCallerContext | null = null;
+  try {
+    callerCtx = await resolveSmsCallerContext(customer.id, fields.from, env, pending, env.now());
+  } catch {
+    /* keep the short KB fallback */
+  }
   const system = [
     kbContext(kb, voice, businessName),
-    `Reply in one short SMS (under ${SMS_MAX_CHARS} characters). No markdown, no greeting stack. Answer the text they sent. If you do not know, say the team will call them back.`,
-  ].join("\n\n");
+    callerCtx ? formatSmsCallerContext(callerCtx) : "",
+    `Reply in one short SMS (under ${SMS_MAX_CHARS} characters). No markdown, no greeting stack. Answer the text they sent. If you do not know, say the team will call them back. Do not tell them a lead number.`,
+  ].filter(Boolean).join("\n\n");
 
   let reply = fallbackFromKb(kb, businessName, fields.body);
   if (env.completeSms && fields.body) {

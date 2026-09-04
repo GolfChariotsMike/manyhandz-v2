@@ -9,6 +9,7 @@ import {
   lookupHitSpokenReply,
   lookupMissSpokenReply,
   neverFakeLeadCloseRule,
+  neverSpeakLeadNumberRule,
   simproHonestyAddon,
   simproLeadsBookingRule,
   siteContactRule,
@@ -23,6 +24,15 @@ test("honesty addon forbids fake notify and save_message-only close", () => {
   }
   assert.match(neverFakeLeadCloseRule(), /never fake success/i);
   assert.match(neverFakeLeadCloseRule(), /ok:true/);
+  assert.doesNotMatch(neverFakeLeadCloseRule(), /with a lead number/);
+  assert.match(neverSpeakLeadNumberRule(), /Never speak, read, or write the SimPRO lead number/);
+  assert.match(simproHonestyAddon("voice"), /LEAD NUMBER/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /Do not tell them the lead number/);
+  assert.match(simproLeadsBookingRule("chat", "Glacier Air"), /Do not tell them the lead number/);
+  assert.doesNotMatch(simproLeadsBookingRule("voice", "Glacier Air"), /If the tool returns a lead number/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /already said the fault or work/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /Only ask for a short description if it is still missing/);
+  assert.doesNotMatch(simproLeadsBookingRule("voice", "Glacier Air"), /Then collect only a short description of the work and call/);
   assert.match(bookingConfirmMustCreateRule(), /yes please/);
   assert.match(bookingConfirmMustCreateRule(), /Do not use save_message as the only close/);
   assert.match(simproLeadsBookingRule("chat", "Glacier Air"), /do not call save_message to text the office/i);
@@ -97,4 +107,13 @@ test("miss-path uses the existing-customer question", () => {
   assert.match(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /12 Frost St, Malaga/);
   assert.doesNotMatch(lookupHitSpokenReply("Micycle Kerr", ["12 Frost St, Malaga"]), /What'?s your (full )?name/);
   assert.match(lookupHitSpokenReply("Micycle Kerr", ["37 Derictoe", "67 Mars"]), /37 Derictoe or 67 Mars/);
+  assert.match(lookupHitSpokenReply("Glacier Frank", ["12 Frost St"], false), /What work do you need done/);
+  assert.doesNotMatch(lookupHitSpokenReply("Glacier Frank", ["12 Frost St"], true), /What work do you need done/);
+  assert.match(alreadyCollectedRule("voice"), /that IS the description/i);
+  assert.match(alreadyCollectedRule("voice"), /Only ask if description is still missing/);
+  assert.match(alreadyCollectedRule("voice"), /F-A95 fault/);
+  assert.match(alreadyCollectedRule("voice"), /short description of the service needed/);
+  assert.match(alreadyCollectedRule("voice"), /confirm the service description/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /F-A95 fault/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /do not ask for a short description of the service needed/);
 });

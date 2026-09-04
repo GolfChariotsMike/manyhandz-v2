@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  SMS_CONFIRM_ACCEPTED,
   SMS_CONFIRM_UPDATED,
   buildConfirmSmsBody,
+  formatSmsCallerContext,
+  isConfirmAccepted,
   isSmsCapableMobile,
   maybeSendNewCustomerConfirm,
   parseSmsCorrection,
   pendingConfirmIsLive,
+  recentConfirmIsUseful,
+  smsCallerContextFromConfirm,
   smsConfirmExpiresAt,
   type SmsConfirmEnv,
   type SmsConfirmPending,
@@ -80,6 +85,53 @@ test("parseSmsCorrection reads email-only, name-only, and both", () => {
   assert.deepEqual(parseSmsCorrection("that's wrong, email is jane@x.com"), { email: "jane@x.com" });
   assert.deepEqual(parseSmsCorrection("Hours?"), {});
   assert.deepEqual(parseSmsCorrection(""), {});
+  assert.deepEqual(parseSmsCorrection("all good"), {});
+  assert.deepEqual(parseSmsCorrection("that's right"), {});
+});
+
+test("isConfirmAccepted only matches a clear details-are-correct reply", () => {
+  assert.equal(isConfirmAccepted("all good"), true);
+  assert.equal(isConfirmAccepted("All good!"), true);
+  assert.equal(isConfirmAccepted("that's right"), true);
+  assert.equal(isConfirmAccepted("that's correct"), true);
+  assert.equal(isConfirmAccepted("details are correct"), true);
+  assert.equal(isConfirmAccepted("yes that's right"), true);
+  assert.equal(isConfirmAccepted("yes"), false);
+  assert.equal(isConfirmAccepted("ok"), false);
+  assert.equal(isConfirmAccepted("Hours?"), false);
+  assert.equal(isConfirmAccepted("email is jane@x.com"), false);
+  assert.equal(SMS_CONFIRM_ACCEPTED, "Thanks — you're all set.");
+});
+
+test("formatSmsCallerContext names the caller and booking without a lead number", () => {
+  const ctx = smsCallerContextFromConfirm({
+    customer_id: CUST,
+    caller_e164: "+61400936452",
+    simpro_customer_id: 4715,
+    simpro_is_company: false,
+    name: "Glacier Frank",
+    email: "frank@test.com",
+    lead_id: "10",
+    expires_at: smsConfirmExpiresAt(NOW),
+  });
+  const line = formatSmsCallerContext(ctx);
+  assert.match(line, /Glacier Frank/);
+  assert.match(line, /recently booked/i);
+  assert.match(line, /confirm SMS is still open/);
+  assert.doesNotMatch(line, /\blead 10\b/);
+  assert.match(line, /Do not mention other customers/);
+  assert.equal(recentConfirmIsUseful({
+    ...ctx,
+    customer_id: CUST,
+    caller_e164: "+61400936452",
+    simpro_customer_id: 4715,
+    simpro_is_company: false,
+    name: "Glacier Frank",
+    email: "frank@test.com",
+    lead_id: "10",
+    expires_at: smsConfirmExpiresAt(NOW),
+    consumed_at: NOW.toISOString(),
+  } as SmsConfirmPending, NOW), true);
 });
 
 test("buildConfirmSmsBody names the business and invites a reply", () => {
