@@ -26,6 +26,8 @@ function envFor(opts?: {
   updated?: Array<{ id: string; name?: string; email?: string }>;
   systems?: string[];
   simpro?: { name?: string } | null;
+  outboundReplies?: string[];
+  outboundReply?: string | null;
 }): InboundEnv {
   const defaultCustomer = {
     id: "cust-1",
@@ -70,6 +72,12 @@ function envFor(opts?: {
     },
     lookupSimproCaller: opts && "simpro" in opts
       ? async () => opts.simpro ?? null
+      : undefined,
+    handleOutboundTaskSms: opts && ("outboundReply" in opts || opts?.outboundReplies)
+      ? async ({ body }) => {
+        opts?.outboundReplies?.push(body);
+        return opts.outboundReply ?? null;
+      }
       : undefined,
   };
 }
@@ -162,6 +170,7 @@ test("inbound email correction patches SimPRO and keeps the pending row open", a
   const patched: Array<{ pending: SmsConfirmPending; correction: { name?: string; email?: string } }> = [];
   const consumed: string[] = [];
   const updated: Array<{ id: string; name?: string; email?: string }> = [];
+  const outboundReplies: string[] = [];
   const res = await handleInboundSms(
     { from: "+61411122333", to: "+61485000000", body: "email is jane@x.com" },
     envFor({
@@ -169,6 +178,8 @@ test("inbound email correction patches SimPRO and keeps the pending row open", a
       patched,
       consumed,
       updated,
+      outboundReplies,
+      outboundReply: "I'll call Adam now and text you the result.",
       llm: "We fly 9 to 5 every weekday.",
     }),
   );
@@ -180,6 +191,7 @@ test("inbound email correction patches SimPRO and keeps the pending row open", a
   assert.deepEqual(updated, [{ id: "pend-1", email: "jane@x.com" }]);
   assert.equal(res.customerId, "cust-1");
   assert.equal(JSON.stringify({ patched, consumed }).includes("email is jane"), false);
+  assert.equal(outboundReplies.length, 0);
 });
 
 test("a second correction still patches while the confirm stays open", async () => {
@@ -300,12 +312,48 @@ test("no confirm and no SimPRO match keeps the current KB fallback", async () =>
   assert.doesNotMatch(systems[0], /recently booked/);
 });
 
+test("allowlisted outbound-task SMS replies without hitting the KB bot", async () => {
+  const outboundReplies: string[] = [];
+  const systems: string[] = [];
+  const res = await handleInboundSms(
+    { from: "+61400111222", to: "+61485000000", body: "call Adam on 0412222333 and ask if he's free for lunch" },
+    envFor({
+      pending: null,
+      outboundReplies,
+      outboundReply: "I'll call Adam now and text you the result.",
+      systems,
+      llm: "We fly 9 to 5 every weekday.",
+    }),
+  );
+  assert.match(res.twiml, /call Adam now and text you the result/);
+  assert.deepEqual(outboundReplies, ["call Adam on 0412222333 and ask if he's free for lunch"]);
+  assert.equal(systems.length, 0);
+});
+
+test("public outbound-looking SMS stays on the KB when the hook returns null", async () => {
+  const outboundReplies: string[] = [];
+  const res = await handleInboundSms(
+    { from: "+61400999999", to: "+61485000000", body: "call Adam on 0412222333 and ask if he's free" },
+    envFor({
+      pending: null,
+      outboundReplies,
+      outboundReply: null,
+      llm: "We fly 9 to 5 every weekday.",
+    }),
+  );
+  assert.match(res.twiml, /We fly 9 to 5 every weekday/);
+  assert.doesNotMatch(res.twiml, /I'll call Adam/);
+  assert.equal(outboundReplies.length, 1);
+});
+
 test("inbound index looks up recent confirms and SimPRO without logging bodies", async () => {
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   const inbound = await readFile(new URL("./inbound.ts", import.meta.url), "utf8");
   assert.match(src, /lookupSimproCustomer/);
   assert.match(src, /mh_sms_confirms/);
   assert.match(src, /updatePendingConfirm/);
+  assert.match(src, /handleOwnerSmsTask/);
+  assert.match(src, /handleOutboundTaskSms/);
   assert.match(inbound, /body_len=/);
   assert.doesNotMatch(src, /\.is\("consumed_at", null\)/);
   assert.match(inbound, /body_len=\$\{fields\.body\.length\}/);

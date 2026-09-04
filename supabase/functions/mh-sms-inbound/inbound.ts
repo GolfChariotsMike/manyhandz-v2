@@ -64,6 +64,18 @@ export type InboundEnv = {
     correction: SmsCorrection,
   ) => Promise<boolean>;
   lookupSimproCaller?: (customerId: string, from: string) => Promise<{ name?: string } | null>;
+  /**
+   * Owner/staff outbound-task path. Return a TwiML reply body when the From
+   * number is allowlisted and the text is an outbound task (or a follow-up
+   * to a needs_info draft). Return null to keep the KB bot. Public callers
+   * must never reach this hook as a successful create.
+   */
+  handleOutboundTaskSms?: (input: {
+    customerId: string;
+    from: string;
+    body: string;
+    aiName?: string | null;
+  }) => Promise<string | null>;
 };
 
 export function parseTwilioSms(body: unknown): { from: string; to: string; body: string } {
@@ -222,6 +234,23 @@ export async function handleInboundSms(
             return { twiml: twimlMessage(SMS_CONFIRM_UPDATED), status: 200, customerId: customer.id };
           }
         }
+      }
+    } catch {
+      /* fall through to KB — never fail the Twilio webhook */
+    }
+  }
+
+  if (env.handleOutboundTaskSms) {
+    try {
+      const taskReply = await env.handleOutboundTaskSms({
+        customerId: customer.id,
+        from: fields.from,
+        body: fields.body,
+        aiName: voice?.ai_name,
+      });
+      if (taskReply?.trim()) {
+        console.log(`[mh-sms-inbound] customer=${customer.id} outbound_task=1 body_len=${fields.body.length}`);
+        return { twiml: twimlMessage(clipSms(taskReply)), status: 200, customerId: customer.id };
       }
     } catch {
       /* fall through to KB — never fail the Twilio webhook */

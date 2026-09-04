@@ -225,6 +225,31 @@ export async function getUsage(customerId: string) {
   return supabaseRest("mh_usage_v2", `customer_id=eq.${customerId}&select=*&order=period_start.desc`);
 }
 
+export type OutboundTask = {
+  id: string;
+  contact_name?: string | null;
+  target_phone?: string | null;
+  brief?: string | null;
+  status?: string | null;
+  result?: string | null;
+  source?: string | null;
+  created_at?: string | null;
+  completed_at?: string | null;
+};
+
+export async function listOutboundTasks(): Promise<OutboundTask[]> {
+  const data = await callFn("mh-outbound-task", "list", "GET");
+  return Array.isArray(data?.tasks) ? data.tasks : [];
+}
+
+export async function createOutboundTask(input: {
+  contact_name: string;
+  phone: string;
+  brief: string;
+}) {
+  return callFn("mh-outbound-task", "create", "POST", input);
+}
+
 // Email APIs (legacy inbox endpoints; customer email now lives in Grok Bot)
 export async function getEmailAccounts(customerId: string) {
   return supabaseRest("mh_email_accounts", `customer_id=eq.${customerId}&select=*&is_active=eq.true`);

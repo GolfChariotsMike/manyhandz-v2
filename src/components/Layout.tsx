@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
-import { Home, Brain, Phone, Sparkles, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle } from "lucide-react";
+import { Home, Brain, Phone, Sparkles, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle, PhoneOutgoing } from "lucide-react";
 import { clearToken, getMe } from "../lib/api";
 import { trialCountdown, trialCountdownHeadline } from "../lib/trialCountdown";
 
@@ -70,6 +70,7 @@ const navItems = [
   { to: "/chat", icon: MessageSquare, label: "Chat" },
   { to: "/capabilities", icon: Sparkles, label: "Capabilities" },
   { to: "/team", icon: Users, label: "Team" },
+  { to: "/tasks", icon: PhoneOutgoing, label: "Tasks" },
   { to: "/billing", icon: CreditCard, label: "Billing" },
   { to: "/quoting", icon: DollarSign, label: "Quoting" },
   { to: "/connections", icon: Plug, label: "Connections" },

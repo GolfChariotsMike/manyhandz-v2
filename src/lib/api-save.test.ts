@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { meCache } from "./meCache.ts";
-import { requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
+import { createOutboundTask, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
 
 const origFetch = globalThis.fetch;
 const origLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -186,6 +186,37 @@ test("login requestMagicLink surfaces no_account without creating anything clien
   }) as typeof fetch;
 
   await assert.rejects(() => requestMagicLink("nick@glacier.net.au"), /no_account/);
+});
+
+test("listOutboundTasks GETs mh-outbound-task/list with mh_token", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  const calls: { url: string; method: string }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({ url: String(input), method: init?.method || "GET" });
+    return new Response(JSON.stringify({ ok: true, tasks: [{ id: "t1", status: "done" }] }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  const rows = await listOutboundTasks();
+  assert.equal(rows[0]?.id, "t1");
+  assert.match(calls[0].url, /mh-outbound-task\/list/);
+  assert.equal(calls[0].method, "GET");
+});
+
+test("createOutboundTask POSTs name, phone, and brief", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  let body: unknown = null;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    body = init?.body ? JSON.parse(String(init.body)) : null;
+    return new Response(JSON.stringify({ ok: true, task: { id: "t2", status: "calling" } }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  const row = await createOutboundTask({ contact_name: "Adam", phone: "0412222333", brief: "lunch" });
+  assert.equal(row.ok, true);
+  assert.deepEqual(body, { contact_name: "Adam", phone: "0412222333", brief: "lunch" });
 });
 
 test("existing-email auth failures stay a password error", async () => {

@@ -47,6 +47,9 @@ verify_jwt = false
 [functions.mh-sms-inbound]
 verify_jwt = false
 
+[functions.mh-outbound-task]
+verify_jwt = false
+
 [functions.mh-save-message]
 verify_jwt = false
 

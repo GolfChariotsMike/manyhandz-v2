@@ -126,6 +126,15 @@ test("servicem8 and xero rules stay off the prompt unless connected and capped",
   assert.match(on, /never pretend a booking was made/i);
 });
 
+test("outbound task rule is default-on and not Sam/Outreach", () => {
+  const on = buildSystemPrompt(base);
+  assert.match(on, /OUTBOUND TASKS/);
+  assert.match(on, /create_outbound_task/);
+  assert.match(on, /text the owner the result/);
+  assert.match(on, /never introduce as Sam/i);
+  assert.doesNotMatch(on, /Jake Outbound/);
+});
+
 test("transfer rule names transfer_to_staff first and does not tell the agent to take a message instead", () => {
   const on = buildSystemPrompt(base);
   assert.match(on, /transfer_to_staff/);

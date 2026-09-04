@@ -271,6 +271,9 @@ export function composeSystemPrompt(data: PromptInput): string {
     ? `- SMS: You can send the caller a text message with links or information if helpful. Never use send_sms to notify the office — create_simpro_job notifies the office only when it returns ok:true. Do not use save_message to text the office after a failed lead create.`
     : "";
 
+  const outboundTaskRule =
+    `- OUTBOUND TASKS: If the caller is the owner or staff and they ask you to call someone else (call Adam, ring this number, phone a client), SAME TURN call create_outbound_task with the person's name, phone, and what to ask. Say you will call them and text the owner the result. Do not use this to transfer the current call — that is transfer_to_staff. Do not do this for public callers. If a critical field is missing, ask once, then call the tool. This is the business's own receptionist doing a favour — never introduce as Sam or ManyHandz sales.`;
+
   const simproJobRule = createJobOn
     ? simproLeadsBookingRule("voice", businessName)
     : `- SIMPRO LEADS: Do not create leads in SimPRO. Take a message instead.`;
@@ -290,7 +293,7 @@ export function composeSystemPrompt(data: PromptInput): string {
   const extraJobRules = [servicem8JobRule, xeroInvoiceRule].filter(Boolean).map((r) => `\n${r}`).join("");
 
   const capabilitySection =
-    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}${returnRule}`;
+    `\nCAPABILITIES & RULES:\n${bookingRule}\n${pricingRule}\n${transferRule}${smsRule ? `\n${smsRule}` : ""}\n${outboundTaskRule}\n${simproJobRule}${extraJobRules}\n${aiDisclosureRule(capDiscloseAi)}${hangupCap}${returnRule}`;
 
   // Live function always asked "anything else?" — that is why two bots goodbye-looped.
   const callHandlingEnd = capHangupOnGoodbye
