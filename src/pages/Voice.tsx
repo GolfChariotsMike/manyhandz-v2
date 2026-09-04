@@ -9,9 +9,12 @@ import { closingMessagePlaceholder, greetingSettingsDbPatch } from "../lib/closi
 import { returnToAiPromptDbPatch, returnToAiPromptPlaceholder } from "../lib/return-to-ai-prompt";
 import {
   addWhitelistNumber,
+  applyWhitelistToVoiceConfig,
   normalizeWhitelist,
   removeWhitelistNumber,
+  resolveWhitelistAfterPersist,
   saveVoiceWhitelist,
+  voiceConfigRow,
 } from "../lib/whitelist";
 import {
   previewVoiceSettings,
@@ -141,13 +144,32 @@ function CallLog({ calls }: { calls: any[] }) {
   );
 }
 
-function WhitelistSection({ config, customerId, anon, url }: { config: any, customerId?: string, anon: string, url: string }) {
+function WhitelistSection({
+  config,
+  customerId,
+  anon,
+  url,
+  onWhitelistPersisted,
+  refreshVoiceConfig,
+}: {
+  config: any;
+  customerId?: string;
+  anon: string;
+  url: string;
+  onWhitelistPersisted: (whitelist: string[], bridge: string) => void;
+  refreshVoiceConfig: () => Promise<Record<string, unknown> | null>;
+}) {
   const [whitelist, setWhitelist] = useState<string[]>(() => normalizeWhitelist(config?.whitelist));
   const [bridge, setBridge] = useState(config?.bridge_to_number || "");
   const [newNum, setNewNum] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
+  const configListKey = normalizeWhitelist(config?.whitelist).join("\0");
+
+  useEffect(() => {
+    setWhitelist(normalizeWhitelist(config?.whitelist));
+  }, [config?.id, configListKey]);
 
   function addNumber() {
     const next = addWhitelistNumber(whitelist, newNum);
@@ -157,7 +179,7 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
     setError("");
   }
 
-  async function persistWhitelist(nextWhitelist: string[], nextBridge: string) {
+  async function persistWhitelist(nextWhitelist: string[], nextBridge: string, previousWhitelist: string[]) {
     if (!config?.id) {
       setError("Could not save whitelist. Reload and try again.");
       return false;
@@ -173,9 +195,22 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
       whitelist: nextWhitelist,
       bridge: nextBridge,
     });
+    if (result.ok) {
+      setWhitelist(nextWhitelist);
+      onWhitelistPersisted(nextWhitelist, nextBridge);
+    }
+    const serverRow = await refreshVoiceConfig();
+    const resolved = resolveWhitelistAfterPersist({
+      previous: previousWhitelist,
+      optimistic: nextWhitelist,
+      persistOk: result.ok,
+      server: serverRow ? normalizeWhitelist(serverRow.whitelist) : null,
+    });
+    setWhitelist(resolved.whitelist);
+    onWhitelistPersisted(resolved.whitelist, nextBridge);
     setSaving(false);
-    if (!result.ok) {
-      setError(result.error);
+    if (resolved.showError) {
+      setError(result.ok ? "" : result.error);
       return false;
     }
     setSaved(true);
@@ -188,12 +223,12 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
     const next = removeWhitelistNumber(whitelist, num);
     if (next.length === previous.length) return;
     setWhitelist(next);
-    const ok = await persistWhitelist(next, bridge);
-    if (!ok) setWhitelist(previous);
+    onWhitelistPersisted(next, bridge);
+    await persistWhitelist(next, bridge, previous);
   }
 
   async function handleSave() {
-    await persistWhitelist(whitelist, bridge);
+    await persistWhitelist(whitelist, bridge, whitelist);
   }
 
   return (
@@ -414,30 +449,53 @@ export default function Voice() {
   const [returnToAiSaved, setReturnToAiSaved] = useState(false);
   const [controls, setControls] = useState<VoiceControls>(() => voiceControlsFromConfig(null));
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const voiceConfigLoadGen = useRef(0);
+
+  function applyWhitelistPersisted(nextWhitelist: string[], nextBridge: string) {
+    voiceConfigLoadGen.current += 1;
+    setConfig((prev: any) => applyWhitelistToVoiceConfig(prev, nextWhitelist, nextBridge) ?? prev);
+  }
+
+  async function refreshVoiceConfig() {
+    if (!customer?.id) return null;
+    const gen = ++voiceConfigLoadGen.current;
+    try {
+      const cfg = await getVoiceConfig(customer.id);
+      const row = voiceConfigRow(cfg);
+      if (gen !== voiceConfigLoadGen.current) return row;
+      if (row) setConfig((prev: any) => (prev ? { ...prev, ...row } : row));
+      return row;
+    } catch {
+      return null;
+    }
+  }
 
   const loadData = async () => {
+    const gen = ++voiceConfigLoadGen.current;
     try {
       const { customer: c } = await getMe();
+      if (gen !== voiceConfigLoadGen.current) return;
       setCustomer(c);
       if (c?.id) {
         getVoiceCalls(c.id)
           .then((callLog) => setCalls(Array.isArray(callLog) ? callLog : []))
           .catch(() => {});
         const cfg = await getVoiceConfig(c.id);
-        const cfgRow = Array.isArray(cfg) ? cfg[0] || null : null;
+        const cfgRow = voiceConfigRow(cfg);
+        if (gen !== voiceConfigLoadGen.current) return;
         setConfig(cfgRow);
-        if (cfgRow?.voice_id) setActiveVoiceId(cfgRow.voice_id);
-        if (cfgRow?.greeting_script) setGreeting(cfgRow.greeting_script);
+        if (cfgRow?.voice_id) setActiveVoiceId(String(cfgRow.voice_id));
+        if (cfgRow?.greeting_script) setGreeting(String(cfgRow.greeting_script));
         setClosing(typeof cfgRow?.closing_message === "string" ? cfgRow.closing_message : "");
         setReturnToAiPrompt(typeof cfgRow?.return_to_ai_prompt === "string" ? cfgRow.return_to_ai_prompt : "");
-        setAiName(resolveAiName(cfgRow?.ai_name, c?.business_name));
+        setAiName(resolveAiName(typeof cfgRow?.ai_name === "string" ? cfgRow.ai_name : null, c?.business_name));
         setControls(voiceControlsFromConfig(cfgRow));
       }
     } catch (e: any) {
       // Auth errors redirect in api.ts; other errors surface quietly
       console.error("Voice loadData:", e.message);
     } finally {
-      setLoading(false);
+      if (gen === voiceConfigLoadGen.current) setLoading(false);
     }
   };
 
@@ -861,7 +919,15 @@ export default function Voice() {
       </div>
 
       {/* Whitelist + Bridge */}
-      <WhitelistSection key={config?.id || "none"} config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <WhitelistSection
+        key={config?.id || "none"}
+        config={config}
+        customerId={customer?.id}
+        anon={SUPABASE_ANON_KEY}
+        url={SUPABASE_URL}
+        onWhitelistPersisted={applyWhitelistPersisted}
+        refreshVoiceConfig={refreshVoiceConfig}
+      />
 
       {/* Call log */}
       <CallLog calls={calls} />

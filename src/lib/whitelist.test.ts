@@ -3,9 +3,12 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   addWhitelistNumber,
+  applyWhitelistToVoiceConfig,
   normalizeWhitelist,
   removeWhitelistNumber,
+  resolveWhitelistAfterPersist,
   saveVoiceWhitelist,
+  voiceConfigRow,
   whitelistDbPatch,
   whitelistSaveError,
 } from "./whitelist.ts";
@@ -94,18 +97,70 @@ test("saveVoiceWhitelist returns a visible error when PATCH fails", async () => 
   if (!result.ok) assert.equal(result.error, "invalid input");
 });
 
+test("voiceConfigRow picks the first PostgREST row", () => {
+  assert.equal(voiceConfigRow(null), null);
+  assert.deepEqual(voiceConfigRow([{ id: "cfg-1", whitelist: ["+61433121933"] }])?.id, "cfg-1");
+  assert.equal(voiceConfigRow({ id: "cfg-1" })?.id, "cfg-1");
+});
+
+test("applyWhitelistToVoiceConfig updates parent whitelist so remounts cannot restore stale chips", () => {
+  const next = applyWhitelistToVoiceConfig(
+    { id: "cfg-1", whitelist: ["+61433121933", "+61400000000"], greeting_script: "Hi" },
+    ["+61400000000"],
+    "+61411111111",
+  );
+  assert.deepEqual(next, {
+    id: "cfg-1",
+    whitelist: ["+61400000000"],
+    greeting_script: "Hi",
+    bridge_to_number: "+61411111111",
+  });
+});
+
+test("resolveWhitelistAfterPersist keeps the chip off if the server already dropped it", () => {
+  const previous = ["+61433121933", "+61400000000"];
+  const optimistic = ["+61400000000"];
+  assert.deepEqual(
+    resolveWhitelistAfterPersist({ previous, optimistic, persistOk: true, server: optimistic }),
+    { whitelist: optimistic, showError: false },
+  );
+  assert.deepEqual(
+    resolveWhitelistAfterPersist({ previous, optimistic, persistOk: false, server: optimistic }),
+    { whitelist: optimistic, showError: false },
+  );
+  assert.deepEqual(
+    resolveWhitelistAfterPersist({ previous, optimistic, persistOk: false, server: previous }),
+    { whitelist: previous, showError: true },
+  );
+  assert.deepEqual(
+    resolveWhitelistAfterPersist({ previous, optimistic, persistOk: false, server: null }),
+    { whitelist: previous, showError: true },
+  );
+  assert.deepEqual(
+    resolveWhitelistAfterPersist({ previous, optimistic, persistOk: true, server: null }),
+    { whitelist: optimistic, showError: false },
+  );
+});
+
 test("Voice trash auto-saves the next whitelist and surfaces PATCH failures", async () => {
   const src = await readFile(new URL("../pages/Voice.tsx", import.meta.url), "utf8");
   const section = src.slice(src.indexOf("function WhitelistSection"), src.indexOf("function VoiceSlider"));
   assert.match(section, /removeWhitelistNumber/);
   assert.match(section, /saveVoiceWhitelist/);
   assert.match(section, /persistWhitelist\(/);
-  assert.match(section, /await persistWhitelist\(next,/);
+  assert.match(section, /await persistWhitelist\(next, bridge, previous\)/);
   assert.match(section, /setError\(/);
   assert.match(section, /type="button"/);
   assert.match(section, /Save whitelist/);
+  assert.match(section, /onWhitelistPersisted/);
+  assert.match(section, /refreshVoiceConfig/);
+  assert.match(section, /resolveWhitelistAfterPersist/);
+  assert.match(section, /setWhitelist\(next\)/);
   assert.doesNotMatch(section, /function removeNumber\(num: string\) \{\s*setWhitelist\(prev => prev\.filter/);
-  assert.match(src, /WhitelistSection key=\{config\?\.id \|\| "none"\}/);
+  assert.match(src, /applyWhitelistToVoiceConfig/);
+  assert.match(src, /onWhitelistPersisted=\{applyWhitelistPersisted\}/);
+  assert.match(src, /refreshVoiceConfig=\{refreshVoiceConfig\}/);
+  assert.match(src, /voiceConfigLoadGen/);
 });
 
 test("Voice whitelist chip is the remove control with a 44px trash hit target", async () => {

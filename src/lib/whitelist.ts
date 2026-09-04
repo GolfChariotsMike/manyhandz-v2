@@ -28,6 +28,45 @@ export function whitelistDbPatch(
   };
 }
 
+/** First mh_voice_config row from getVoiceConfig / PostgREST. */
+export function voiceConfigRow(raw: unknown): Record<string, unknown> | null {
+  const row = Array.isArray(raw) ? raw[0] : raw;
+  return row && typeof row === "object" ? (row as Record<string, unknown>) : null;
+}
+
+/** Merge a saved whitelist into the parent Voice config so remounts cannot restore a stale list. */
+export function applyWhitelistToVoiceConfig<T extends Record<string, unknown>>(
+  prev: T | null | undefined,
+  whitelist: string[],
+  bridge: string,
+): T | null | undefined {
+  if (!prev) return prev;
+  return { ...prev, ...whitelistDbPatch(whitelist, bridge) };
+}
+
+/**
+ * Pick the chip list after trash/save. Prefer the refetched row so a successful
+ * PATCH cannot be rolled back when persist reports a follow-on failure.
+ */
+export function resolveWhitelistAfterPersist(args: {
+  previous: string[];
+  optimistic: string[];
+  persistOk: boolean;
+  server: string[] | null;
+}): { whitelist: string[]; showError: boolean } {
+  if (args.server) {
+    const serverKey = args.server.join("\0");
+    const previousKey = args.previous.join("\0");
+    const optimisticKey = args.optimistic.join("\0");
+    return {
+      whitelist: args.server,
+      showError: !args.persistOk && serverKey === previousKey && serverKey !== optimisticKey,
+    };
+  }
+  if (args.persistOk) return { whitelist: args.optimistic, showError: false };
+  return { whitelist: args.previous, showError: true };
+}
+
 /** User-facing message when a whitelist PATCH fails. */
 export function whitelistSaveError(status: number, body?: unknown): string {
   const rec = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
