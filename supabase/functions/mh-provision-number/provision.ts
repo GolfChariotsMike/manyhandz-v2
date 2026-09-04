@@ -17,6 +17,7 @@ import {
   operatorPromptOverride,
   type VoicePromptSource,
 } from "../mh-sync-agent/prompt.ts";
+import { newUsageBalanceRow } from "../_shared/plan-minutes.ts";
 import { defaultVoiceId, type Market } from "./search.ts";
 
 /** What a new customer still types after signup. Never invent these. */
@@ -187,6 +188,14 @@ export function provisionNotifySms(
   market: Market,
 ): string | null {
   return normalizePhone(ownerPhoneFromCustomer(customer || {}), market);
+}
+
+export function provisionUsageBalanceInsert(input: {
+  customerId: string;
+  plan?: string | null;
+  now?: Date;
+}): Record<string, unknown> {
+  return newUsageBalanceRow(input.customerId, 0, input.plan, input.now ?? new Date());
 }
 
 export function provisionVoiceConfigInsert(input: ProvisionAgentInput & {

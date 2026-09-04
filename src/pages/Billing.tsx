@@ -2,19 +2,23 @@ import { useState, useEffect } from "react";
 import { Loader2, CheckCircle, AlertCircle, Clock, CreditCard, Zap, Check } from "lucide-react";
 import { getMe } from "../lib/api";
 import { trialCountdown, trialCountdownHeadline } from "../lib/trialCountdown";
+import {
+  BIG_BUSINESS_INCLUDED_MINUTES,
+  SMALL_BUSINESS_INCLUDED_MINUTES,
+} from "../../supabase/functions/_shared/plan-minutes.ts";
 
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
 const PLANS = {
   small_business: {
     label: "Small Business",
-    description: "600 mins/mo included",
+    description: `${SMALL_BUSINESS_INCLUDED_MINUTES} mins/mo included`,
     monthly: { id: "price_1U6On9Ex2m1vqgKrd4WcbAo5", amount: "$199", period: "/mo", savings: null },
     annual:  { id: "price_1U6OnAEx2m1vqgKribI5jcGM", amount: "$116", period: "/mo", savings: "Save 30% — billed $1,399/yr" },
   },
   big_business: {
     label: "Big Business",
-    description: "2,000 mins/mo included",
+    description: `${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} mins/mo included`,
     monthly: { id: "price_1U6tqpEx2m1vqgKrwkDcVZnu", amount: "$499", period: "/mo", savings: null },
     annual:  { id: "price_1U6tquEx2m1vqgKrgYZmvdMo", amount: "$349", period: "/mo", savings: "Save 30% — billed $4,199/yr" },
   },
@@ -169,7 +173,9 @@ export default function Billing() {
           <div className="space-y-2 text-sm text-white/50">
             {[
               "Dedicated AU phone number",
-              tier === "big_business" ? "2,000 mins/mo included" : "600 mins/mo included",
+              tier === "big_business"
+                ? `${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} mins/mo included`
+                : `${SMALL_BUSINESS_INCLUDED_MINUTES} mins/mo included`,
               "AI answers every call 24/7",
               "Message notifications via SMS",
               "Staff call transfers",

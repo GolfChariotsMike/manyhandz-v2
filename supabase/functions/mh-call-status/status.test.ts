@@ -29,6 +29,7 @@ function post(fields: Record<string, string>, customerId = "cust-1"): Request {
 function envFor(opts?: {
   rows?: CallLogRow[];
   usage?: Record<string, unknown> | null;
+  customer?: Record<string, unknown> | null;
   notify?: string | null;
 }): {
   env: CallStatusEnv;
@@ -55,12 +56,19 @@ function envFor(opts?: {
       }
       if (url.includes("/rest/v1/mh_usage_balance") && method === "GET") {
         return Response.json(opts?.usage === null ? [] : [opts?.usage ?? {
-          included_minutes: 250,
+          included_minutes: 600,
           used_minutes_this_period: 10,
           rollover_minutes: 0,
           period_start: "2026-09-01T00:00:00.000Z",
           alerted_80: false,
           alerted_100: false,
+        }]);
+      }
+      if (url.includes("/rest/v1/mh_v2_customers")) {
+        return Response.json([opts?.customer ?? {
+          plan: "free",
+          created_at: "2026-09-01T00:00:00.000Z",
+          trial_started_at: "2026-09-01T00:00:00.000Z",
         }]);
       }
       if (url.includes("/rest/v1/mh_voice_config")) {
@@ -216,4 +224,52 @@ test("index and handler never use an empty-string 204 body", async () => {
   assert.match(status, /new Response\(null, \{ status: 204 \}\)/);
   assert.doesNotMatch(status, /new Response\(['"]['"], \{ status: 204 \}\)/);
   assert.doesNotMatch(index, /new Response\(['"]['"], \{ status: 204 \}\)/);
+  assert.doesNotMatch(status, /included_minutes:\s*250/);
+});
+
+test("first completed call inserts a 600-minute balance, not 250", async () => {
+  const { env, writes } = envFor({
+    usage: null,
+    customer: { plan: "free", created_at: "2026-09-04T01:00:00.000Z", trial_started_at: "2026-09-04T01:00:00.000Z" },
+  });
+  await handleCallStatus(post({
+    CallSid: "CAnew",
+    CallStatus: "completed",
+    CallDuration: "90",
+    From: "+61411111111",
+    To: "+61485000000",
+  }), env);
+  const inserts = writes.filter((w) => w.method === "POST" && w.url.includes("mh_usage_balance"));
+  assert.equal(inserts.length, 1);
+  assert.equal(inserts[0].body?.included_minutes, 600);
+  assert.equal(inserts[0].body?.rollover_minutes, 0);
+});
+
+test("Glacier first-month period roll does not credit leftover unused 250", async () => {
+  const { env, writes } = envFor({
+    usage: {
+      included_minutes: 250,
+      used_minutes_this_period: 1,
+      rollover_minutes: 0,
+      period_start: "2026-08-01T00:00:00.000Z",
+      alerted_80: false,
+      alerted_100: false,
+    },
+    customer: {
+      plan: "free",
+      created_at: "2026-08-30T13:35:04.106Z",
+      trial_started_at: "2026-08-30T14:00:21.671Z",
+    },
+  });
+  await handleCallStatus(post({
+    CallSid: "CAglacier-roll",
+    CallStatus: "completed",
+    CallDuration: "60",
+    From: "+61411111111",
+    To: "+61485000000",
+  }, "a77816d9-3b5f-4635-a77d-095e767a532e"), env);
+  const patches = writes.filter((w) => w.method === "PATCH" && w.url.includes("mh_usage_balance"));
+  assert.ok(patches.length >= 1);
+  assert.equal(patches[0].body?.included_minutes, 600);
+  assert.equal(patches[0].body?.rollover_minutes, 0);
 });
