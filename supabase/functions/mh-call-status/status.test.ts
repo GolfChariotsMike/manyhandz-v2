@@ -6,6 +6,7 @@ import {
   callCostFields,
   completedCallPatch,
   handleCallStatus,
+  maybePatchTranscriptSummary,
   noContent,
   parseTwilioStatus,
   pickExistingCallRow,
@@ -31,17 +32,24 @@ function envFor(opts?: {
   usage?: Record<string, unknown> | null;
   customer?: Record<string, unknown> | null;
   notify?: string | null;
+  elApiKey?: string;
+  elConversation?: unknown | ((url: string) => unknown);
 }): {
   env: CallStatusEnv;
   writes: Array<{ method: string; url: string; body: Record<string, unknown> | null }>;
+  elUrls: string[];
 } {
   const writes: Array<{ method: string; url: string; body: Record<string, unknown> | null }> = [];
+  const elUrls: string[] = [];
   const env: CallStatusEnv = {
     supabaseUrl: "https://example.supabase.co",
     serviceKey: "service-role-test-key",
     twilioSid: "ACtest",
     twilioToken: "token",
     twilioFrom: "+61485021312",
+    elApiKey: opts?.elApiKey === undefined ? "el-test-key" : opts.elApiKey,
+    summaryRetryDelaysMs: [0],
+    sleep: async () => {},
     now: () => new Date("2026-09-01T04:00:00.000Z"),
     fetch: async (input, init) => {
       const url = String(input);
@@ -51,6 +59,13 @@ function envFor(opts?: {
         body = JSON.parse(init.body) as Record<string, unknown>;
       }
       if (url.includes("/rest/v1/")) writes.push({ method, url, body });
+      if (url.includes("/v1/convai/conversations/")) {
+        elUrls.push(url);
+        const payload = typeof opts?.elConversation === "function"
+          ? opts.elConversation(url)
+          : opts?.elConversation ?? { status: "processing" };
+        return Response.json(payload);
+      }
       if (url.includes("/rest/v1/mh_call_log") && method === "GET") {
         return Response.json(opts?.rows ?? []);
       }
@@ -83,7 +98,7 @@ function envFor(opts?: {
       return Response.json([]);
     },
   };
-  return { env, writes };
+  return { env, writes, elUrls };
 }
 
 test("noContent is 204 with a null body", () => {
@@ -225,6 +240,8 @@ test("index and handler never use an empty-string 204 body", async () => {
   assert.doesNotMatch(status, /new Response\(['"]['"], \{ status: 204 \}\)/);
   assert.doesNotMatch(index, /new Response\(['"]['"], \{ status: 204 \}\)/);
   assert.doesNotMatch(status, /included_minutes:\s*250/);
+  assert.match(index, /Deno\.env\.get\("ELEVENLABS_API_KEY"\)/);
+  assert.equal(/sk_|xi-|EL_[A-Z0-9]{10,}/.test(index), false);
 });
 
 test("first completed call inserts a 600-minute balance, not 250", async () => {
@@ -272,4 +289,152 @@ test("Glacier first-month period roll does not credit leftover unused 250", asyn
   assert.ok(patches.length >= 1);
   assert.equal(patches[0].body?.included_minutes, 600);
   assert.equal(patches[0].body?.rollover_minutes, 0);
+});
+
+test("completed ConvAI call PATCHes transcript_summary from EL analysis", async () => {
+  const { env, writes, elUrls } = envFor({
+    rows: [{
+      id: "row-live",
+      call_sid: "CAnr",
+      conversation_id: "conv_nextride_1",
+      transcript_summary: null,
+      status: "in-progress",
+    }],
+    elConversation: {
+      status: "done",
+      analysis: {
+        transcript_summary: "Caller booked an airport transfer for two at 6am.",
+      },
+    },
+  });
+  const res = await handleCallStatus(post({
+    CallSid: "CAnr",
+    CallStatus: "completed",
+    CallDuration: "88",
+    From: "+61411111111",
+    To: "+61485000000",
+  }), env);
+  assert.equal(res.status, 204);
+  assert.equal(elUrls.length, 1);
+  assert.match(elUrls[0], /convai\/conversations\/conv_nextride_1$/);
+
+  const patches = writes.filter((w) => w.method === "PATCH" && w.url.includes("mh_call_log"));
+  assert.equal(patches.length, 2);
+  assert.equal(patches[0].body?.transcript_summary, undefined);
+  assert.equal(patches[1].body?.transcript_summary, "Caller booked an airport transfer for two at 6am.");
+  assert.match(patches[1].url, /id=eq\.row-live/);
+});
+
+test("missing conversation_id skips the EL fetch and leaves summary blank", async () => {
+  const { env, writes, elUrls } = envFor({
+    rows: [{
+      id: "row-no-conv",
+      call_sid: "CA2",
+      conversation_id: null,
+      transcript_summary: null,
+      status: "in-progress",
+    }],
+    elConversation: {
+      analysis: { transcript_summary: "Should not be written" },
+    },
+  });
+  await handleCallStatus(post({
+    CallSid: "CA2",
+    CallStatus: "completed",
+    CallDuration: "40",
+    From: "+61411111111",
+    To: "+61485000000",
+  }), env);
+  assert.deepEqual(elUrls, []);
+  const summaryPatches = writes.filter((w) =>
+    w.method === "PATCH" && w.url.includes("mh_call_log") && w.body?.transcript_summary
+  );
+  assert.equal(summaryPatches.length, 0);
+});
+
+test("empty EL analysis does not PATCH transcript_summary", async () => {
+  const { env, writes, elUrls } = envFor({
+    rows: [{
+      id: "row-empty",
+      call_sid: "CA3",
+      conversation_id: "conv-empty",
+      transcript_summary: "",
+      status: "in-progress",
+    }],
+    elConversation: { status: "processing", analysis: { transcript_summary: "" }, transcript: [] },
+  });
+  await handleCallStatus(post({
+    CallSid: "CA3",
+    CallStatus: "completed",
+    CallDuration: "30",
+    From: "+61411111111",
+    To: "+61485000000",
+  }), env);
+  assert.equal(elUrls.length, 1);
+  const summaryPatches = writes.filter((w) =>
+    w.method === "PATCH" && w.url.includes("mh_call_log") && w.body?.transcript_summary
+  );
+  assert.equal(summaryPatches.length, 0);
+});
+
+test("existing bridge note is not overwritten by EL analysis", async () => {
+  const { env, writes, elUrls } = envFor({
+    rows: [{
+      id: "row-bridge",
+      call_sid: "CA4",
+      conversation_id: "conv-bridge",
+      transcript_summary: "Bridged to +61422962169",
+      status: "in-progress",
+    }],
+    elConversation: {
+      analysis: { transcript_summary: "EL should not replace the bridge note" },
+    },
+  });
+  await handleCallStatus(post({
+    CallSid: "CA4",
+    CallStatus: "completed",
+    CallDuration: "55",
+    From: "+61411111111",
+    To: "+61485000000",
+  }), env);
+  assert.deepEqual(elUrls, []);
+  const summaryPatches = writes.filter((w) =>
+    w.method === "PATCH" && w.url.includes("mh_call_log") && w.body?.transcript_summary
+  );
+  assert.equal(summaryPatches.length, 0);
+});
+
+test("maybePatchTranscriptSummary retries until EL analysis is ready", async () => {
+  let attempts = 0;
+  const { env, writes } = envFor({
+    rows: [{
+      id: "row-retry",
+      call_sid: "CA5",
+      conversation_id: "conv-retry",
+      transcript_summary: null,
+      status: "in-progress",
+    }],
+    elConversation: () => {
+      attempts += 1;
+      if (attempts === 1) return { status: "processing" };
+      return { status: "done", analysis: { transcript_summary: "Caller asked for a Saturday cart." } };
+    },
+  });
+  env.summaryRetryDelaysMs = [0, 0];
+  const written = await maybePatchTranscriptSummary(env, {
+    customer_id: "cust-1",
+    call_sid: "CA5",
+    call_status: "completed",
+    duration: 40,
+    from_number: "+6141",
+    to_number: "+6148",
+    conversation_id: "",
+  }, {
+    id: "row-retry",
+    conversation_id: "conv-retry",
+    transcript_summary: null,
+  });
+  assert.equal(attempts, 2);
+  assert.equal(written, "Caller asked for a Saturday cart.");
+  assert.equal(writes.some((w) => w.body?.transcript_summary === "Caller asked for a Saturday cart."), true);
 });
