@@ -16,6 +16,7 @@ import {
   parseOnboardingDraft,
   parseSignupCountry,
   parseSignupEmail,
+  homeStatePayloadFromForm,
   profileUpdatesFromForm,
   provisionNumberBody,
   provisionedNumberPlaceholder,
@@ -164,18 +165,43 @@ test("step 1 profile payload keeps empty website/industry as null", () => {
   });
 });
 
-test("finish payload writes name again plus onboarding_complete", () => {
+test("finish payload writes name again plus onboarding_complete and scraped home_state", () => {
   assert.deepEqual(profileUpdatesFromForm({
     businessName: "Glacier Air",
     website: "glacierair.com.au",
     industry: "Other",
     onboardingComplete: true,
+    homeState: "WA",
   }), {
     business_name: "Glacier Air",
     website_url: "glacierair.com.au",
     industry: "Other",
     onboarding_complete: true,
+    home_state: "WA",
   });
+});
+
+test("onboarding persists scraped home_state and ignores invented values", () => {
+  assert.deepEqual(homeStatePayloadFromForm("sa"), { home_state: "SA" });
+  assert.deepEqual(homeStatePayloadFromForm("South Australia"), { home_state: "SA" });
+  assert.deepEqual(homeStatePayloadFromForm("Perth"), { home_state: null });
+  assert.deepEqual(profileUpdatesFromForm({
+    businessName: "CoolAir",
+    website: "coolair.example",
+    industry: "Trade / Construction",
+    homeState: "SA",
+  }), {
+    business_name: "CoolAir",
+    website_url: "coolair.example",
+    industry: "Trade / Construction",
+    home_state: "SA",
+  });
+  const draft = parseOnboardingDraft(JSON.stringify({
+    customerId: "cust-b",
+    website: "coolair.example",
+    homeState: "SA",
+  }), "cust-b");
+  assert.equal(draft?.homeState, "SA");
 });
 
 test("normalizeNotifyMobile maps AU 0412 and US 10-digit to E.164", () => {

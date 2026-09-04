@@ -3,11 +3,14 @@ import { useNavigate } from "react-router-dom";
 import { getMe, scrapeWebsite, updateProfile, saveOnboardingKnowledge, saveVoiceNotifySms } from "../lib/api";
 import { meCache } from "../lib/meCache";
 import {
+  AU_HOME_STATES,
   canApplyScrapedKb,
   clearOnboardingDraft,
   initialWebsite,
   knowledgePayloadFromForm,
   loadDraftForCustomer,
+  normalizeHomeState,
+  normalizeMarket,
   onboardingNumberBlurb,
   notifyMobilePlaceholder,
   resolveNotifySms,
@@ -179,6 +182,7 @@ export default function Onboarding() {
   const [faqs, setFaqs] = useState<FAQ[]>([]);
   const [hours, setHours] = useState<HoursRow[]>(defaultHours);
   const [tone, setTone] = useState("friendly");
+  const [homeState, setHomeState] = useState("");
 
   const [noWebsite, setNoWebsite] = useState(false);
 
@@ -226,6 +230,7 @@ export default function Onboarding() {
         setFaqs((draft?.faqs as FAQ[]) || []);
         setHours((draft?.hours as HoursRow[]) || defaultHours);
         setTone((draft?.tone as string) || "friendly");
+        setHomeState(normalizeHomeState(draft?.homeState) || normalizeHomeState(c.home_state) || "");
         setNoWebsite(Boolean(draft?.noWebsite));
         setProvisionedNumber((draft?.provisionedNumber as string) || "");
         setNotifyMobile((draft?.notifyMobile as string) || "");
@@ -262,6 +267,7 @@ export default function Onboarding() {
         faqs,
         hours,
         tone,
+        homeState: homeState || null,
         provisionedNumber,
         noWebsite,
         notifyMobile,
@@ -270,7 +276,7 @@ export default function Onboarding() {
         scanNote,
       });
     }
-  }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, provisionedNumber, noWebsite, notifyMobile, scanRequestedUrl, scanFinalUrl, scanNote, loading, customer?.id]);
+  }, [step, businessName, website, industry, contactAbout, about, services, faqs, hours, tone, homeState, provisionedNumber, noWebsite, notifyMobile, scanRequestedUrl, scanFinalUrl, scanNote, loading, customer?.id]);
 
   function goStep(s: Step) { setStep(s); }
 
@@ -331,6 +337,15 @@ export default function Onboarding() {
             setHours(merged);
           }
           if (data.tone) setTone(data.tone);
+          const scrapedState = normalizeHomeState(data.home_state);
+          if (scrapedState && normalizeMarket(customer?.country) === "AU") {
+            setHomeState(scrapedState);
+            try {
+              await updateProfile({ home_state: scrapedState });
+            } catch {
+              /* finish still writes home_state */
+            }
+          }
         } else {
           if (data.thin_content) {
             setScanNote("We couldn't read enough from that site (it might be pictures or a login page). Fill this in yourself.");
@@ -418,6 +433,7 @@ export default function Onboarding() {
         website: website || "",
         industry,
         onboardingComplete: true,
+        homeState: normalizeMarket(customer?.country) === "AU" ? (homeState || null) : null,
       }));
       const notify = resolveNotifySms({
         notifyMobile,
@@ -587,6 +603,20 @@ export default function Onboarding() {
               <p className="text-sm text-white/70">{onboardingNumberBlurb(customer?.country)}</p>
             </div>
             {/* About */}
+            {normalizeMarket(customer?.country) === "AU" && (
+              <div className="aurora-card p-5">
+                <label className="text-sm font-semibold text-yellow-400 mb-2 block">Home state</label>
+                <p className="text-xs text-white/50 mb-2">
+                  Used as the default Australian state on SimPRO job addresses when the caller doesn&apos;t say one. Scraped from your website when we can see it.
+                </p>
+                <select value={homeState} onChange={e => setHomeState(e.target.value)}>
+                  <option value="">Not set — don&apos;t guess</option>
+                  {AU_HOME_STATES.map((state) => (
+                    <option key={state} value={state}>{state}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className="aurora-card p-5">
               <label className="text-sm font-semibold text-yellow-400 mb-2 block">About your business</label>
               <textarea

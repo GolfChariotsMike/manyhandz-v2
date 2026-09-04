@@ -173,6 +173,13 @@ describe("profile body", () => {
     });
   });
 
+  it("accepts a valid AU home_state and rejects invented values", () => {
+    assert.deepEqual(parseProfileBody({ home_state: "sa" }).patch, { home_state: "SA" });
+    assert.deepEqual(parseProfileBody({ home_state: "South Australia" }).patch, { home_state: "SA" });
+    assert.deepEqual(parseProfileBody({ home_state: null }).patch, { home_state: null });
+    assert.equal(parseProfileBody({ home_state: "Perth" }).error, "home_state must be NSW, VIC, QLD, SA, WA, TAS, ACT, NT, or null");
+  });
+
   it("parses notify_email without touching login email or requiring a name", () => {
     assert.deepEqual(parseProfileBody({
       notify_email: "  office@glacier.test  ",
@@ -240,6 +247,23 @@ describe("POST /profile", () => {
     assert.equal(res.body.customer.website_url, "https://glacierair.com.au");
     assert.equal(res.body.customer.industry, "Other");
     assert.equal(store.customers[OTHER].business_name, "Leave Me");
+  });
+
+  it("writes scraped home_state on finish", async () => {
+    const store = seed();
+    const res = await json(await handleRequest(
+      await authed("profile", {
+        business_name: "CoolAir",
+        website_url: "https://coolair.example",
+        industry: "Trade / Construction",
+        onboarding_complete: true,
+        home_state: "SA",
+      }),
+      envFor(store),
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(store.customers[CUST].home_state, "SA");
+    assert.equal(store.customers[CUST].onboarding_complete, true);
   });
 
   it("writes onboarding_complete on finish without wiping the name", async () => {

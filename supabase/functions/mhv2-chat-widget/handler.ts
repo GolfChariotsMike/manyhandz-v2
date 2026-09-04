@@ -80,6 +80,7 @@ export type CustomerRow = {
   business_name?: string | null;
   twilio_number?: string | null;
   country?: string | null;
+  home_state?: string | null;
   email?: string | null;
   notify_email?: string | null;
   notify_email_enabled?: boolean | null;
@@ -255,6 +256,7 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
       return {
         cap_send_sms: voice?.cap_send_sms ?? true,
         country: row?.country ?? null,
+        home_state: row?.home_state ?? null,
         twilio_number: row?.twilio_number ?? null,
         business_name: row?.business_name ?? null,
       };

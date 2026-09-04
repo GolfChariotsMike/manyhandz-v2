@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  extractAuBusinessAddress,
   handleScrapeRequest,
   hostsMatch,
   isThinContent,
@@ -61,6 +62,10 @@ test("thin homepage does not call DeepSeek", async () => {
         hours: null,
         tone: "friendly",
         industry: null,
+        home_state: null,
+        suburb: null,
+        postcode: null,
+        address: null,
       };
     },
   });
@@ -88,6 +93,10 @@ test("redirect onto another host skips DeepSeek and returns empty KB fields", as
         hours: null,
         tone: "friendly",
         industry: null,
+        home_state: null,
+        suburb: null,
+        postcode: null,
+        address: null,
       };
     },
   });
@@ -114,12 +123,66 @@ test("same-host content calls DeepSeek and keeps structured hours", async () => 
       hours: { monday: "9am-5pm" } as unknown as null,
       tone: "friendly",
       industry: "Trade / Construction",
+      home_state: "WA",
+      suburb: "Perth",
+      postcode: null,
+      address: null,
     }),
   });
   assert.equal(result.thin_content, false);
   assert.equal(result.host_mismatch, false);
   assert.equal(result.about, "Blocked drains and hot water in Perth.");
   assert.deepEqual(result.hours?.monday, { open: "09:00", close: "17:00", closed: false });
+});
+
+test("extractAuBusinessAddress reads state from contact copy and does not invent", () => {
+  const contact = extractAuBusinessAddress(
+    "CoolAir Adelaide. Contact: 12 King William Street, Adelaide SA 5000. Phone 08 8100 0000.",
+  );
+  assert.equal(contact.home_state, "SA");
+  assert.equal(contact.suburb, "Adelaide");
+  assert.equal(contact.postcode, "5000");
+  assert.match(contact.address || "", /King William Street/);
+
+  const named = extractAuBusinessAddress("Proudly based in Melbourne, Victoria. Book a service today.");
+  assert.equal(named.home_state, "VIC");
+  assert.equal(named.suburb, "Melbourne");
+
+  const none = extractAuBusinessAddress("We install air conditioning across Australia. Call for a quote.");
+  assert.equal(none.home_state, null);
+  assert.equal(none.suburb, null);
+  assert.equal(none.postcode, null);
+
+  const conflict = extractAuBusinessAddress(
+    "Offices at 1 George Street, Sydney NSW 2000 and 120 Collins Street, Melbourne VIC 3000.",
+  );
+  assert.equal(conflict.home_state, null);
+});
+
+test("scrape extracts home_state from contact copy even when the LLM omits it", async () => {
+  const longCopy = `<html><head><title>CoolAir Adelaide</title></head><body>${
+    "Split system installs and repairs. ".repeat(8)
+  } Contact us at 12 King William Street, Adelaide SA 5000. Open weekdays.</body></html>`;
+  const result = await scrapeSite("https://coolair.example", {
+    fetchPage: async (url) => ({ html: longCopy, finalUrl: url }),
+    extractWithLlm: async () => ({
+      business_name: "CoolAir Adelaide",
+      about: "Split system installs and repairs.",
+      services: ["Split systems"],
+      faqs: [],
+      hours: null,
+      tone: "friendly",
+      industry: "Trade / Construction",
+      home_state: null,
+      suburb: null,
+      postcode: null,
+      address: null,
+    }),
+  });
+  assert.equal(result.thin_content, false);
+  assert.equal(result.home_state, "SA");
+  assert.equal(result.suburb, "Adelaide");
+  assert.equal(result.postcode, "5000");
 });
 
 test("POST to trailing-slash path is accepted", async () => {

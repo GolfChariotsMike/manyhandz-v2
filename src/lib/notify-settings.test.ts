@@ -45,6 +45,8 @@ test("Connections SimPRO card persists notify toggles via mh-v2-save, not anon R
   assert.match(src, /notifyEmailPayloadFromForm/);
   assert.match(src, /notifySmsSettingsPayload/);
   assert.match(src, /SimPRO lead/);
+  assert.match(src, /Home state/);
+  assert.match(src, /homeStatePayloadFromForm/);
   assert.doesNotMatch(src, /Tradify/);
   assert.doesNotMatch(src, /rest\/v1\/mh_v2_customers/);
 });

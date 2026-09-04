@@ -4,6 +4,7 @@
  * Path is the last pathname segment (callFn hits /functions/v1/mh-v2-save/profile).
  * JWT is HMAC-SHA256 with MH_JWT_SECRET; sub is the customer id.
  */
+import { normalizeHomeState } from "../_shared/au-home-state.ts";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -38,6 +39,7 @@ export type ProfilePatch = {
   website_url?: string | null;
   industry?: string | null;
   onboarding_complete?: boolean;
+  home_state?: string | null;
   notify_email?: string | null;
   notify_email_enabled?: boolean;
 };
@@ -171,6 +173,17 @@ export function parseProfileBody(body: unknown): { patch: ProfilePatch; error?: 
       return { patch: {}, error: "onboarding_complete must be a boolean" };
     }
     patch.onboarding_complete = src.onboarding_complete;
+  }
+  if ("home_state" in src) {
+    if (src.home_state === null || src.home_state === "") {
+      patch.home_state = null;
+    } else if (typeof src.home_state === "string") {
+      const state = normalizeHomeState(src.home_state);
+      if (!state) return { patch: {}, error: "home_state must be NSW, VIC, QLD, SA, WA, TAS, ACT, NT, or null" };
+      patch.home_state = state;
+    } else {
+      return { patch: {}, error: "home_state must be a string or null" };
+    }
   }
   if ("notify_email" in src) {
     if (src.notify_email === null) {

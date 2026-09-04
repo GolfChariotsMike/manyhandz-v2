@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound, ExternalLink } from "lucide-react";
 import { generateGrokbotKey, getGrokbotKey, getMe, getVoiceConfig, revokeGrokbotKey, saveVoiceNotifySms, updateProfile } from "../lib/api";
-import { notifyMobilePlaceholder } from "../lib/onboarding";
+import { AU_HOME_STATES, homeStatePayloadFromForm, normalizeMarket, notifyMobilePlaceholder } from "../lib/onboarding";
 import { notifyChannelOn, notifyEmailPayloadFromForm, notifySmsSettingsPayload } from "../lib/notify-settings";
 
 const GROK_BOT_DOWNLOAD_URL = "https://x.ai/bot";
@@ -357,6 +357,73 @@ function NotifyToggle({
   );
 }
 
+function HomeStateSettings({
+  customer,
+}: {
+  customer: { home_state?: string | null; country?: string | null } | null;
+}) {
+  const [homeState, setHomeState] = useState(customer?.home_state || "");
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    setHomeState(customer?.home_state || "");
+  }, [customer?.home_state]);
+
+  if (normalizeMarket(customer?.country) !== "AU") return null;
+
+  async function handleSave() {
+    setSaving(true);
+    setError("");
+    try {
+      await updateProfile(homeStatePayloadFromForm(homeState || null));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not save home state");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-5 pt-5 border-t border-white/10 space-y-3">
+      <div>
+        <h3 className="text-white font-medium text-sm">Home state</h3>
+        <p className="text-white/40 text-xs mt-1">
+          Default Australian state on SimPRO job addresses when the caller doesn&apos;t say one. Scraped from your website during setup — change it if we missed it.
+        </p>
+      </div>
+      <select
+        value={homeState}
+        onChange={(e) => setHomeState(e.target.value)}
+        className="w-full px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
+      >
+        <option value="">Not set — don&apos;t guess</option>
+        {AU_HOME_STATES.map((state) => (
+          <option key={state} value={state}>{state}</option>
+        ))}
+      </select>
+      {error && (
+        <div className="flex items-center gap-2 text-red-400 text-sm">
+          <AlertCircle size={14} />
+          {error}
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={handleSave}
+        disabled={saving}
+        className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-yellow-500/20 text-yellow-300 text-sm font-medium hover:bg-yellow-500/30 transition-all disabled:opacity-50"
+      >
+        {saving ? <Loader2 size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
+        {saved ? "Saved!" : saving ? "Saving..." : "Save home state"}
+      </button>
+    </div>
+  );
+}
+
 function SimproNotifySettings({
   customer,
   voice,
@@ -473,6 +540,7 @@ export default function Connections() {
     id?: string;
     email?: string | null;
     country?: string | null;
+    home_state?: string | null;
     notify_email?: string | null;
     notify_email_enabled?: boolean | null;
   } | null>(null);
@@ -731,6 +799,7 @@ export default function Connections() {
           </div>
         )}
 
+        <HomeStateSettings customer={customer} />
         <SimproNotifySettings customer={customer} voice={voice} />
       </div>
 

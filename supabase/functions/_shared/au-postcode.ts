@@ -1,15 +1,30 @@
 /**
  * Resolve an Australian street/suburb to a SimPRO Address postcode + state.
  * Static table — no geocoder, no Node APIs, works on Supabase Edge and in
- * the Node test runner. Prefer WA when a suburb exists there: ManyHandz is
- * Perth-built and the Glacier SimPRO stack is the AU default. Do not invent
- * a postcode when the suburb is missing, unknown, or has more than one
- * street-delivery postcode. Default State=WA only for AU (not US) and only
- * when the address did not already name another state or a non-WA postcode.
+ * the Node test runner. Prefer the caller's spoken state/postcode, then the
+ * customer's scraped home_state as State and as the suburb disambiguation
+ * hint. Do not invent a postcode when the suburb is missing, unknown, or
+ * has more than one street-delivery postcode. Do not force WA when
+ * home_state is missing — empty State is safer than the wrong state.
+ * US market: never default an AU state and never guess an AU postcode.
  */
 import { AU_STREET_POSTCODES } from "./au-postcode-data.ts";
+import {
+  AU_STATE_ABBR,
+  digitsPostcode,
+  normalizeHomeState,
+  stateFromAuPostcode,
+} from "./au-home-state.ts";
 
 export type BookingMarket = "AU" | "US";
+export {
+  AU_HOME_STATES,
+  AU_STATE_ABBR,
+  digitsPostcode,
+  normalizeHomeState,
+  stateFromAuPostcode,
+  type AuHomeState,
+} from "./au-home-state.ts";
 
 export type SiteAddressParts = {
   name: string;
@@ -27,8 +42,6 @@ export type PostcodeLookup = {
   status: PostcodeLookupStatus;
 };
 
-const AU_STATES = "NSW|VIC|QLD|SA|WA|TAS|ACT|NT";
-
 export function bookingMarket(value: unknown): BookingMarket {
   return String(value ?? "").trim().toUpperCase() === "US" ? "US" : "AU";
 }
@@ -44,39 +57,9 @@ export function suburbKey(name: string): string {
     .trim();
 }
 
-/** Official street / PO-box ranges. Empty when the digits are not an AU postcode. */
-export function stateFromAuPostcode(postcode: string): string {
-  const n = Number(String(postcode || "").replace(/\D/g, ""));
-  if (!Number.isFinite(n) || n < 200) return "";
-  if (n >= 200 && n <= 299) return "ACT";
-  if (n >= 800 && n <= 999) return "NT";
-  if (n >= 1000 && n <= 1999) return "NSW";
-  if (n >= 2000 && n <= 2599) return "NSW";
-  if (n >= 2600 && n <= 2618) return "ACT";
-  if (n >= 2619 && n <= 2899) return "NSW";
-  if (n >= 2900 && n <= 2920) return "ACT";
-  if (n >= 2921 && n <= 2999) return "NSW";
-  if (n >= 3000 && n <= 3999) return "VIC";
-  if (n >= 4000 && n <= 4999) return "QLD";
-  if (n >= 5000 && n <= 5799) return "SA";
-  if (n >= 5800 && n <= 5999) return "SA";
-  if (n >= 6000 && n <= 6797) return "WA";
-  if (n >= 6800 && n <= 6999) return "WA";
-  if (n >= 7000 && n <= 7799) return "TAS";
-  if (n >= 7800 && n <= 7999) return "TAS";
-  if (n >= 8000 && n <= 8999) return "VIC";
-  if (n >= 9000 && n <= 9999) return "QLD";
-  return "";
-}
-
-export function digitsPostcode(raw: string): string {
-  const digits = String(raw || "").replace(/\D/g, "");
-  return /^\d{4}$/.test(digits) ? digits : "";
-}
-
 export function splitCityState(city: string): { city: string; state: string } {
   const cleaned = String(city || "").replace(/\s+/g, " ").trim();
-  const m = cleaned.match(new RegExp(`^(.+?)\\s+(${AU_STATES})$`, "i"));
+  const m = cleaned.match(new RegExp(`^(.+?)\\s+(${AU_STATE_ABBR})$`, "i"));
   if (m) return { city: m[1].trim(), state: m[2].toUpperCase() };
   return { city: cleaned, state: "" };
 }
@@ -107,13 +90,10 @@ export function suburbFromParsed(parsed: Pick<SiteAddressParts, "address" | "cit
   return splitCityState(fallback).city;
 }
 
-export function lookupAuStreetPostcode(suburb: string, stateHint?: string): PostcodeLookup {
-  const key = suburbKey(suburb);
-  if (!key) return { postcode: "", state: "", status: "unresolved" };
+function lookupPacked(key: string, hint: string): PostcodeLookup {
   const packed = AU_STREET_POSTCODES[key];
   if (!packed) return { postcode: "", state: "", status: "unresolved" };
   let rows = parsePacked(packed);
-  const hint = String(stateHint || "").trim().toUpperCase();
   if (hint) rows = rows.filter((row) => row.state === hint);
   const postcodes = [...new Set(rows.map((row) => row.postcode))];
   if (postcodes.length === 1) {
@@ -123,44 +103,64 @@ export function lookupAuStreetPostcode(suburb: string, stateHint?: string): Post
     const states = [...new Set(rows.map((row) => row.state))];
     return { postcode: "", state: hint || (states.length === 1 ? states[0] : ""), status: "ambiguous" };
   }
-  return { postcode: "", state: "", status: "unresolved" };
+  return { postcode: "", state: hint, status: "unresolved" };
+}
+
+export function lookupAuStreetPostcode(suburb: string, stateHint?: string): PostcodeLookup {
+  const key = suburbKey(suburb);
+  if (!key) return { postcode: "", state: "", status: "unresolved" };
+  const hint = String(stateHint || "").trim().toUpperCase();
+  const exact = lookupPacked(key, hint);
+  if (exact.status !== "unresolved") return exact;
+
+  // "Rundle Mall Adelaide" — try the longest leading suburb that is in the table.
+  const words = key.split(" ");
+  for (let len = words.length - 1; len >= 1; len--) {
+    const part = words.slice(0, len).join(" ");
+    const looked = lookupPacked(part, hint);
+    if (looked.status !== "unresolved") return looked;
+  }
+  return exact;
 }
 
 /**
- * Fill missing postcode / state for a parsed AU site. Callers that already
- * spoke a 4-digit postcode keep it. US market: never default WA and never
- * guess an AU suburb postcode.
+ * Fill missing postcode / state for a parsed AU site. Spoken state/postcode
+ * win. Otherwise customer home_state is the default State and the suburb
+ * lookup hint. Missing home_state does not invent WA. US market: never
+ * default an AU state and never guess an AU suburb postcode.
  */
 export function enrichAuSiteAddress(
   parsed: SiteAddressParts,
   market: BookingMarket = "AU",
+  homeState?: string | null,
 ): SiteAddressParts {
   const cityState = splitCityState(parsed.city);
   const addressState = splitCityState(parsed.address);
   let city = cityState.city;
-  let state = String(parsed.state || cityState.state || addressState.state || "")
-    .replace(/[^A-Za-z]/g, "")
-    .slice(0, 3)
-    .toUpperCase();
+  let state = normalizeHomeState(parsed.state || cityState.state || addressState.state) || "";
   const given = digitsPostcode(parsed.postalCode);
+  const home = normalizeHomeState(homeState) || "";
 
   if (market === "US") {
     return { ...parsed, city, state, postalCode: given };
   }
 
   if (given) {
-    if (!state) state = stateFromAuPostcode(given);
+    if (!state) state = stateFromAuPostcode(given) || home;
     return { ...parsed, city, state, postalCode: given };
   }
 
   const suburb = suburbFromParsed({ ...parsed, city });
-  const looked = suburb ? lookupAuStreetPostcode(suburb, state) : { postcode: "", state: "", status: "unresolved" as const };
+  const hint = state || home;
+  const looked = suburb
+    ? lookupAuStreetPostcode(suburb, hint)
+    : { postcode: "", state: "", status: "unresolved" as const };
   let postalCode = "";
   if (looked.status === "resolved") {
     postalCode = looked.postcode;
     if (!state) state = looked.state;
   }
   if (!city && suburb) city = suburb;
-  if (!state) state = "WA";
+  if (!state) state = home;
   return { ...parsed, city, state, postalCode };
 }
