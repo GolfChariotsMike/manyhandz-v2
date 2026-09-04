@@ -93,9 +93,9 @@ export default function Tasks() {
       </div>
 
       <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/50 space-y-1.5">
-        <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">1.</span> Compose a task here, or text your number: “call Adam on 0412… and ask if he’s free for lunch”</div>
+        <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">1.</span> Compose a task here, or text your number: “call Sarah on 0412… and ask if she wants to book regular servicing”</div>
         <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">2.</span> Only owner/staff mobiles (or this dashboard) can start a call — the public cannot</div>
-        <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">3.</span> Your AI introduces as your receptionist, not ManyHandz sales, then texts you the outcome</div>
+        <div className="flex items-start gap-2"><span className="text-yellow-400 shrink-0">3.</span> Your AI introduces as your receptionist, then texts you the outcome</div>
       </div>
 
       <form onSubmit={handleCreate} className="aurora-card p-6 space-y-4">
@@ -122,7 +122,7 @@ export default function Tasks() {
           />
         </div>
         <textarea
-          placeholder="What should they ask? e.g. see if Adam is free for lunch today and find a time"
+          placeholder="What should they ask? e.g. follow up on the quote and book regular servicing"
           rows={3}
           value={brief}
           onChange={(e) => setBrief(e.target.value)}

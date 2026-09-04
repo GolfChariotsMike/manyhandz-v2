@@ -4,7 +4,24 @@ Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
-## This branch (usage minutes = Billing 600 / 2,000)
+## This branch (Tasks Call now — Account not found)
+
+No new SQL. Glacier `mh_v2_customers` already has `twilio_number` + `el_agent_id`. Dashboard **Call now** 404'd because `mh-outbound-task` `loadCustomer` SELECTed `phone` / `mobile` / `owner_*` / `notify_*` / `contact_*` columns that are not on the table. PostgREST returned an error object; the handler treated that as a missing row.
+
+Owner/result SMS numbers stay on `mh_voice_config.notify_sms` and `mh_staff.phone` (`loadAllowlist` / `ownerPhoneFromCustomer`). Do not add those columns to `mh_v2_customers`.
+
+### Edge functions to pin / redeploy (this branch)
+
+1. **`mh-outbound-task`** — `loadCustomer` now selects only `id,business_name,twilio_number,el_agent_id,country`. **Must redeploy** or Glacier Tasks → Call now still returns `Account not found.` Dashboard copy on Tasks is a frontend-only change.
+
+`verify_jwt` stays **false** (Twilio/EL webhooks + dashboard `mh_token`).
+
+### Success check
+
+- Glacier dashboard Tasks → Call now (existing provisioned customer) gets past customer load. No 404 `Account not found.` from a bad SELECT.
+- Allowlist for SMS/phone create is unchanged: `mh_voice_config.notify_sms` + active `mh_staff.phone`.
+
+## Already on main (usage minutes = Billing 600 / 2,000)
 
 `20260904150000_mh_usage_balance_plan_minutes.sql`
 

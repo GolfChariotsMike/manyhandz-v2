@@ -1,16 +1,48 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { signHs256Jwt } from "../mh-v2-save/handler.ts";
 import {
+  CUSTOMER_TASK_SELECT,
   FALLBACK_TWIML,
   handleOwnerSmsTask,
   handleRequest,
+  loadCustomer,
   type OutboundTaskEnv,
 } from "./handler.ts";
 
 const SECRET = "test-jwt-secret";
 const CUST = "cust-glacier";
 const NOW = new Date("2026-09-04T02:00:00.000Z");
+
+// Production mh_v2_customers columns used by this function. No phone, owner, or notify fields.
+const MH_V2_CUSTOMER_COLUMNS = new Set([
+  "id",
+  "business_name",
+  "twilio_number",
+  "el_agent_id",
+  "country",
+  "notify_email",
+  "notify_email_enabled",
+  "home_state",
+  "email",
+  "plan",
+  "created_at",
+  "trial_started_at",
+  "subscription_status",
+  "trial_ends_at",
+]);
+
+function postgrestColumnError(column: string) {
+  return {
+    code: "42703",
+    details: null,
+    hint: null,
+    message: `column mh_v2_customers.${column} does not exist`,
+  };
+}
 
 type Store = {
   customers: Array<Record<string, unknown>>;
@@ -28,7 +60,8 @@ function emptyStore(): Store {
       twilio_number: "+61485000000",
       el_agent_id: "agent_glacier",
       country: "AU",
-      phone: "+61400111222",
+      notify_email: "mike@glacier.test",
+      home_state: "WA",
     }],
     voice: [{ customer_id: CUST, ai_name: "Trinity", notify_sms: "+61400111222", system_prompt: "You are Trinity." }],
     staff: [{ customer_id: CUST, phone: "+61487111000", active: true }],
@@ -94,7 +127,19 @@ function envFor(opts?: {
       const statusEq = eqVal(params, "status");
       const sidEq = eqVal(params, "call_sid");
       if (table === "mh_v2_customers") {
-        return Response.json(store.customers.filter((c) => !idEq || c.id === idEq));
+        const select = params.get("select") || "*";
+        const cols = select === "*" ? ["*"] : select.split(",");
+        const unknown = cols.find((c) => c !== "*" && !MH_V2_CUSTOMER_COLUMNS.has(c));
+        if (unknown) return Response.json(postgrestColumnError(unknown));
+        const rows = store.customers.filter((c) => !idEq || c.id === idEq).map((row) => {
+          if (select === "*") return { ...row };
+          const projected: Record<string, unknown> = {};
+          for (const col of cols) {
+            if (col in row) projected[col] = row[col];
+          }
+          return projected;
+        });
+        return Response.json(rows);
       }
       if (table === "mh_voice_config") {
         return Response.json(store.voice.filter((v) => !customerEq || v.customer_id === customerEq));
@@ -169,6 +214,38 @@ async function authHeader(): Promise<string> {
   return `Bearer ${jwt}`;
 }
 
+test("CUSTOMER_TASK_SELECT is only production mh_v2_customers columns", () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "handler.ts"), "utf8");
+  assert.equal(CUSTOMER_TASK_SELECT, "id,business_name,twilio_number,el_agent_id,country");
+  for (const phantom of ["phone", "mobile", "owner_phone", "owner_mobile", "notify_mobile", "notify_sms", "contact_phone", "contact_mobile"]) {
+    assert.equal(CUSTOMER_TASK_SELECT.split(",").includes(phantom), false, phantom);
+  }
+  assert.match(src, /select=\$\{CUSTOMER_TASK_SELECT\}/);
+  assert.doesNotMatch(src, /select=id,business_name,twilio_number,el_agent_id,country,phone/);
+});
+
+test("loadCustomer returns Glacier on the real column set; PostgREST errors are not a row", async () => {
+  const { env } = envFor();
+  const row = await loadCustomer(env, CUST);
+  assert.ok(row);
+  assert.equal(row.id, CUST);
+  assert.equal(row.business_name, "Glacier Air");
+  assert.equal(row.twilio_number, "+61485000000");
+  assert.equal(row.el_agent_id, "agent_glacier");
+  assert.equal(row.country, "AU");
+  assert.equal(row.phone, undefined);
+  assert.equal(row.notify_sms, undefined);
+
+  const missing = await loadCustomer(env, "does-not-exist");
+  assert.equal(missing, null);
+
+  const errorEnv: OutboundTaskEnv = {
+    ...env,
+    fetch: async () => Response.json(postgrestColumnError("phone")),
+  };
+  assert.equal(await loadCustomer(errorEnv, CUST), null);
+});
+
 test("dashboard JWT creates a task and places the call from the customer DID", async () => {
   const { env, store, twilioCalls } = envFor();
   const res = await handleRequest(new Request("https://x/functions/v1/mh-outbound-task/create", {
@@ -186,11 +263,30 @@ test("dashboard JWT creates a task and places the call from the customer DID", a
   assert.equal(json.task.status, "calling");
   assert.equal(json.task.target_phone, "+61412222333");
   assert.equal(store.tasks.length, 1);
+  assert.equal(store.tasks[0]?.requester_phone, "+61400111222");
   const twilioBody = await twilioCalls[0].text();
   assert.match(twilioBody, /From=%2B61485000000/);
   assert.match(twilioBody, /To=%2B61412222333/);
   assert.match(twilioBody, /mh-outbound-task%2Foutbound-twiml/);
   assert.equal(store.calls.length, 1);
+});
+
+test("dashboard Call now does not 404 Account not found for a provisioned Glacier row", async () => {
+  const { env } = envFor();
+  const res = await handleRequest(new Request("https://x/functions/v1/mh-outbound-task/create", {
+    method: "POST",
+    headers: { Authorization: await authHeader(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contact_name: "Mike",
+      phone: "0433121933",
+      brief: "ask about booking regular servicing",
+    }),
+  }), env);
+  const json = await res.json() as { ok: boolean; error?: string; task?: { status: string } };
+  assert.notEqual(json.error, "Account not found.");
+  assert.equal(res.status, 200);
+  assert.equal(json.ok, true);
+  assert.equal(json.task?.status, "calling");
 });
 
 test("public caller_id cannot create an outbound task via the voice tool", async () => {
