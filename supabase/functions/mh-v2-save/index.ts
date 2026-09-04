@@ -1,7 +1,8 @@
 /**
- * Persist onboarding profile + knowledge, and list chat sessions, for the
- * signed-in dashboard customer. verify_jwt is false — we verify mh_token
- * ourselves (same HMAC secret as mh-v2-auth /me).
+ * Persist onboarding profile + knowledge, and list / load chat sessions, for
+ * the signed-in dashboard customer. verify_jwt is false — we verify mh_token
+ * ourselves (same HMAC secret as mh-v2-auth /me). List returns preview +
+ * message_count only; GET /chat-sessions/:id returns messages for jwt.sub.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import {

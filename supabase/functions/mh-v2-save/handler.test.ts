@@ -1,13 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CHAT_PREVIEW_MAX,
   CHAT_SESSION_LIMIT,
   DEFAULT_JWT_SECRET,
+  firstUserMessagePreview,
   handleRequest,
   jwtSecretFromEnv,
   parseKnowledgeBody,
   parseProfileBody,
+  parseSaveRoute,
   parseVoiceNotifyBody,
+  projectChatSessionDetail,
   projectChatSessions,
   routeAction,
   signHs256Jwt,
@@ -83,8 +87,9 @@ function memoryAdmin(store: Store): AdminClient {
         }
         if (table === "mh_chat_sessions") {
           if (store.sessionError) return { data: null, error: { message: store.sessionError } };
-          const cid = String(filters.find((f) => f.col === "customer_id")?.val || "");
-          let rows = store.sessions.filter((row) => row.customer_id === cid);
+          let rows = store.sessions.filter((row) =>
+            filters.every((f) => String(row[f.col] ?? "") === String(f.val ?? "")),
+          );
           if (orderCol) {
             rows = [...rows].sort((a, b) => {
               const av = String(a[orderCol] ?? "");
@@ -110,7 +115,14 @@ function memoryAdmin(store: Store): AdminClient {
           return builder;
         },
         limit(count) { limitCount = count; return builder; },
-        maybeSingle() { return Promise.resolve(run()); },
+        maybeSingle() {
+          return Promise.resolve(run()).then((result) => {
+            if (Array.isArray(result.data)) {
+              return { data: result.data[0] ?? null, error: result.error };
+            }
+            return result;
+          });
+        },
         then(onfulfilled, onrejected) {
           return Promise.resolve(run()).then(onfulfilled, onrejected);
         },
@@ -169,6 +181,22 @@ describe("path + jwt helpers", () => {
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/knowledge")), "knowledge");
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/chat-sessions")), "chat-sessions");
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/")), "");
+  });
+
+  it("parses chat-sessions list vs /:id and ?id=", () => {
+    assert.deepEqual(
+      parseSaveRoute(new URL("https://x.supabase.co/functions/v1/mh-v2-save/chat-sessions")),
+      { action: "chat-sessions", id: null },
+    );
+    assert.deepEqual(
+      parseSaveRoute(new URL("https://x.supabase.co/functions/v1/mh-v2-save/chat-sessions/sess_3co")),
+      { action: "chat-sessions", id: "sess_3co" },
+    );
+    assert.deepEqual(
+      parseSaveRoute(new URL("https://x.supabase.co/functions/v1/mh-v2-save/chat-sessions?id=sess_jhr")),
+      { action: "chat-sessions", id: "sess_jhr" },
+    );
+    assert.equal(parseSaveRoute(new URL("https://x.supabase.co/functions/v1/mh-v2-save/profile")).action, "profile");
   });
 
   it("falls back to the same default secret as mh-v2-auth /me", () => {
@@ -453,7 +481,7 @@ describe("GET /chat-sessions", () => {
     assert.equal(res.status, 405);
   });
 
-  it("lists only jwt.sub sessions, newest first, without messages", async () => {
+  it("lists only jwt.sub sessions, newest first, with preview not full messages", async () => {
     const store = seed();
     store.sessions = [
       {
@@ -462,7 +490,10 @@ describe("GET /chat-sessions", () => {
         visitor_id: "v-old",
         created_at: "2026-08-01T00:00:00.000Z",
         resolved: false,
-        messages: [{ role: "user", content: "secret-old" }],
+        messages: [
+          { role: "user", content: "Need a quote" },
+          { role: "assistant", content: "full-assistant-old" },
+        ],
       },
       {
         id: "new",
@@ -470,7 +501,10 @@ describe("GET /chat-sessions", () => {
         visitor_id: "v-new",
         created_at: "2026-09-02T12:00:00.000Z",
         resolved: true,
-        messages: [{ role: "user", content: "secret-new" }],
+        messages: [
+          { role: "assistant", content: "full-assistant-new" },
+          { role: "user", content: "Hi, I'd like to book an aircon service please." },
+        ],
       },
       {
         id: "other",
@@ -489,8 +523,13 @@ describe("GET /chat-sessions", () => {
     assert.equal(res.body.sessions[0].visitor_id, "v-new");
     assert.equal(res.body.sessions[0].resolved, true);
     assert.equal(res.body.sessions[0].customer_id, CUST);
+    assert.equal(res.body.sessions[0].preview, "Hi, I'd like to book an aircon service please.");
+    assert.equal(res.body.sessions[0].message_count, 2);
+    assert.equal(res.body.sessions[1].preview, "Need a quote");
+    assert.equal(res.body.sessions[1].message_count, 2);
     assert.equal("messages" in res.body.sessions[0], false);
-    assert.equal(JSON.stringify(res.body).includes("secret"), false);
+    assert.equal(JSON.stringify(res.body).includes("full-assistant"), false);
+    assert.equal(JSON.stringify(res.body).includes("leave-me"), false);
   });
 
   it("returns an empty list when the customer has no sessions", async () => {
@@ -539,7 +578,120 @@ describe("GET /chat-sessions", () => {
     assert.equal(rows.length, 1);
     assert.equal(rows[0].id, "s1");
     assert.equal(rows[0].resolved, true);
+    assert.equal(rows[0].preview, "");
+    assert.equal(rows[0].message_count, 0);
     assert.equal("messages" in rows[0], false);
+  });
+
+  it("truncates a long first user message for the list preview", () => {
+    const long = `${"Please book ".repeat(20)}thanks`;
+    const preview = firstUserMessagePreview([{ role: "user", content: long }]);
+    assert.equal(preview.endsWith("…"), true);
+    assert.ok(preview.length <= CHAT_PREVIEW_MAX + 1);
+    assert.equal(preview.includes("thanks"), false);
+  });
+});
+
+describe("GET /chat-sessions/:id", () => {
+  const glacierTurns = [
+    { role: "user", content: "Hi, I'd like to book an aircon service please." },
+    { role: "assistant", content: "Sure — I can help book an aircon service. What's the address?" },
+  ];
+
+  function seedWithGlacier(): Store {
+    const store = seed();
+    store.sessions = [
+      {
+        id: "sess_glacier",
+        customer_id: CUST,
+        visitor_id: "vis_glacier",
+        created_at: "2026-09-02T06:04:44.000Z",
+        resolved: false,
+        messages: glacierTurns,
+      },
+      {
+        id: "sess_other",
+        customer_id: OTHER,
+        visitor_id: "vis_other",
+        created_at: "2026-09-03T00:00:00.000Z",
+        resolved: false,
+        messages: [{ role: "user", content: "other-tenant-secret" }],
+      },
+    ];
+    return store;
+  }
+
+  it("returns 401 when the token is missing or not signed with MH_JWT_SECRET", async () => {
+    const store = seedWithGlacier();
+    const noAuth = await json(await handleRequest(
+      new Request("https://x/functions/v1/mh-v2-save/chat-sessions/sess_glacier", { method: "GET" }),
+      envFor(store),
+    ));
+    assert.equal(noAuth.status, 401);
+
+    const anonJwt = await signHs256Jwt({ sub: CUST }, "supabase-anon-secret");
+    const bad = await json(await handleRequest(
+      await authedGet("chat-sessions/sess_glacier", anonJwt),
+      envFor(store),
+    ));
+    assert.equal(bad.status, 401);
+  });
+
+  it("returns messages for the jwt.sub session only", async () => {
+    const res = await json(await handleRequest(
+      await authedGet("chat-sessions/sess_glacier"),
+      envFor(seedWithGlacier()),
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.session.id, "sess_glacier");
+    assert.equal(res.body.session.customer_id, CUST);
+    assert.equal(res.body.session.visitor_id, "vis_glacier");
+    assert.equal(res.body.session.resolved, false);
+    assert.deepEqual(res.body.session.messages, glacierTurns);
+    assert.equal(res.body.session.message_count, 2);
+    assert.equal(res.body.session.preview, "Hi, I'd like to book an aircon service please.");
+  });
+
+  it("accepts ?id= as well as /:id", async () => {
+    const res = await json(await handleRequest(
+      await authedGet("chat-sessions?id=sess_glacier"),
+      envFor(seedWithGlacier()),
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.session.id, "sess_glacier");
+    assert.equal(res.body.session.messages[1].content, glacierTurns[1].content);
+  });
+
+  it("404s another tenant's session so messages never cross customers", async () => {
+    const store = seedWithGlacier();
+    const res = await json(await handleRequest(
+      await authedGet("chat-sessions/sess_other"),
+      envFor(store),
+    ));
+    assert.equal(res.status, 404);
+    assert.equal(JSON.stringify(res.body).includes("other-tenant-secret"), false);
+    assert.equal(res.body.session, undefined);
+  });
+
+  it("404s a missing session for this customer", async () => {
+    const res = await json(await handleRequest(
+      await authedGet("chat-sessions/does-not-exist"),
+      envFor(seedWithGlacier()),
+    ));
+    assert.equal(res.status, 404);
+  });
+
+  it("does not include another tenant's turns even if the mock were loose", async () => {
+    const detail = projectChatSessionDetail({
+      id: "sess_glacier",
+      customer_id: CUST,
+      visitor_id: "vis",
+      created_at: "t",
+      resolved: false,
+      messages: glacierTurns,
+    });
+    assert.equal(detail?.messages.length, 2);
+    assert.equal(detail?.messages[0].role, "user");
   });
 });
 

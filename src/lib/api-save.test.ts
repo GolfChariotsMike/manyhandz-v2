@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { meCache } from "./meCache.ts";
-import { createOutboundTask, getChatSessions, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
+import { createOutboundTask, getChatSession, getChatSessions, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
 
 const origFetch = globalThis.fetch;
 const origLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -211,6 +211,46 @@ test("getChatSessions GETs mh-v2-save/chat-sessions with mh_token and returns th
   assert.equal(calls[0].url.includes("/rest/v1/mh_chat_sessions"), false);
   assert.equal(calls[0].method, "GET");
   assert.match(calls[0].auth, /Bearer mh\.jwt\.token/);
+});
+
+test("getChatSession GETs mh-v2-save/chat-sessions/:id with mh_token", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  const calls: { url: string; method: string; auth: string }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      method: init?.method || "GET",
+      auth: String((init?.headers as Record<string, string>)?.Authorization || ""),
+    });
+    return new Response(JSON.stringify({
+      session: {
+        id: "sess_glacier",
+        messages: [{ role: "user", content: "Hi, I'd like to book an aircon service please." }],
+      },
+    }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const session = await getChatSession("sess_glacier");
+  assert.equal(session?.id, "sess_glacier");
+  assert.equal(session?.messages?.[0]?.content, "Hi, I'd like to book an aircon service please.");
+  assert.match(calls[0].url, /\/functions\/v1\/mh-v2-save\/chat-sessions\/sess_glacier$/);
+  assert.equal(calls[0].method, "GET");
+  assert.match(calls[0].auth, /Bearer mh\.jwt\.token/);
+});
+
+test("getChatSession surfaces a 401 instead of returning another tenant's row", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  globalThis.fetch = (async () => {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await assert.rejects(() => getChatSession("sess_other"), /Unauthorized|Incorrect email or password/);
 });
 
 test("getChatSessions surfaces a 401 instead of returning an empty list", async () => {

@@ -337,6 +337,14 @@ export async function getChatSessions() {
   return Array.isArray(data?.sessions) ? data.sessions : [];
 }
 
+/** One session's transcript. Tenant-scoped: mh-v2-save checks jwt.sub. */
+export async function getChatSession(id: string) {
+  const sessionId = typeof id === "string" ? id.trim() : "";
+  if (!sessionId) throw new Error("Session id required");
+  const data = await callFn("mh-v2-save", `chat-sessions/${encodeURIComponent(sessionId)}`, "GET");
+  return data?.session ?? null;
+}
+
 
 export async function getEmailVoice(customerId: string) {
   return supabaseRest("mh_email_voice", `customer_id=eq.${customerId}&select=*&limit=1`).then((r: any[]) => r?.[0] || null);

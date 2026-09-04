@@ -1,8 +1,8 @@
 /**
- * mh-v2-save — persist onboarding profile + knowledge, and list the
+ * mh-v2-save — persist onboarding profile + knowledge, and list / load the
  * signed-in customer's chat sessions, using the dashboard mh_token.
  *
- * Path is the last pathname segment (callFn hits /functions/v1/mh-v2-save/profile).
+ * Paths: /profile, /knowledge, /voice, /chat-sessions, /chat-sessions/:id.
  * JWT is HMAC-SHA256 with MH_JWT_SECRET; sub is the customer id.
  */
 import { normalizeHomeState } from "../_shared/au-home-state.ts";
@@ -67,8 +67,14 @@ export type VoiceNotifyPatch = {
   notify_sms_enabled?: boolean;
 };
 
-export const CHAT_SESSION_SELECT = "id,customer_id,visitor_id,created_at,resolved";
+export const CHAT_SESSION_SELECT = "id,customer_id,visitor_id,created_at,resolved,messages";
 export const CHAT_SESSION_LIMIT = 50;
+export const CHAT_PREVIEW_MAX = 100;
+
+export type ChatTurn = {
+  role: string;
+  content: string;
+};
 
 export type ChatSessionRow = {
   id: unknown;
@@ -76,19 +82,61 @@ export type ChatSessionRow = {
   visitor_id: unknown;
   created_at: unknown;
   resolved: boolean;
+  preview: string;
+  message_count: number;
 };
+
+export type ChatSessionDetailRow = ChatSessionRow & {
+  messages: ChatTurn[];
+};
+
+export function projectChatTurns(messages: unknown): ChatTurn[] {
+  if (!Array.isArray(messages)) return [];
+  const turns: ChatTurn[] = [];
+  for (const item of messages) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const src = item as Record<string, unknown>;
+    const role = typeof src.role === "string" ? src.role : "";
+    const content = typeof src.content === "string" ? src.content : "";
+    if (!role && !content) continue;
+    turns.push({ role, content });
+  }
+  return turns;
+}
+
+/** First non-empty user turn, truncated. Used for list rows so we never return `messages`. */
+export function firstUserMessagePreview(messages: unknown, max = CHAT_PREVIEW_MAX): string {
+  const limit = Number.isFinite(max) && max > 0 ? Math.floor(max) : CHAT_PREVIEW_MAX;
+  for (const turn of projectChatTurns(messages)) {
+    if (turn.role !== "user") continue;
+    const text = turn.content.trim();
+    if (!text) continue;
+    if (text.length <= limit) return text;
+    return `${text.slice(0, limit).trimEnd()}…`;
+  }
+  return "";
+}
 
 export function projectChatSession(row: unknown): ChatSessionRow | null {
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
   const src = row as Record<string, unknown>;
   if (src.id == null) return null;
+  const turns = projectChatTurns(src.messages);
   return {
     id: src.id,
     customer_id: src.customer_id ?? null,
     visitor_id: src.visitor_id ?? null,
     created_at: src.created_at ?? null,
     resolved: Boolean(src.resolved),
+    preview: firstUserMessagePreview(turns),
+    message_count: turns.length,
   };
+}
+
+export function projectChatSessionDetail(row: unknown): ChatSessionDetailRow | null {
+  const base = projectChatSession(row);
+  if (!base || !row || typeof row !== "object" || Array.isArray(row)) return null;
+  return { ...base, messages: projectChatTurns((row as Record<string, unknown>).messages) };
 }
 
 export function projectChatSessions(data: unknown): ChatSessionRow[] {
@@ -109,6 +157,19 @@ export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): s
 export function routeAction(url: URL): string {
   const parts = url.pathname.split("/");
   return parts.pop() || "";
+}
+
+/** List is `/chat-sessions`; detail is `/chat-sessions/:id` or `?id=`. */
+export function parseSaveRoute(url: URL): { action: string; id: string | null } {
+  const parts = url.pathname.replace(/\/+$/, "").split("/").filter(Boolean);
+  const queryId = (url.searchParams.get("id") || "").trim() || null;
+  const sessionsIdx = parts.lastIndexOf("chat-sessions");
+  if (sessionsIdx >= 0) {
+    const after = parts[sessionsIdx + 1];
+    const pathId = after ? decodeURIComponent(after).trim() : "";
+    return { action: "chat-sessions", id: pathId || queryId };
+  }
+  return { action: parts[parts.length - 1] || "", id: queryId };
 }
 
 export function bearerToken(req: Request): string {
@@ -353,6 +414,20 @@ async function listChatSessions(customerId: string, env: SaveEnv): Promise<Respo
   return jsonResponse({ sessions: projectChatSessions(data) }, 200);
 }
 
+async function getChatSessionDetail(sessionId: string, customerId: string, env: SaveEnv): Promise<Response> {
+  const { data, error } = await env.admin
+    .from("mh_chat_sessions")
+    .select(CHAT_SESSION_SELECT)
+    .eq("id", sessionId)
+    .eq("customer_id", customerId)
+    .maybeSingle();
+
+  if (error) return jsonResponse({ error: error.message || "Could not load chat session" }, 500);
+  const session = projectChatSessionDetail(data);
+  if (!session) return jsonResponse({ error: "Chat session not found" }, 404);
+  return jsonResponse({ session }, 200);
+}
+
 async function customerIdFromRequest(req: Request, env: SaveEnv): Promise<string | Response> {
   const token = bearerToken(req);
   if (!token) return jsonResponse({ error: "Unauthorized" }, 401);
@@ -364,11 +439,12 @@ async function customerIdFromRequest(req: Request, env: SaveEnv): Promise<string
 export async function handleRequest(req: Request, env: SaveEnv): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const action = routeAction(new URL(req.url));
+  const { action, id: sessionId } = parseSaveRoute(new URL(req.url));
   if (action === "chat-sessions") {
     if (req.method !== "GET") return jsonResponse({ error: "Method not allowed" }, 405);
     const customerId = await customerIdFromRequest(req, env);
     if (customerId instanceof Response) return customerId;
+    if (sessionId) return getChatSessionDetail(sessionId, customerId, env);
     return listChatSessions(customerId, env);
   }
   if (action !== "profile" && action !== "knowledge" && action !== "voice") {
