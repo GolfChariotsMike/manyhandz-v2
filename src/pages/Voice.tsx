@@ -11,8 +11,7 @@ import {
   addWhitelistNumber,
   normalizeWhitelist,
   removeWhitelistNumber,
-  whitelistDbPatch,
-  whitelistSaveError,
+  saveVoiceWhitelist,
 } from "../lib/whitelist";
 import {
   previewVoiceSettings,
@@ -166,32 +165,22 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
     setSaving(true);
     setError("");
     setSaved(false);
-    try {
-      const res = await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-        method: "PATCH",
-        headers: { "apikey": anon, "Authorization": `Bearer ${anon}`, "Content-Type": "application/json" },
-        body: JSON.stringify(whitelistDbPatch(nextWhitelist, nextBridge)),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(whitelistSaveError(res.status, data));
-      }
-      if (customerId) {
-        await fetch(`${url}/functions/v1/mh-sync-agent`, {
-          method: "POST",
-          headers: { apikey: anon, Authorization: `Bearer ${anon}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ customer_id: customerId }),
-        }).catch(() => {});
-      }
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-      return true;
-    } catch (e: any) {
-      setError(e.message || "Could not save whitelist. Please try again.");
+    const result = await saveVoiceWhitelist({
+      url,
+      anon,
+      configId: config.id,
+      customerId,
+      whitelist: nextWhitelist,
+      bridge: nextBridge,
+    });
+    setSaving(false);
+    if (!result.ok) {
+      setError(result.error);
       return false;
-    } finally {
-      setSaving(false);
     }
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2500);
+    return true;
   }
 
   async function removeNumber(num: string) {
