@@ -396,7 +396,13 @@ test("outbound TwiML registers EL with the brief and customer agent", async () =
   assert.equal(body.agent_id, "agent_glacier");
   assert.equal(body.direction, "outbound");
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.first_message, /Adam/);
+  assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.first_message, /from the team/i);
+  assert.doesNotMatch(
+    body.conversation_initiation_client_data.conversation_config_override.agent.first_message,
+    /ask if he's free for lunch|owner asked/i,
+  );
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /ask if he's free for lunch/);
+  assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /PRIVATE TASK/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /NOT Sam/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /task_id task-9/);
   assert.equal(
