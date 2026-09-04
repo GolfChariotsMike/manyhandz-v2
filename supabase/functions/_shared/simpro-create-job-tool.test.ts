@@ -41,7 +41,8 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
     };
   };
   assert.match(created.description, /MUST call this after lookup_simpro_customer has returned/i);
-  assert.match(created.description, /lead number/i);
+  assert.match(created.description, /Do not tell them the lead number/i);
+  assert.match(created.description, /already said|do not ask again/i);
   assert.match(created.description, /never pretend a lead was created/i);
   assert.match(created.description, /already a customer/i);
   assert.match(created.description, /FIRST action this turn is lookup_simpro_customer/i);

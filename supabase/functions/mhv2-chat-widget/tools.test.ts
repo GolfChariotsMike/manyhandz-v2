@@ -81,7 +81,8 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.match(create.description, /do not use send_sms to notify the office/i);
   assert.match(create.description, /save_message as the only close/i);
   assert.match(create.description, /do not call save_message to text the office/i);
-  assert.match(create.description, /lead number/i);
+  assert.match(create.description, /Do not tell them the lead number/i);
+  assert.match(create.description, /already said|do not ask again/i);
   assert.match(create.description, /never pretend a lead was created/i);
   assert.match(create.description, /site contact/i);
   assert.match(create.description, /Jane from Woolies/);

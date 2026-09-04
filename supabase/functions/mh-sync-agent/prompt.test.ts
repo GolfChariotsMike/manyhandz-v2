@@ -59,7 +59,10 @@ test("simpro create-lead rule is default-on and honest on failure", () => {
   const on = buildSystemPrompt(base);
   assert.match(on, /create_simpro_job/);
   assert.match(on, /SIMPRO LEADS/);
-  assert.match(on, /lead number/);
+  assert.match(on, /Do not tell them the lead number/);
+  assert.match(on, /already said the fault or work/);
+  assert.match(on, /Only ask for a short description if it is still missing/);
+  assert.doesNotMatch(on, /If the tool returns a lead number/);
   assert.match(on, /Are you already a Acme Plumbing customer\?/);
   assert.match(on, /FIRST action this turn is lookup_simpro_customer/);
   assert.match(on, /Do not ask name or address until that tool returns/);

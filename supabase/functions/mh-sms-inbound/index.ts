@@ -6,6 +6,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import { parseRequestBody } from "../_shared/sms-send.ts";
 import {
+  lookupSimproCustomer,
   patchSimproCustomerDetails,
   type SimproConnection,
 } from "../mhv2-simpro-create-job/create.ts";
@@ -135,10 +136,9 @@ Deno.serve(async (req) => {
         if (!variants.length) return null;
         const { data } = await admin
           .from("mh_sms_confirms")
-          .select("id,customer_id,caller_e164,simpro_customer_id,simpro_is_company,simpro_contact_id,name,email,lead_id,expires_at,consumed_at")
+          .select("id,customer_id,caller_e164,simpro_customer_id,simpro_is_company,simpro_contact_id,name,email,lead_id,expires_at,consumed_at,created_at")
           .eq("customer_id", customerId)
           .in("caller_e164", variants)
-          .is("consumed_at", null)
           .gt("expires_at", now.toISOString())
           .order("created_at", { ascending: false })
           .limit(1)
@@ -149,6 +149,42 @@ Deno.serve(async (req) => {
         await admin.from("mh_sms_confirms").update({
           consumed_at: new Date().toISOString(),
         }).eq("id", id);
+      },
+      updatePendingConfirm: async (id, fields) => {
+        const patch: Record<string, string> = {};
+        if (fields.name) patch.name = fields.name;
+        if (fields.email) patch.email = fields.email;
+        if (!Object.keys(patch).length) return;
+        await admin.from("mh_sms_confirms").update(patch).eq("id", id);
+      },
+      lookupSimproCaller: async (customerId, from) => {
+        const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
+        const { data } = await admin
+          .from("mh_crm_connections")
+          .select("id,customer_id,is_active,simpro_build_url,simpro_client_id,simpro_client_secret_encrypted,simpro_access_token_encrypted,simpro_token_expires_at,simpro_company_id")
+          .eq("customer_id", customerId)
+          .eq("platform", "simpro")
+          .eq("is_active", true)
+          .maybeSingle();
+        const result = await lookupSimproCustomer({
+          customer_id: customerId,
+          caller_phone: from,
+        }, {
+          fetch: globalThis.fetch.bind(globalThis),
+          now: () => new Date(),
+          encryptionKey,
+          loadConnection: async () => (data || null) as SimproConnection | null,
+          saveTokens: async (connectionId, encryptedToken, expiresAt) => {
+            await admin.from("mh_crm_connections").update({
+              simpro_access_token_encrypted: encryptedToken,
+              simpro_token_expires_at: expiresAt,
+            }).eq("id", connectionId);
+          },
+        });
+        if (result.ok && result.found && "customer" in result && result.customer?.name) {
+          return { name: result.customer.name };
+        }
+        return null;
       },
       applySmsCorrection: async (pending, correction) => {
         const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";

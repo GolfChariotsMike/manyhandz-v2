@@ -417,8 +417,9 @@ test("createSimproJob new customer POSTs individual createSite+address then lead
   assert.equal(result.job_number, "18421");
   assert.equal(result.customer_created, true);
   assert.equal(result.site_created, true);
-  assert.match(result.message, /lead 18421/);
-  assert.match(result.message, /lead number/);
+  assert.match(result.message, /Do not tell the caller the lead number/);
+  assert.doesNotMatch(result.message, /Tell the caller/);
+  assert.doesNotMatch(result.message, /18421/);
   assert.equal((cached[0] as { job_number: string; status: string }).job_number, "18421");
   assert.equal((cached[0] as { status: string }).status, "Open");
   const methods = posted.filter((c) => c.method === "POST").map((c) => c.url);
@@ -1381,6 +1382,9 @@ test("lookupSimproCustomer one readable site confirms the street and does not as
   assert.match(result.sites[0].address, /12 Frost St/);
   assert.match(result.message, /Confirm the street 12 Frost St/);
   assert.match(result.message, /do not ask for a site ID/i);
+  assert.match(result.message, /already said the fault or work/);
+  assert.match(result.message, /still missing/);
+  assert.doesNotMatch(result.message, /Then collect the job description/);
   assert.doesNotMatch(result.message, /site_id 3/);
 });
 

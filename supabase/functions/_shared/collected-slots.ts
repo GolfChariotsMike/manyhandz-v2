@@ -22,7 +22,7 @@ const NAME_PREFIX =
   /(?:my name is|i(?:'m| am)|it'?s|this is|name is|name[:\s]+)\s*([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){1,3})/i;
 
 const SERVICE_HINT =
-  /\b(split\s*system|air\s*con|aircon|air-con|clean|install|repair|service|quote|indoor|outdoor|ducted|evaporative|hot water|heat pump|not cooling|leaking|book)\b/i;
+  /\b(split\s*system|air\s*con|aircon|air-con|clean|install|repair|service|quote|indoor|outdoor|ducted|evaporative|hot water|heat pump|not cooling|leaking|book|fault|broken|not working|technician|tech to look|look at|looked at)\b/i;
 
 const CONFIRM_ONLY =
   /^\s*(yes(?:\s+please)?|yeah|yep|yup|please|ok(?:ay)?|sure|go ahead|do it|book (?:it|me|us)|please book|confirm)[\s!.]*$/i;
@@ -131,6 +131,20 @@ export function asksNameOrAddress(text: string): boolean {
   );
 }
 
+export function asksWorkDescription(text: string): boolean {
+  return /what work (do you need|is needed|would you like)|service description|describe (the )?(work|fault|issue|problem)|what(?:'s| is) (the )?(fault|issue|problem|job)|what do you need (done|us to|looked)|what(?:'s| is) the (?:work|job) description/i.test(
+    String(text || ""),
+  );
+}
+
+/** True when the reply speaks a SimPRO lead/job number to the caller. */
+export function speaksLeadNumber(text: string, leadNumber?: string): boolean {
+  const raw = String(text || "");
+  const n = String(leadNumber || "").trim();
+  if (n && raw.includes(n)) return true;
+  return /\b(?:lead|job)\s*(?:number|#|id)?\s*(?:is\s*)?[:#]?\s*\d{2,}\b/i.test(raw);
+}
+
 function jobDescriptionFromUser(text: string, country?: string | null): string | undefined {
   if (!SERVICE_HINT.test(text)) return undefined;
   if (looksLikePersonName(text)) return undefined;
@@ -187,11 +201,9 @@ export function honestLeadFailureReply(): string {
   return "I couldn't lodge that in our system just now — I have not notified the team yet. I can try again, or take a message.";
 }
 
-export function honestLeadSuccessReply(leadNumber: string): string {
-  const n = String(leadNumber || "").trim();
-  return n
-    ? `I've lodged this with the team — SimPRO lead ${n}.`
-    : "I've lodged this with the team.";
+export function honestLeadSuccessReply(_leadNumber?: string): string {
+  void _leadNumber;
+  return "I've lodged this with the team. Someone will be in touch.";
 }
 
 export function createJobInputFromSlots(slots: CollectedSlots): {

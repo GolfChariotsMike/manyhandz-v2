@@ -1885,7 +1885,7 @@ export async function createSimproJob(input: CreateJobInput, env: CreateJobEnv):
       job_number: leadNumber,
       customer_created: customerCreated,
       site_created: siteCreated,
-      message: `Created SimPRO lead ${leadNumber}. Tell the caller this lead number.`,
+      message: "Lead created. Confirm success — the team will be in touch. Do not tell the caller the lead number.",
     };
   } catch (err) {
     const code = (err && typeof err === "object" && "code" in err)
@@ -1919,7 +1919,7 @@ function lookupHitMessage(match: "phone" | "name" | "id", customer: FoundCustome
   const spoken = siteSummaries(sites);
   const choices = formatSpokenSiteChoices(spoken);
   const createHint =
-    `Then collect the job description and call create_simpro_job with simpro_customer_id ${customer.id} and the site_id of the matching street from the sites array (never say site IDs to the caller). Do not create a new customer.`;
+    `If they already said the fault or work they need, pass that as description and do not ask again. Only ask for a short description if it is still missing. Then call create_simpro_job with simpro_customer_id ${customer.id} and the site_id of the matching street from the sites array (never say site IDs to the caller). Do not create a new customer.`;
   if (spoken.length > SPEAKABLE_SITE_MAX) {
     return `${who} is on file (${match} match) with several sites. Ask which street or suburb the work is at — do not read site IDs or a long numbered list. ${createHint}`;
   }
@@ -2015,7 +2015,7 @@ export async function lookupSimproCustomer(
         ok: true,
         found: false,
         message:
-          "No SimPRO customer matched that mobile or name. Ask if they are already a customer of this business (use the business name). If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, THEN collect name, email, site address, and description (ask name and email once — do not read them back or spell the email; say you will text to confirm) and call create_simpro_job. Do not collect or confirm email this way for existing customers. Do not create a customer from this lookup.",
+          "No SimPRO customer matched that mobile or name. Ask if they are already a customer of this business (use the business name). If yes, retry lookup_simpro_customer with their name or business name. If no or still no match, THEN collect name, email, site address, and description (ask name and email once — do not read them back or spell the email; say you will text to confirm; skip any already given, including a work description they already said) and call create_simpro_job. Do not collect or confirm email this way for existing customers. Do not create a customer from this lookup.",
       };
     }
 

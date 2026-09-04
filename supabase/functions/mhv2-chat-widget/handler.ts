@@ -5,6 +5,7 @@
  */
 import {
   asksNameOrAddress,
+  asksWorkDescription,
   canCreateLead,
   claimsLeadSuccess,
   claimsLeadSuccessAfterFailedCreate,
@@ -12,6 +13,7 @@ import {
   createJobInputFromSlots,
   honestLeadFailureReply,
   honestLeadSuccessReply,
+  speaksLeadNumber,
   looksLikeBookingConfirm,
   shouldForceLookup,
 } from "../_shared/collected-slots.ts";
@@ -195,6 +197,7 @@ export function attachLookupToCreateInput(
 export function spokenReplyFromLookup(
   looked: LookupCustomerResult,
   businessName: string,
+  hasDescription = false,
 ): string | null {
   if (!looked.ok) return null;
   if (!looked.found) return lookupMissSpokenReply(businessName);
@@ -203,7 +206,7 @@ export function spokenReplyFromLookup(
   }
   if (!("customer" in looked)) return lookupMissSpokenReply(businessName);
   const streets = looked.sites.map((site) => site.address || site.name).filter(Boolean);
-  return lookupHitSpokenReply(looked.customer.name, streets);
+  return lookupHitSpokenReply(looked.customer.name, streets, hasDescription);
 }
 
 export function parseToolResult(raw: string): Record<string, unknown> | null {
@@ -474,8 +477,15 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       }
     }
 
-    if (lastLookup && asksNameOrAddress(finalReply)) {
-      const spoken = spokenReplyFromLookup(lastLookup, customer?.business_name || "this business");
+    if (
+      lastLookup &&
+      (asksNameOrAddress(finalReply) || (slots.description && asksWorkDescription(finalReply)))
+    ) {
+      const spoken = spokenReplyFromLookup(
+        lastLookup,
+        customer?.business_name || "this business",
+        Boolean(slots.description),
+      );
       if (spoken) finalReply = spoken;
     }
 
@@ -518,8 +528,12 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     }
 
     if (createOk) {
-      if (!finalReply.includes(createLeadNumber) || claimsLeadSuccess(finalReply)) {
-        finalReply = honestLeadSuccessReply(createLeadNumber);
+      if (
+        speaksLeadNumber(finalReply, createLeadNumber) ||
+        claimsLeadSuccess(finalReply) ||
+        !finalReply.trim()
+      ) {
+        finalReply = honestLeadSuccessReply();
       }
     } else if (
       capCreateSimproJob &&

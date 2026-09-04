@@ -5,14 +5,18 @@
  */
 
 export function neverFakeLeadCloseRule(): string {
-  return `- NEVER CLAIM SUCCESS: Do not say the team was notified, a lead was created, a booking is lodged, or close with "Done" about a booking until create_simpro_job has returned ok:true with a lead number. If the tool was not called or failed, say so plainly and retry or take a message — never fake success.`;
+  return `- NEVER CLAIM SUCCESS: Do not say the team was notified, a lead was created, a booking is lodged, or close with "Done" about a booking until create_simpro_job has returned ok:true. If the tool was not called or failed, say so plainly and retry or take a message — never fake success.`;
+}
+
+export function neverSpeakLeadNumberRule(): string {
+  return `- LEAD NUMBER: Never speak, read, or write the SimPRO lead number or lead ID to the caller. On create_simpro_job ok:true, confirm success and say the team will be in touch.`;
 }
 
 export function alreadyCollectedRule(channel: "chat" | "voice"): string {
   if (channel === "chat") {
-    return `- ALREADY COLLECTED: Once the visitor has given their name, email, mobile, address/suburb, or job description in this conversation, do not ask for those again. Use what is already in the thread. Chat has no caller ID — that is not a reason to drop a number they already typed.`;
+    return `- ALREADY COLLECTED: Once the visitor has given their name, email, mobile, address/suburb, or job description in this conversation, do not ask for those again. If they already said the fault, that they need a technician, or what work they need, that IS the description — pass it to create_simpro_job. Do not ask for a service description again. Only ask if description is still missing. Use what is already in the thread. Chat has no caller ID — that is not a reason to drop a number they already typed.`;
   }
-  return `- ALREADY COLLECTED: Once the caller has given their name, email, site/address, or job description in this call, do not ask for those again. Use what they already said. Phone comes from caller ID — do not ask for it.`;
+  return `- ALREADY COLLECTED: Once the caller has given their name, email, site/address, or job description in this call, do not ask for those again. If they already said the fault, that they need a technician, or what work they need, that IS the description — pass it to create_simpro_job. Do not ask for a service description again. Only ask if description is still missing. Use what they already said. Phone comes from caller ID — do not ask for it.`;
 }
 
 export function bookingConfirmMustCreateRule(): string {
@@ -56,24 +60,27 @@ export function simproLeadsBookingRule(channel: "chat" | "voice", businessName: 
   const greeting = channel === "chat"
     ? "Booking path only — after they want work booked, not on the greeting."
     : "Booking path only — after they want work booked, not on the greeting. Do not ask name or address on the greeting.";
-  const speakLead = channel === "chat" ? "tell them clearly" : "speak it clearly";
   const phoneNow = channel === "voice"
     ? " On the phone, call create_simpro_job as soon as they confirm — do not say you will book it then wait; if you must speak first, say only a short \"one moment\", and do not re-ask confirmation after they already said yes."
     : "";
-  return `- SIMPRO LEADS: ${greeting} Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. ${contact} It never creates anyone. HIT: they are existing — NEVER create a new customer and never ask name or address. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If several sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). Then collect only a short description of the work and call create_simpro_job with simpro_customer_id and site_id. MISS: ask exactly "${question}" If yes, ask for their name or business name and call lookup_simpro_customer again with that name; HIT → same as above. If they say no, or lookup still misses, THEN collect name, email, site address, and a short description (ask name and email once — do not read them back or spell the email; say you will text to confirm; skip any already given). Do not collect or confirm email this way for existing customers. Then call create_simpro_job — the function creates customer + site + site contact + Open lead together. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies only on ok:true. Collecting details without invoking the tool is a failure. If the tool returns a lead number, ${speakLead}. If the tool fails or says SimPRO is not connected, do not pretend a lead was created and do not call save_message to text the office — say we have not notified the team yet and retry create_simpro_job. Office email/SMS alerts only fire when create_simpro_job returns ok:true. Never look up, list, or read out other customers' leads or jobs.${phoneNow}\n${simproHonestyAddon(channel)}`;
+  return `- SIMPRO LEADS: ${greeting} Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. ${contact} It never creates anyone. HIT: they are existing — NEVER create a new customer and never ask name or address. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If several sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). If they already said the fault or work they need, pass that as description and do not ask again. Only ask for a short description if it is still missing. Then call create_simpro_job with simpro_customer_id and site_id. MISS: ask exactly "${question}" If yes, ask for their name or business name and call lookup_simpro_customer again with that name; HIT → same as above. If they say no, or lookup still misses, THEN collect name, email, site address, and a short description (ask name and email once — do not read them back or spell the email; say you will text to confirm; skip any already given). Do not collect or confirm email this way for existing customers. Then call create_simpro_job — the function creates customer + site + site contact + Open lead together. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies only on ok:true. Collecting details without invoking the tool is a failure. If the tool returns ok:true, confirm success — the team will be in touch. Do not tell them the lead number. If the tool fails or says SimPRO is not connected, do not pretend a lead was created and do not call save_message to text the office — say we have not notified the team yet and retry create_simpro_job. Office email/SMS alerts only fire when create_simpro_job returns ok:true. Never look up, list, or read out other customers' leads or jobs.${phoneNow}\n${simproHonestyAddon(channel)}`;
 }
 
-export function lookupHitSpokenReply(name: string, streets: string[]): string {
+export function lookupHitSpokenReply(name: string, streets: string[], hasDescription = false): string {
   const who = String(name || "").trim() || "you";
   const labels = streets.map((s) => String(s || "").trim()).filter(Boolean);
   if (labels.length === 1) {
-    return `Thanks — I have you as ${who} at ${labels[0]}. What work do you need done there?`;
+    return hasDescription
+      ? `Thanks — I have you as ${who} at ${labels[0]}.`
+      : `Thanks — I have you as ${who} at ${labels[0]}. What work do you need done there?`;
   }
   if (labels.length > 1) {
     const pair = labels.slice(0, 2).join(" or ");
     return `Thanks — I have you as ${who}. Which street is this for — ${pair}?`;
   }
-  return `Thanks — I have you as ${who}. What work do you need done?`;
+  return hasDescription
+    ? `Thanks — I have you as ${who}.`
+    : `Thanks — I have you as ${who}. What work do you need done?`;
 }
 
 export function lookupMissSpokenReply(businessName: string): string {
@@ -82,5 +89,5 @@ export function lookupMissSpokenReply(businessName: string): string {
 
 /** Appended to SIMPRO LEADS when create_simpro_job is enabled. */
 export function simproHonestyAddon(channel: "chat" | "voice"): string {
-  return `${bookingPathOnlyRule()}\n${lookupFirstBeforeNameRule(channel)}\n${neverFakeLeadCloseRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}\n${siteSpeakRule()}`;
+  return `${bookingPathOnlyRule()}\n${lookupFirstBeforeNameRule(channel)}\n${neverFakeLeadCloseRule()}\n${neverSpeakLeadNumberRule()}\n${alreadyCollectedRule(channel)}\n${bookingConfirmMustCreateRule()}\n${siteContactRule()}\n${siteSpeakRule()}`;
 }
