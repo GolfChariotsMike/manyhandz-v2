@@ -5,6 +5,7 @@
  * 204 must use a null body — Deno treats Response('', { status: 204 }) as 500.
  */
 
+import { nextUsageWrite } from "../_shared/plan-minutes.ts";
 import { resolveVoiceCaller } from "../_shared/voice-caller.ts";
 
 export const EL_COST_PER_MIN = 0.05;
@@ -214,45 +215,35 @@ async function persistCompletedCall(
 }
 
 async function updateUsage(env: CallStatusEnv, customerId: string, actualMinutes: number): Promise<void> {
-  const ubRows = await rest<UsageBalanceRow[]>(env, `mh_usage_balance?customer_id=eq.${customerId}`);
+  const [ubRows, custRows] = await Promise.all([
+    rest<UsageBalanceRow[]>(env, `mh_usage_balance?customer_id=eq.${customerId}`),
+    rest<Array<{ plan?: string | null; created_at?: string | null; trial_started_at?: string | null }>>(
+      env,
+      `mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=plan,created_at,trial_started_at`,
+    ),
+  ]);
   const ub = Array.isArray(ubRows) ? ubRows[0] : null;
+  const customer = Array.isArray(custRows) ? custRows[0] : null;
   const now = env.now();
-  const periodNow = now.toISOString().slice(0, 7);
-  const periodStart = ub?.period_start?.slice(0, 7);
-
-  if (!ub) {
-    await rest(env, "mh_usage_balance", "POST", {
-      customer_id: customerId,
-      included_minutes: 250,
-      used_minutes_this_period: actualMinutes,
-      rollover_minutes: 0,
-    });
-    return;
-  }
-
-  if (periodStart && periodStart < periodNow) {
-    const prevUsed = parseFloat(String(ub.used_minutes_this_period || 0));
-    const prevIncluded = (ub.included_minutes || 0) + parseFloat(String(ub.rollover_minutes || 0));
-    const rollover = Math.min(Math.max(0, prevIncluded - prevUsed), 250);
-    await rest(env, `mh_usage_balance?customer_id=eq.${customerId}`, "PATCH", {
-      used_minutes_this_period: actualMinutes,
-      rollover_minutes: rollover,
-      period_start: new Date(now.getFullYear(), now.getMonth(), 1).toISOString(),
-      period_end: new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString(),
-      alerted_80: false,
-      alerted_100: false,
-      updated_at: now.toISOString(),
-    });
-    return;
-  }
-
-  const newUsed = parseFloat((parseFloat(String(ub.used_minutes_this_period || 0)) + actualMinutes).toFixed(2));
-  const totalIncluded = (ub.included_minutes || 0) + parseFloat(String(ub.rollover_minutes || 0));
-  await rest(env, `mh_usage_balance?customer_id=eq.${customerId}`, "PATCH", {
-    used_minutes_this_period: newUsed,
-    updated_at: now.toISOString(),
+  const write = nextUsageWrite({
+    customerId,
+    actualMinutes,
+    prior: ub,
+    plan: customer?.plan,
+    accountStartedAt: customer?.trial_started_at || customer?.created_at || null,
+    now,
   });
 
+  if (write.method === "POST") {
+    await rest(env, "mh_usage_balance", "POST", write.body);
+    return;
+  }
+
+  await rest(env, `mh_usage_balance?customer_id=eq.${customerId}`, "PATCH", write.body);
+  if (write.body.rollover_minutes !== undefined) return;
+
+  const newUsed = write.newUsed;
+  const totalIncluded = write.totalIncluded;
   const pct = totalIncluded > 0 ? newUsed / totalIncluded : 0;
   const vcRows = await rest<Array<{ notify_sms?: string | null }>>(
     env,
@@ -260,7 +251,7 @@ async function updateUsage(env: CallStatusEnv, customerId: string, actualMinutes
   );
   const notifyNumber = Array.isArray(vcRows) && vcRows[0]?.notify_sms ? String(vcRows[0].notify_sms) : "";
 
-  if (notifyNumber && pct >= 0.8 && !ub.alerted_80) {
+  if (notifyNumber && pct >= 0.8 && !ub?.alerted_80) {
     await sendSms(
       env,
       notifyNumber,
@@ -268,7 +259,7 @@ async function updateUsage(env: CallStatusEnv, customerId: string, actualMinutes
     );
     await rest(env, `mh_usage_balance?customer_id=eq.${customerId}`, "PATCH", { alerted_80: true });
   }
-  if (notifyNumber && pct >= 1.0 && !ub.alerted_100) {
+  if (notifyNumber && pct >= 1.0 && !ub?.alerted_100) {
     await sendSms(
       env,
       notifyNumber,

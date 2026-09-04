@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { includedMinutesForPlan, LEGACY_INCLUDED_MINUTES } from "../_shared/plan-minutes.ts";
 import { requestCustomerAgentSync } from "../_shared/sync-agent-request.ts";
 import {
   defaultVoiceId,
@@ -11,6 +12,7 @@ import {
   provisionElConversationConfig,
   provisionNotifySms,
   provisionSystemPrompt,
+  provisionUsageBalanceInsert,
   provisionVoiceConfigInsert,
   provisionVoiceConfigPatch,
 } from "./provision.ts";
@@ -216,6 +218,28 @@ serve(async (req) => {
           existingSystemPrompt: existingVc?.system_prompt,
           composedPrompt: systemPrompt,
         }),
+      );
+    }
+
+    const ubRows = await supabaseRest(
+      supabaseUrl,
+      serviceKey,
+      `/rest/v1/mh_usage_balance?customer_id=eq.${customer_id}&select=id,included_minutes`,
+    );
+    const existingUb = Array.isArray(ubRows) ? ubRows[0] as { id?: string; included_minutes?: number } | undefined : undefined;
+    const plan = (customer as { plan?: string | null }).plan;
+    if (!existingUb) {
+      await supabaseRest(supabaseUrl, serviceKey, "/rest/v1/mh_usage_balance", "POST", provisionUsageBalanceInsert({
+        customerId: customer_id,
+        plan,
+      }));
+    } else if (existingUb.included_minutes === LEGACY_INCLUDED_MINUTES) {
+      await supabaseRest(
+        supabaseUrl,
+        serviceKey,
+        `/rest/v1/mh_usage_balance?customer_id=eq.${customer_id}`,
+        "PATCH",
+        { included_minutes: includedMinutesForPlan(plan) },
       );
     }
 

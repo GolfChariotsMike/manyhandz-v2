@@ -13,6 +13,7 @@ import {
   provisionGreeting,
   provisionNotifySms,
   provisionSystemPrompt,
+  provisionUsageBalanceInsert,
   provisionVoiceConfigInsert,
   provisionVoiceConfigPatch,
 } from "./provision.ts";
@@ -305,11 +306,29 @@ test("CUSTOMER_SETUP.md lists only SimPRO + office notify; staff is dashboard", 
   assert.doesNotMatch(doc, new RegExp(GLACIER_ID));
 });
 
+test("new-signup usage balance is 600 included with no rollover", () => {
+  const row = provisionUsageBalanceInsert({
+    customerId: ACME_ID,
+    plan: "free",
+    now: new Date("2026-09-04T02:00:00.000Z"),
+  });
+  assert.equal(row.customer_id, ACME_ID);
+  assert.equal(row.included_minutes, 600);
+  assert.equal(row.rollover_minutes, 0);
+  assert.equal(row.used_minutes_this_period, 0);
+  assert.equal(provisionUsageBalanceInsert({
+    customerId: ACME_ID,
+    plan: "big_business",
+    now: new Date("2026-09-04T02:00:00.000Z"),
+  }).included_minutes, 2000);
+});
+
 test("provision index uses the shared product builder and no longer asks for name early", async () => {
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   assert.match(src, /provisionSystemPrompt/);
   assert.match(src, /provisionElConversationConfig/);
   assert.match(src, /provisionVoiceConfigInsert/);
+  assert.match(src, /provisionUsageBalanceInsert/);
   assert.match(src, /requestCustomerAgentSync/);
   assert.doesNotMatch(src, /ask for their name early/);
   assert.doesNotMatch(src, /createSimproJobWebhookTool/);

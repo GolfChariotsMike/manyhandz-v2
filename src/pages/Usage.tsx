@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Loader2, Phone, Clock, TrendingUp, RotateCcw } from "lucide-react";
 import { getMe, getVoiceCalls } from "../lib/api";
 import { formatCallTime } from "../lib/call-log";
+import { usageIncludedMinutes } from "../../supabase/functions/_shared/plan-minutes.ts";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -24,6 +25,7 @@ function fmtDate(iso: string) {
 export default function Usage() {
   const [loading, setLoading] = useState(true);
   const [balance, setBalance] = useState<any>(null);
+  const [plan, setPlan] = useState<string | null>(null);
   const [calls, setCalls] = useState<any[]>([]);
 
 
@@ -32,6 +34,7 @@ export default function Usage() {
       try {
         const { customer: me } = await getMe();
         if (!me?.id) { setLoading(false); return; }
+        setPlan(typeof me.plan === "string" ? me.plan : null);
         const [ubRes, callLog] = await Promise.all([
           fetch(`${SUPABASE_URL}/rest/v1/mh_usage_balance?customer_id=eq.${me.id}`, { headers: authHeaders() }),
           getVoiceCalls(me.id),
@@ -50,7 +53,7 @@ export default function Usage() {
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="animate-spin text-yellow-400" size={32} /></div>;
 
   const used = parseFloat(balance?.used_minutes_this_period || 0);
-  const included = parseInt(balance?.included_minutes || 250);
+  const included = usageIncludedMinutes(balance?.included_minutes, plan);
   const rollover = parseFloat(balance?.rollover_minutes || 0);
   const total = included + rollover;
   const remaining = Math.max(0, total - used);
