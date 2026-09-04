@@ -2,9 +2,18 @@
  * Twilio status callback for customer voice numbers.
  * UPDATE the mh-voice-router in-progress row (by call_sid) instead of
  * inserting a completed sibling without conversation_id.
+ * After completing the row, fetch the ElevenLabs conversation and write
+ * transcript_summary when analysis (or caller turns) are available.
  * 204 must use a null body — Deno treats Response('', { status: 204 }) as 500.
  */
 
+import {
+  conversationIdForSummary,
+  DEFAULT_SUMMARY_RETRY_DELAYS_MS,
+  elConversationUrl,
+  extractConversationSummary,
+  shouldWriteTranscriptSummary,
+} from "../_shared/el-conversation-summary.ts";
 import { nextUsageWrite } from "../_shared/plan-minutes.ts";
 import { resolveVoiceCaller } from "../_shared/voice-caller.ts";
 
@@ -46,8 +55,11 @@ export type CallStatusEnv = {
   twilioSid: string;
   twilioToken: string;
   twilioFrom: string;
+  elApiKey: string;
   fetch: typeof fetch;
   now: () => Date;
+  sleep?: (ms: number) => Promise<void>;
+  summaryRetryDelaysMs?: readonly number[];
 };
 
 export function noContent(): Response {
@@ -128,6 +140,7 @@ export function completedCallPatch(
   const existingConv = String(existing?.conversation_id || "").trim();
   if (!existingConv && parsed.conversation_id) patch.conversation_id = parsed.conversation_id;
   // Keep conversation_id + transcript_summary already on the in-progress row.
+  // ConvAI analysis is PATCHed separately by maybePatchTranscriptSummary.
   return patch;
 }
 
@@ -190,6 +203,56 @@ async function findExistingRows(env: CallStatusEnv, parsed: CallStatusParsed): P
     `mh_call_log?conversation_id=eq.${encodeURIComponent(parsed.conversation_id)}&customer_id=eq.${encodeURIComponent(parsed.customer_id)}&select=id,call_sid,conversation_id,transcript_summary,status,duration_seconds,from_number,to_number&order=started_at.asc`,
   );
   return Array.isArray(byConv) ? byConv : [];
+}
+
+async function defaultSleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchElConversation(env: CallStatusEnv, conversationId: string): Promise<unknown | null> {
+  if (!env.elApiKey || !conversationId) return null;
+  const res = await env.fetch(elConversationUrl(conversationId), {
+    headers: { "xi-api-key": env.elApiKey },
+  });
+  if (!res.ok) return null;
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function maybePatchTranscriptSummary(
+  env: CallStatusEnv,
+  parsed: CallStatusParsed,
+  existing: CallLogRow | null,
+): Promise<string> {
+  if (!shouldWriteTranscriptSummary(existing?.transcript_summary)) return "";
+  const conversationId = conversationIdForSummary(existing?.conversation_id, parsed.conversation_id);
+  if (!conversationId || !env.elApiKey) return "";
+
+  const delays = env.summaryRetryDelaysMs ?? DEFAULT_SUMMARY_RETRY_DELAYS_MS;
+  const sleep = env.sleep ?? defaultSleep;
+  let summary = "";
+  for (let i = 0; i < delays.length; i++) {
+    const wait = delays[i] ?? 0;
+    if (wait > 0) await sleep(wait);
+    try {
+      summary = extractConversationSummary(await fetchElConversation(env, conversationId));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "error";
+      console.warn(`[mh-call-status] EL conversation fetch failed: ${msg.slice(0, 200)}`);
+      summary = "";
+    }
+    if (summary) break;
+  }
+  if (!summary) return "";
+
+  const path = existing?.id
+    ? `mh_call_log?id=eq.${encodeURIComponent(existing.id)}`
+    : `mh_call_log?call_sid=eq.${encodeURIComponent(parsed.call_sid)}&customer_id=eq.${encodeURIComponent(parsed.customer_id)}`;
+  await rest(env, path, "PATCH", { transcript_summary: summary });
+  return summary;
 }
 
 async function persistCompletedCall(
@@ -282,6 +345,12 @@ export async function handleCallStatus(req: Request, env: CallStatusEnv): Promis
     const twilioCost = await twilioCallPrice(env, parsed.call_sid);
     const costs = callCostFields(parsed.duration, twilioCost);
     await persistCompletedCall(env, parsed, existing, costs);
+    try {
+      await maybePatchTranscriptSummary(env, parsed, existing);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "error";
+      console.warn(`[mh-call-status] transcript_summary skipped: ${msg.slice(0, 200)}`);
+    }
 
     if (!alreadyCompleted(existing)) {
       await updateUsage(env, parsed.customer_id, costs.markup_minutes);

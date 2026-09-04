@@ -4,6 +4,31 @@ Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
+## This branch (ConvAI call summaries)
+
+No new SQL. `mh_call_log.transcript_summary` already exists. Almost all ConvAI rows with a `conversation_id` have been leaving it blank, so customer dashboards (including Next Ride Call Logs) show "No summary available." The only recent non-empty values are whitelist bridge notes (`Bridged to +61…`).
+
+`mh-call-status` already completes duration / costs / status. It now also GETs the ElevenLabs conversation (`/v1/convai/conversations/{conversation_id}`) after that PATCH and writes a short `transcript_summary` from `analysis.transcript_summary` (or a digest of caller turns if analysis is still empty). Existing bridge notes are not overwritten. If EL is still processing, it retries twice (~3s total) and then leaves the field blank rather than inventing copy.
+
+Twilio's StatusCallback URL is only `?customer_id=` — `conversation_id` is read from the in-progress `mh_call_log` row that `mh-voice-router` already patched.
+
+### Edge functions to pin / redeploy (this branch)
+
+`verify_jwt` stays **false** for Twilio webhooks (`mh-call-status`). No other function needs a redeploy.
+
+1. **`mh-call-status`** — **Must redeploy** on DraftPilot or new completed ConvAI calls still leave `transcript_summary` empty. Uses the existing `ELEVENLABS_API_KEY` / `EL_API_KEY` secret (same as `mhv2-el-proxy` / `mh-voice-router`). Do not pin a new secret.
+
+`mh-voice-router` and `mhv2-el-proxy` are unchanged. Next Ride (`GolfChariotsMike/next-ride-malaga`) already reads `mh_call_log.transcript_summary` for customer `fa64481f-bf97-409d-88a2-124db87a7389` — no Next Ride deploy.
+
+Existing blank ConvAI rows stay blank until a later completed StatusCallback (or a one-off backfill). New completed calls get a summary when EL has conversation data.
+
+### Success check
+
+- A new inbound ConvAI call that completes with a `conversation_id` has a non-empty `mh_call_log.transcript_summary` (EL analysis text, not "Bridged to…").
+- A whitelist-bridged call still shows `Bridged to +61…` (not overwritten).
+- Next Ride Call Logs show that summary instead of "No summary available."
+- `mh-call-status` still returns 204 with a null body if EL is slow or missing.
+
 ## This branch (outbound task spoken copy)
 
 No new SQL. After the first_message override fix, Glacier outbound Tasks stay connected but the spoken opener pasted the raw TASK brief and the prompt said "the owner asked you to call", so the agent named Nick from the inbound standing prompt.
