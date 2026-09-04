@@ -204,18 +204,19 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
       <div className="flex flex-wrap gap-2 mb-3">
         {whitelist.length === 0 && <span className="text-white/30 text-sm">No whitelisted numbers</span>}
         {whitelist.map(num => (
-          <span key={num} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">
-            {num}
-            <button
-              type="button"
-              onClick={() => removeNumber(num)}
-              disabled={saving}
-              aria-label={`Remove ${num} from whitelist`}
-              className="text-green-300/50 hover:text-white disabled:opacity-40"
-            >
-              <Trash2 size={12} />
-            </button>
-          </span>
+          <button
+            key={num}
+            type="button"
+            onClick={() => removeNumber(num)}
+            disabled={saving}
+            aria-label={`Remove ${num} from whitelist`}
+            className="bg-green-500/20 text-green-300 pl-3 pr-1 min-h-[44px] rounded-full text-sm inline-flex items-center gap-1 hover:bg-green-500/30 disabled:opacity-40 touch-manipulation"
+          >
+            <span>{num}</span>
+            <span className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-green-300/70" aria-hidden="true">
+              <Trash2 size={16} />
+            </span>
+          </button>
         ))}
       </div>
 

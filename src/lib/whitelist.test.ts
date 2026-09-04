@@ -107,3 +107,15 @@ test("Voice trash auto-saves the next whitelist and surfaces PATCH failures", as
   assert.doesNotMatch(section, /function removeNumber\(num: string\) \{\s*setWhitelist\(prev => prev\.filter/);
   assert.match(src, /WhitelistSection key=\{config\?\.id \|\| "none"\}/);
 });
+
+test("Voice whitelist chip is the remove control with a 44px trash hit target", async () => {
+  const src = await readFile(new URL("../pages/Voice.tsx", import.meta.url), "utf8");
+  const section = src.slice(src.indexOf("function WhitelistSection"), src.indexOf("function VoiceSlider"));
+  assert.match(section, /aria-label=\{`Remove \$\{num\} from whitelist`\}/);
+  assert.match(section, /onClick=\{\(\) => removeNumber\(num\)\}/);
+  assert.match(section, /min-h-\[44px\]/);
+  assert.match(section, /min-w-\[44px\]/);
+  assert.match(section, /<Trash2 size=\{16\} \/>/);
+  assert.doesNotMatch(section, /<span key=\{num\} className="bg-green-500\/20/);
+  assert.doesNotMatch(section, /<Trash2 size=\{12\} \/>/);
+});
