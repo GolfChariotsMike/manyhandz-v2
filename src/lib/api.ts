@@ -97,6 +97,7 @@ export type ProfileUpdates = {
   website_url?: string | null;
   industry?: string | null;
   onboarding_complete?: boolean;
+  home_state?: string | null;
   notify_email?: string | null;
   notify_email_enabled?: boolean;
 };

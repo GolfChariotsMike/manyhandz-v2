@@ -1,3 +1,11 @@
+import {
+  AU_STATE_ABBR,
+  AU_STATE_NAMES,
+  digitsPostcode,
+  normalizeHomeState,
+  type AuHomeState,
+} from "../_shared/au-home-state.ts";
+
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -13,6 +21,13 @@ export const FETCH_TIMEOUT_MS = 8000;
 export type DayHours = { open: string; close: string; closed: boolean };
 export type HoursMap = Record<string, DayHours>;
 
+export type ScrapedAuAddress = {
+  home_state: AuHomeState | null;
+  suburb: string | null;
+  postcode: string | null;
+  address: string | null;
+};
+
 export type Extracted = {
   business_name: string | null;
   about: string;
@@ -21,7 +36,7 @@ export type Extracted = {
   hours: HoursMap | null;
   tone: string;
   industry: string | null;
-};
+} & ScrapedAuAddress;
 
 export type ScrapeResult = Extracted & {
   requested_url: string;
@@ -141,6 +156,10 @@ export function normalizeHours(raw: unknown): HoursMap | null {
   return any ? out : null;
 }
 
+export function emptyAddress(): ScrapedAuAddress {
+  return { home_state: null, suburb: null, postcode: null, address: null };
+}
+
 export function emptyExtract(): Extracted {
   return {
     business_name: null,
@@ -150,7 +169,108 @@ export function emptyExtract(): Extracted {
     hours: null,
     tone: "friendly",
     industry: null,
+    ...emptyAddress(),
   };
+}
+
+const STATE_ALT = `${AU_STATE_ABBR}|${Object.keys(AU_STATE_NAMES).join("|")}`;
+const STREET_WORD =
+  "Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Court|Ct|Place|Pl|Crescent|Cres|Lane|Ln|Terrace|Tce|Boulevard|Blvd|Circuit|Cct|Close|Parade|Grove|Rise|Highway|Hwy|Way|Circle|Cir|Esplanade|Esp|Mall|Row|Mews|Walk|Loop|Square|Sq";
+const ADDRESS_CUE =
+  /\b(address|located|visit us|find us|come see us|our (?:office|workshop|showroom|depot)|based in|head office|contact)\b/i;
+
+function uniqueStates(rows: ScrapedAuAddress[]): AuHomeState[] {
+  return [...new Set(rows.map((row) => row.home_state).filter((s): s is AuHomeState => Boolean(s)))];
+}
+
+/**
+ * Pull an explicit AU business address from contact / footer / about copy.
+ * Never invent: only state/suburb/postcode that are clearly written.
+ */
+export function extractAuBusinessAddress(text: string): ScrapedAuAddress {
+  const empty = emptyAddress();
+  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return empty;
+
+  const fullRe = new RegExp(
+    `(\\d+[A-Za-z]?(?:\\s*[-/]\\s*\\d+[A-Za-z]?)?\\s+[^,.]{0,48}?\\b(?:${STREET_WORD})\\b[,\\s]+)?` +
+      `([A-Za-z][A-Za-z0-9'’\\- ]{1,40}?)\\s+(${STATE_ALT})\\s+(\\d{4})\\b`,
+    "gi",
+  );
+  const fullHits: ScrapedAuAddress[] = [];
+  for (const m of cleaned.matchAll(fullRe)) {
+    const state = normalizeHomeState(m[3]);
+    const postcode = digitsPostcode(m[4]);
+    if (!state || !postcode) continue;
+    const street = (m[1] || "").replace(/[,\s]+$/g, "").trim();
+    const suburb = (m[2] || "").replace(/[,\s]+$/g, "").trim();
+    fullHits.push({
+      home_state: state,
+      suburb: suburb || null,
+      postcode,
+      address: [street, suburb, state, postcode].filter(Boolean).join(", "),
+    });
+  }
+  if (fullHits.length === 1) return fullHits[0];
+  if (fullHits.length > 1) {
+    const states = uniqueStates(fullHits);
+    return states.length === 1 ? fullHits[0] : empty;
+  }
+
+  const suburbStateRe = new RegExp(
+    `\\b([A-Za-z][A-Za-z0-9'’\\-]{1,24}(?:\\s+[A-Za-z][A-Za-z0-9'’\\-]{1,24}){0,3})[,\\s]+(${STATE_ALT})\\b`,
+    "gi",
+  );
+  const suburbHits: ScrapedAuAddress[] = [];
+  for (const m of cleaned.matchAll(suburbStateRe)) {
+    const state = normalizeHomeState(m[2]);
+    let suburb = (m[1] || "").replace(/[,\s]+$/g, "").trim();
+    const drop = /^(?:proudly|based|located|in|at|our|the|from|serving|across|throughout|office|visit|find|see|us|and|or|we|of)$/i;
+    suburb = suburb.split(/\s+/).filter((word) => !drop.test(word)).join(" ").trim();
+    if (!state || !suburb) continue;
+    suburbHits.push({
+      home_state: state,
+      suburb,
+      postcode: null,
+      address: `${suburb}, ${state}`,
+    });
+  }
+  if (suburbHits.length === 1) return suburbHits[0];
+  if (suburbHits.length > 1 && uniqueStates(suburbHits).length === 1) return suburbHits[0];
+
+  if (!ADDRESS_CUE.test(cleaned)) return empty;
+  const mentioned: AuHomeState[] = [];
+  const mentionRe = new RegExp(`\\b(${STATE_ALT})\\b`, "gi");
+  for (const m of cleaned.matchAll(mentionRe)) {
+    const state = normalizeHomeState(m[1]);
+    if (state) mentioned.push(state);
+  }
+  const unique = [...new Set(mentioned)];
+  if (unique.length !== 1) return empty;
+  return { home_state: unique[0], suburb: null, postcode: null, address: null };
+}
+
+export function mergeScrapedAddress(
+  fromPage: ScrapedAuAddress,
+  fromLlm: Partial<Extracted>,
+): ScrapedAuAddress {
+  const llmState = normalizeHomeState(fromLlm.home_state);
+  const llm: ScrapedAuAddress = {
+    home_state: llmState,
+    suburb: typeof fromLlm.suburb === "string" && fromLlm.suburb.trim() ? fromLlm.suburb.trim() : null,
+    postcode: digitsPostcode(String(fromLlm.postcode || "")) || null,
+    address: typeof fromLlm.address === "string" && fromLlm.address.trim() ? fromLlm.address.trim() : null,
+  };
+  if (fromPage.home_state) {
+    return {
+      home_state: fromPage.home_state,
+      suburb: fromPage.suburb || llm.suburb,
+      postcode: fromPage.postcode || llm.postcode,
+      address: fromPage.address || llm.address,
+    };
+  }
+  if (llm.home_state) return llm;
+  return fromPage;
 }
 
 export function parseLlmJson(content: string): Extracted {
@@ -174,6 +294,10 @@ export function parseLlmJson(content: string): Extracted {
       hours: normalizeHours(parsed.hours),
       tone: typeof parsed.tone === "string" && parsed.tone ? parsed.tone : "friendly",
       industry: typeof parsed.industry === "string" ? parsed.industry : null,
+      home_state: normalizeHomeState(parsed.home_state),
+      suburb: typeof parsed.suburb === "string" && parsed.suburb.trim() ? parsed.suburb.trim() : null,
+      postcode: digitsPostcode(String(parsed.postcode || "")) || null,
+      address: typeof parsed.address === "string" && parsed.address.trim() ? parsed.address.trim() : null,
     };
   } catch {
     return fallback;
@@ -206,8 +330,9 @@ export async function scrapeSite(url: string, deps: ScrapeDeps): Promise<ScrapeR
 
   // Empty SPA shells / failed fetches used to still send Site+Title to DeepSeek,
   // which then invented a different business. Do not call the model without real text
-  // from the site they typed.
-  if (thin_content || host_mismatch || !deps.extractWithLlm) {
+  // from the site they typed. Address can still be read from real page copy
+  // without the model — never invent one.
+  if (thin_content || host_mismatch) {
     return {
       ...emptyExtract(),
       requested_url,
@@ -217,15 +342,20 @@ export async function scrapeSite(url: string, deps: ScrapeDeps): Promise<ScrapeR
     };
   }
 
-  const extracted = await deps.extractWithLlm({
-    site: requested_url,
-    title,
-    description,
-    text: allText,
-  });
+  const fromPage = extractAuBusinessAddress(allText);
+  const extracted = deps.extractWithLlm
+    ? await deps.extractWithLlm({
+      site: requested_url,
+      title,
+      description,
+      text: allText,
+    })
+    : emptyExtract();
+  const address = mergeScrapedAddress(fromPage, extracted);
 
   return {
     ...extracted,
+    ...address,
     services: extracted.services || [],
     faqs: extracted.faqs || [],
     hours: extracted.hours ? normalizeHours(extracted.hours) : null,
@@ -270,6 +400,8 @@ CRITICAL RULES:
 - For FAQs, only include questions that are actually answered in the content
 - hours MUST be an object of days, each { open, close, closed } using 24h HH:MM, or null
 - Never describe a different business than the one in the page content
+- For address fields, only use an explicit Australian business address from contact, footer, or about copy. Do not guess from service areas.
+- home_state must be one of NSW, VIC, QLD, SA, WA, TAS, ACT, NT, or null
 
 Return JSON only:
 {
@@ -282,7 +414,11 @@ Return JSON only:
     "sunday": { "open": "", "close": "", "closed": true }
   },
   "tone": "formal|friendly|casual",
-  "industry": "string or null"
+  "industry": "string or null",
+  "home_state": "NSW|VIC|QLD|SA|WA|TAS|ACT|NT or null",
+  "suburb": "suburb only if clearly stated, else null",
+  "postcode": "4-digit postcode only if clearly stated, else null",
+  "address": "full street address only if clearly stated, else null"
 }`;
 }
 

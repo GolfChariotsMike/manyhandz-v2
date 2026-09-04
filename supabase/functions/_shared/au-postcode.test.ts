@@ -120,19 +120,41 @@ test("full address that already contains a postcode keeps it and does not overwr
   assert.equal(inferred.postalCode, "2000");
 });
 
-test("ambiguous or failed lookup does not invent a postcode; AU still defaults State to WA", () => {
+test("ambiguous or failed lookup does not invent a postcode or force WA", () => {
   const perth = enrichAuSiteAddress(parts("Perth"));
   assert.equal(perth.postalCode, "");
-  assert.equal(perth.state, "WA");
+  assert.equal(perth.state, "");
 
   const streetOnly = enrichAuSiteAddress(parts("67 Mars Street"));
   assert.equal(streetOnly.city, "");
   assert.equal(streetOnly.postalCode, "");
-  assert.equal(streetOnly.state, "WA");
+  assert.equal(streetOnly.state, "");
 
   const unknown = enrichAuSiteAddress(parts("12 Imaginary Blvd Atlantis"));
   assert.equal(unknown.postalCode, "");
-  assert.equal(unknown.state, "WA");
+  assert.equal(unknown.state, "");
+});
+
+test("enrichAuSiteAddress uses home_state for SA Rundle Mall and does not force WA on VIC", () => {
+  const rundle = enrichAuSiteAddress(parts("Rundle Mall Adelaide"), "AU", "SA");
+  assert.equal(rundle.state, "SA");
+  assert.equal(rundle.postalCode, "5000");
+
+  const vicStreet = enrichAuSiteAddress(parts("67 Mars Street"), "AU", "VIC");
+  assert.equal(vicStreet.state, "VIC");
+  assert.equal(vicStreet.postalCode, "");
+
+  const vicMalaga = enrichAuSiteAddress(parts("12 Frost St Malaga"), "AU", "VIC");
+  assert.equal(vicMalaga.state, "VIC");
+  assert.equal(vicMalaga.postalCode, "");
+
+  const spokenNsw = enrichAuSiteAddress(parts("1 George St, Sydney NSW 2000"), "AU", "WA");
+  assert.equal(spokenNsw.state, "NSW");
+  assert.equal(spokenNsw.postalCode, "2000");
+
+  const missing = enrichAuSiteAddress(parts("67 Mars Street"), "AU", null);
+  assert.equal(missing.state, "");
+  assert.equal(missing.postalCode, "");
 });
 
 test("US market does not default WA or guess an Australian postcode", () => {

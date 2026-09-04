@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
       loadSmsConfirmContext: async (customerId) => {
         const [{ data: customer }, { data: voice }] = await Promise.all([
           admin.from("mh_v2_customers")
-            .select("twilio_number,business_name,country")
+            .select("twilio_number,business_name,country,home_state")
             .eq("id", customerId)
             .maybeSingle(),
           admin.from("mh_voice_config")
@@ -93,6 +93,7 @@ Deno.serve(async (req) => {
         return {
           cap_send_sms: voice?.cap_send_sms ?? true,
           country: customer?.country ?? null,
+          home_state: customer?.home_state ?? null,
           twilio_number: customer?.twilio_number ?? null,
           business_name: customer?.business_name ?? null,
         };

@@ -101,6 +101,7 @@ function envFor(opts: {
   smsConfirm?: {
     capSendSms?: boolean;
     country?: string | null;
+    homeState?: string | null;
     twilioNumber?: string | null;
     businessName?: string | null;
   } | false;
@@ -155,6 +156,7 @@ function envFor(opts: {
         loadSmsConfirmContext: async () => ({
           cap_send_sms: confirm.capSendSms ?? true,
           country: confirm.country ?? "AU",
+          home_state: confirm.homeState === undefined ? "WA" : confirm.homeState,
           twilio_number: confirm.twilioNumber === undefined ? "+61485000000" : confirm.twilioNumber,
           business_name: confirm.businessName ?? "Glacier Air",
         }),
@@ -502,7 +504,7 @@ test("createSimproJob Micycle-style street+suburb POSTs individual createSite th
   assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
 });
 
-test("simproAddressBody fills WA postcode for spoken street+suburb and keeps a full AU address", () => {
+test("simproAddressBody fills unique suburb postcode and keeps a full AU address", () => {
   const inferred = simproAddressBody("37 Derictoe Way Greenwood");
   assert.equal(inferred.State, "WA");
   assert.equal(inferred.PostalCode, "6024");
@@ -510,11 +512,28 @@ test("simproAddressBody fills WA postcode for spoken street+suburb and keeps a f
   assert.equal(given.State, "WA");
   assert.equal(given.PostalCode, "6090");
   const failed = simproAddressBody("67 Mars Street");
-  assert.equal(failed.State, "WA");
+  assert.equal(failed.State, "");
   assert.equal(failed.PostalCode, "");
+  const glacier = simproAddressBody("67 Mars Street", "AU", "WA");
+  assert.equal(glacier.State, "WA");
+  assert.equal(glacier.PostalCode, "");
   const us = simproAddressBody("37 Derictoe Way Greenwood", "US");
   assert.equal(us.State, "");
   assert.equal(us.PostalCode, "");
+});
+
+test("simproAddressBody uses customer home_state and prefers spoken state", () => {
+  const sa = simproAddressBody("Rundle Mall Adelaide", "AU", "SA");
+  assert.equal(sa.State, "SA");
+  assert.equal(sa.PostalCode, "5000");
+  const vic = simproAddressBody("67 Mars Street", "AU", "VIC");
+  assert.equal(vic.State, "VIC");
+  assert.equal(vic.PostalCode, "");
+  const spoken = simproAddressBody("1 George St, Sydney NSW 2000", "AU", "WA");
+  assert.equal(spoken.State, "NSW");
+  assert.equal(spoken.PostalCode, "2000");
+  const missing = simproAddressBody("67 Mars Street", "AU", null);
+  assert.equal(missing.State, "");
 });
 
 test("createSimproJob new customer without postcode still POSTs inferred WA address", async () => {
@@ -642,6 +661,117 @@ test("createSimproJob US market does not force WA or invent an AU postcode", asy
   assert.equal(customerAddress?.State, "");
   assert.equal(customerAddress?.PostalCode, "");
   assert.equal(customerAddress?.City, "Greenwood");
+});
+
+test("createSimproJob SA home_state fills Rundle Mall and VIC does not get WA", async () => {
+  const conn = await connected();
+  let saAddress: Record<string, string> | null = null;
+  const sa = envFor({
+    connection: conn,
+    smsConfirm: { homeState: "SA" },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 51, Name: "Rundle Mall", Address: { Address: "Rundle Mall", City: "Adelaide", State: "SA" } }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        saAddress = body.Address;
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+  const saResult = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Adelaide",
+    caller_phone: "+61411122333",
+    site_address: "Rundle Mall Adelaide",
+    description: "Split install",
+  }, sa.env);
+  if (!saResult.ok) throw new Error(saResult.error);
+  assert.equal(saAddress?.State, "SA");
+  assert.equal(saAddress?.PostalCode, "5000");
+
+  let vicAddress: Record<string, string> | null = null;
+  const vic = envFor({
+    connection: conn,
+    smsConfirm: { homeState: "VIC" },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 51, Name: "67 Mars Street" }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        vicAddress = body.Address;
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+  const vicResult = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Melbourne",
+    caller_phone: "+61411122334",
+    site_address: "67 Mars Street",
+    description: "Install",
+  }, vic.env);
+  if (!vicResult.ok) throw new Error(vicResult.error);
+  assert.equal(vicAddress?.State, "VIC");
+  assert.equal(vicAddress?.PostalCode, "");
+
+  let missingAddress: Record<string, string> | null = null;
+  const missing = envFor({
+    connection: conn,
+    smsConfirm: { homeState: null },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 51, Name: "67 Mars Street" }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        missingAddress = body.Address;
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/sites/") && method === "POST") {
+        return new Response("must not POST a second site", { status: 500 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return new Response("unexpected " + method + " " + url, { status: 500 });
+    },
+  });
+  const missingResult = await createSimproJob({
+    customer_id: CUST,
+    caller_name: "Sam Unknown",
+    caller_phone: "+61411122335",
+    site_address: "67 Mars Street",
+    description: "Install",
+  }, missing.env);
+  if (!missingResult.ok) throw new Error(missingResult.error);
+  assert.equal(missingAddress?.State, "");
+  assert.equal(missingAddress?.PostalCode, "");
 });
 
 test("createSimproJob 201 Location-only still yields customer and lead IDs", async () => {
@@ -2690,6 +2820,7 @@ test("encrypt/decrypt matches the live connect wrap and index has no secrets", a
   assert.match(src, /notify_email_enabled/);
   assert.match(src, /mh_sms_confirms/);
   assert.match(src, /loadSmsConfirmContext/);
+  assert.match(src, /home_state/);
   assert.match(src, /cap_send_sms/);
   assert.equal(/sk_|client_secret\s*[:=]\s*['"][^'"]+['"]/.test(src), false);
   assert.doesNotMatch(src, /Tradify/i);

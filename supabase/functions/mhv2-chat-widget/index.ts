@@ -85,7 +85,7 @@ function supabaseStore(): ChatStore {
     async loadCustomer(customerId) {
       const { data } = await supabase
         .from("mh_v2_customers")
-        .select("email,notify_email,notify_email_enabled,business_name,twilio_number,country")
+        .select("email,notify_email,notify_email_enabled,business_name,twilio_number,country,home_state")
         .eq("id", customerId)
         .maybeSingle();
       return data;

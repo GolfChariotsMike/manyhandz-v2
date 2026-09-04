@@ -1,3 +1,11 @@
+import {
+  AU_HOME_STATES,
+  normalizeHomeState,
+  type AuHomeState,
+} from "../../supabase/functions/_shared/au-home-state.ts";
+
+export { AU_HOME_STATES, normalizeHomeState, type AuHomeState };
+
 export const ONBOARDING_STORAGE_KEY = "mh_onboarding_state";
 
 export type OnboardingDraft = {
@@ -12,6 +20,7 @@ export type OnboardingDraft = {
   faqs?: { q: string; a: string }[];
   hours?: unknown;
   tone?: string;
+  homeState?: string | null;
   provisionedNumber?: string;
   noWebsite?: boolean;
   notifyMobile?: string;
@@ -203,23 +212,34 @@ export function signupWebsitePlaceholder(country?: string | null): string {
   return normalizeMarket(country) === "US" ? "yoursite.com" : "yoursite.com.au";
 }
 
+export function homeStatePayloadFromForm(
+  homeState?: string | null,
+): { home_state: AuHomeState | null } {
+  return { home_state: normalizeHomeState(homeState) };
+}
+
 export function profileUpdatesFromForm(input: {
   businessName: string;
   website: string;
   industry: string;
   onboardingComplete?: boolean;
+  homeState?: string | null;
 }) {
   const updates: {
     business_name: string;
     website_url: string | null;
     industry: string | null;
     onboarding_complete?: boolean;
+    home_state?: AuHomeState | null;
   } = {
     business_name: input.businessName,
     website_url: input.website || null,
     industry: input.industry || null,
   };
   if (input.onboardingComplete) updates.onboarding_complete = true;
+  if (input.homeState !== undefined) {
+    updates.home_state = normalizeHomeState(input.homeState);
+  }
   return updates;
 }
 

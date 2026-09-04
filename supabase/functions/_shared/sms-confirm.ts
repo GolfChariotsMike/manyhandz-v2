@@ -33,6 +33,7 @@ export type SmsConfirmPending = {
 export type SmsConfirmContext = {
   cap_send_sms?: boolean | null;
   country?: string | null;
+  home_state?: string | null;
   twilio_number?: string | null;
   business_name?: string | null;
 };
