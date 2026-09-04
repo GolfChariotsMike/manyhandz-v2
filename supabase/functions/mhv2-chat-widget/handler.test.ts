@@ -882,6 +882,54 @@ test("yes-please does not force-create when lookup needs a site pick", async () 
   assert.match(String(body.reply), /Which site/);
 });
 
+test("does not re-ask Frank to confirm a service description he already gave", async () => {
+  const { env } = envFor({
+    data: defaultData({
+      customer: { business_name: "Glacier Air", twilio_number: "+61485000000", country: "AU" },
+      session: {
+        id: "sess-1",
+        messages: [
+          { role: "user", content: "looking to get a service technician to look at my Fujitsu air conditioner." },
+          { role: "assistant", content: "I can help book that. What's your mobile?" },
+          { role: "user", content: "F-A95 fault." },
+        ],
+      },
+    }),
+    claude: [{
+      stop_reason: "end_turn",
+      content: [{ type: "text", text: "Could you please confirm the service description for the booking?" }],
+    }],
+    executors: {
+      lookupSimproCustomer: async () => ({
+        ok: true,
+        found: true,
+        match: "phone",
+        customer: { id: 4715, name: "Glacier Frank", isCompany: false },
+        sites: [{ id: 12, name: "Collingwood", address: "Collingwood" }],
+        need_site_choice: false,
+        message: "hit",
+      }),
+      createSimproJob: async () => {
+        throw new Error("must not create while rewriting a description re-ask");
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  });
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ embed_key: EMBED, session_key: SESSION, message: "0433 121 933" }),
+    }),
+    env,
+  );
+  const { body } = await jsonOf(res);
+  assert.match(String(body.reply), /Glacier Frank/);
+  assert.doesNotMatch(String(body.reply), /confirm the service description/i);
+  assert.doesNotMatch(String(body.reply), /short description of the service/i);
+});
+
 test("does not re-ask for a work description the visitor already gave", async () => {
   const { env } = envFor({
     data: defaultData({

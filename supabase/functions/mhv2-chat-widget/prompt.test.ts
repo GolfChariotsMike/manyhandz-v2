@@ -60,7 +60,9 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /SIMPRO LEADS/);
   assert.match(on, /Do not tell them the lead number/);
   assert.match(on, /already said the fault or work/);
-  assert.match(on, /Only ask for a short description if it is still missing/);
+  assert.match(on, /F-A95 fault/);
+  assert.match(on, /short description of the service needed/);
+  assert.match(on, /Only ask if description is still missing|Only ask for a short description if it is still missing/);
   assert.doesNotMatch(on, /If the tool returns a lead number/);
   assert.match(on, /do not pretend a lead was created/i);
   assert.match(on, /the function notifies/);

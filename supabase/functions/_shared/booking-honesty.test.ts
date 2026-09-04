@@ -111,4 +111,9 @@ test("miss-path uses the existing-customer question", () => {
   assert.doesNotMatch(lookupHitSpokenReply("Glacier Frank", ["12 Frost St"], true), /What work do you need done/);
   assert.match(alreadyCollectedRule("voice"), /that IS the description/i);
   assert.match(alreadyCollectedRule("voice"), /Only ask if description is still missing/);
+  assert.match(alreadyCollectedRule("voice"), /F-A95 fault/);
+  assert.match(alreadyCollectedRule("voice"), /short description of the service needed/);
+  assert.match(alreadyCollectedRule("voice"), /confirm the service description/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /F-A95 fault/);
+  assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /do not ask for a short description of the service needed/);
 });

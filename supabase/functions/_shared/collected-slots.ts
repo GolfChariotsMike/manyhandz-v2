@@ -22,7 +22,7 @@ const NAME_PREFIX =
   /(?:my name is|i(?:'m| am)|it'?s|this is|name is|name[:\s]+)\s*([A-Z][a-zA-Z'-]+(?:\s+[A-Z][a-zA-Z'-]+){1,3})/i;
 
 const SERVICE_HINT =
-  /\b(split\s*system|air\s*con|aircon|air-con|clean|install|repair|service|quote|indoor|outdoor|ducted|evaporative|hot water|heat pump|not cooling|leaking|book|fault|broken|not working|technician|tech to look|look at|looked at)\b/i;
+  /\b(split\s*system|air\s*con|aircon|air-con|air conditioner|fujitsu|clean|install|repair|service|quote|indoor|outdoor|ducted|evaporative|hot water|heat pump|not cooling|leaking|book|fault|broken|not working|technician|tech to look|look at|looked at)\b/i;
 
 const CONFIRM_ONLY =
   /^\s*(yes(?:\s+please)?|yeah|yep|yup|please|ok(?:ay)?|sure|go ahead|do it|book (?:it|me|us)|please book|confirm)[\s!.]*$/i;
@@ -132,7 +132,7 @@ export function asksNameOrAddress(text: string): boolean {
 }
 
 export function asksWorkDescription(text: string): boolean {
-  return /what work (do you need|is needed|would you like)|service description|describe (the )?(work|fault|issue|problem)|what(?:'s| is) (the )?(fault|issue|problem|job)|what do you need (done|us to|looked)|what(?:'s| is) the (?:work|job) description/i.test(
+  return /what work (do you need|is needed|would you like)|service description|short description of the (?:service|work)|description of the service needed|confirm (?:the )?(?:service |work )?description|describe (the )?(work|fault|issue|problem)|what(?:'s| is) (the )?(fault|issue|problem|job)|what do you need (done|us to|looked)|what(?:'s| is) the (?:work|job) description/i.test(
     String(text || ""),
   );
 }
@@ -168,7 +168,12 @@ export function collectSlots(turns: ChatTurn[], country?: string | null): Collec
       const site = extractSiteFromText(text);
       if (site) slots.site = site;
       const desc = jobDescriptionFromUser(text, country);
-      if (desc) slots.description = desc;
+      if (desc) {
+        if (!slots.description) slots.description = desc;
+        else if (!slots.description.toLowerCase().includes(desc.toLowerCase())) {
+          slots.description = `${slots.description.replace(/[.\s]+$/, "")}. ${desc}`;
+        }
+      }
     }
     if (turn.role === "assistant") {
       const quote = extractQuoteFromText(text);
