@@ -8,6 +8,13 @@ import { aiNamePlaceholder, aiNameSavePayload, resolveAiName } from "../lib/ai-n
 import { closingMessagePlaceholder, greetingSettingsDbPatch } from "../lib/closing-message";
 import { returnToAiPromptDbPatch, returnToAiPromptPlaceholder } from "../lib/return-to-ai-prompt";
 import {
+  addWhitelistNumber,
+  normalizeWhitelist,
+  removeWhitelistNumber,
+  whitelistDbPatch,
+  whitelistSaveError,
+} from "../lib/whitelist";
+import {
   previewVoiceSettings,
   updateAgentVoicePayload,
   voiceConfigDbPatch,
@@ -136,32 +143,39 @@ function CallLog({ calls }: { calls: any[] }) {
 }
 
 function WhitelistSection({ config, customerId, anon, url }: { config: any, customerId?: string, anon: string, url: string }) {
-  const [whitelist, setWhitelist] = useState<string[]>(config?.whitelist || []);
+  const [whitelist, setWhitelist] = useState<string[]>(() => normalizeWhitelist(config?.whitelist));
   const [bridge, setBridge] = useState(config?.bridge_to_number || "");
   const [newNum, setNewNum] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   function addNumber() {
-    const n = newNum.trim();
-    if (!n || whitelist.includes(n)) return;
-    setWhitelist(prev => [...prev, n]);
+    const next = addWhitelistNumber(whitelist, newNum);
+    if (!next) return;
+    setWhitelist(next);
     setNewNum("");
+    setError("");
   }
 
-  function removeNumber(num: string) {
-    setWhitelist(prev => prev.filter(x => x !== num));
-  }
-
-  async function handleSave() {
-    if (!config?.id) return;
+  async function persistWhitelist(nextWhitelist: string[], nextBridge: string) {
+    if (!config?.id) {
+      setError("Could not save whitelist. Reload and try again.");
+      return false;
+    }
     setSaving(true);
+    setError("");
+    setSaved(false);
     try {
-      await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
+      const res = await fetch(`${url}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
         method: "PATCH",
         headers: { "apikey": anon, "Authorization": `Bearer ${anon}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ whitelist, bridge_to_number: bridge || null }),
+        body: JSON.stringify(whitelistDbPatch(nextWhitelist, nextBridge)),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(whitelistSaveError(res.status, data));
+      }
       if (customerId) {
         await fetch(`${url}/functions/v1/mh-sync-agent`, {
           method: "POST",
@@ -171,21 +185,47 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+      return true;
+    } catch (e: any) {
+      setError(e.message || "Could not save whitelist. Please try again.");
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function removeNumber(num: string) {
+    const previous = whitelist;
+    const next = removeWhitelistNumber(whitelist, num);
+    if (next.length === previous.length) return;
+    setWhitelist(next);
+    const ok = await persistWhitelist(next, bridge);
+    if (!ok) setWhitelist(previous);
+  }
+
+  async function handleSave() {
+    await persistWhitelist(whitelist, bridge);
   }
 
   return (
     <div className="aurora-card p-6 mb-8">
       <h3 className="font-semibold mb-1">Whitelist</h3>
-      <p className="text-sm text-white/50 mb-4">Numbers on this list bypass the AI and connect directly to your bridge number.</p>
+      <p className="text-sm text-white/50 mb-4">Numbers on this list bypass the AI and connect directly to your bridge number. Removing a number saves immediately.</p>
 
       <div className="flex flex-wrap gap-2 mb-3">
         {whitelist.length === 0 && <span className="text-white/30 text-sm">No whitelisted numbers</span>}
         {whitelist.map(num => (
           <span key={num} className="bg-green-500/20 text-green-300 px-3 py-1 rounded-full text-sm flex items-center gap-2">
             {num}
-            <button onClick={() => removeNumber(num)} className="text-green-300/50 hover:text-white"><Trash2 size={12} /></button>
+            <button
+              type="button"
+              onClick={() => removeNumber(num)}
+              disabled={saving}
+              aria-label={`Remove ${num} from whitelist`}
+              className="text-green-300/50 hover:text-white disabled:opacity-40"
+            >
+              <Trash2 size={12} />
+            </button>
           </span>
         ))}
       </div>
@@ -198,7 +238,7 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
           placeholder="+61400000000"
           className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-white placeholder-white/30 outline-none focus:border-violet-500"
         />
-        <button onClick={addNumber} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} /> Add</button>
+        <button type="button" onClick={addNumber} className="btn-secondary text-sm flex items-center gap-1"><Plus size={14} /> Add</button>
       </div>
 
       <div className="mb-5">
@@ -212,10 +252,11 @@ function WhitelistSection({ config, customerId, anon, url }: { config: any, cust
         />
       </div>
 
-      <button onClick={handleSave} disabled={saving || !config?.id} className="btn-primary text-sm flex items-center gap-2">
+      <button type="button" onClick={handleSave} disabled={saving || !config?.id} className="btn-primary text-sm flex items-center gap-2">
         {saving ? <Loader size={14} className="animate-spin" /> : saved ? <Check size={14} /> : null}
         {saved ? "Saved!" : saving ? "Saving..." : "Save whitelist"}
       </button>
+      {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
     </div>
   );
 }
@@ -830,7 +871,7 @@ export default function Voice() {
       </div>
 
       {/* Whitelist + Bridge */}
-      <WhitelistSection config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
+      <WhitelistSection key={config?.id || "none"} config={config} customerId={customer?.id} anon={SUPABASE_ANON_KEY} url={SUPABASE_URL} />
 
       {/* Call log */}
       <CallLog calls={calls} />
