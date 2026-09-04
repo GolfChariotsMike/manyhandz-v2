@@ -471,7 +471,12 @@ export async function handleOutboundTwiml(req: Request, env: OutboundTaskEnv): P
     })),
   });
   const twiml = await elRes.text();
-  if (!elRes.ok || !twiml.includes("<Response")) return xml(FALLBACK_TWIML);
+  if (!elRes.ok || !twiml.includes("<Response")) {
+    console.error(
+      `[mh-outbound-task] register-call failed task=${taskId} agent=${customer.el_agent_id} status=${elRes.status} body=${twiml.slice(0, 800)}`,
+    );
+    return xml(FALLBACK_TWIML);
+  }
   const conversationId = conversationIdFromTwiml(twiml);
   if (conversationId) {
     await patchTask(env, task.id, { conversation_id: conversationId });
@@ -602,8 +607,7 @@ export async function handleRequest(req: Request, env: OutboundTaskEnv): Promise
     try {
       return await handleOutboundTwiml(req, env);
     } catch (err) {
-      console.error("[mh-outbound-task] twiml failed");
-      void err;
+      console.error("[mh-outbound-task] twiml failed", err);
       return xml(FALLBACK_TWIML);
     }
   }
