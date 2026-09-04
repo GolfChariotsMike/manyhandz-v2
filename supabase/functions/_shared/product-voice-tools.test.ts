@@ -6,7 +6,7 @@ import {
   mergeSimproBookingTools,
 } from "./product-voice-tools.ts";
 
-test("product voice tools are lookup + create + save + transfer + sms on a generic id", () => {
+test("product voice tools are lookup + create + save + transfer + sms + outbound tasks on a generic id", () => {
   const tools = mergeProductVoiceTools("https://example.supabase.co", "cust-acme-0001");
   const names = tools.map((t) => String((t as { name?: unknown }).name || ""));
   assert.deepEqual(
@@ -16,6 +16,7 @@ test("product voice tools are lookup + create + save + transfer + sms on a gener
   assert.equal(names.includes("end_call"), false);
   assert.equal(names.some((n) => /grok|tradify/i.test(n)), false);
   assert.match(JSON.stringify(tools), /customer_id=cust-acme-0001/);
+  assert.match(JSON.stringify(tools), /mh-outbound-task\/create\?customer_id=cust-acme-0001/);
   assert.doesNotMatch(JSON.stringify(tools), /a77816d9-3b5f-4635-a77d-095e767a532e/);
 });
 

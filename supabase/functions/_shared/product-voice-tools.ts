@@ -12,6 +12,11 @@ import {
 import { mergeSaveMessageTool, saveMessageUrl } from "./save-message-tool.ts";
 import { mergeSendSmsTool, sendSmsUrl } from "./send-sms-tool.ts";
 import {
+  createOutboundTaskUrl,
+  mergeOutboundTaskTools,
+  reportOutboundResultUrl,
+} from "./outbound-task-tool.ts";
+import {
   mergeTransferToStaffTool,
   staffTransferEnabled,
   transferToStaffUrl,
@@ -35,7 +40,7 @@ export function mergeSimproBookingTools(
   );
 }
 
-/** save_message + transfer_to_staff + send_sms — same defaults as Glacier. */
+/** save_message + transfer_to_staff + send_sms + outbound tasks — same defaults as Glacier. */
 export function mergeCoreReceptionistTools(
   tools: unknown,
   supabaseUrl: string,
@@ -48,7 +53,12 @@ export function mergeCoreReceptionistTools(
     transferToStaffUrl(supabaseUrl, customerId),
     staffTransferEnabled(caps.capTransferCalls, caps.bridgeToNumber),
   );
-  return mergeSendSmsTool(withTransfer, sendSmsUrl(supabaseUrl, customerId), caps.capSendSms ?? true);
+  const withSms = mergeSendSmsTool(withTransfer, sendSmsUrl(supabaseUrl, customerId), caps.capSendSms ?? true);
+  return mergeOutboundTaskTools(
+    withSms,
+    createOutboundTaskUrl(supabaseUrl, customerId),
+    reportOutboundResultUrl(supabaseUrl, customerId),
+  );
 }
 
 /** Full product toolset for a brand-new agent (no connector extras yet). */
@@ -72,4 +82,6 @@ export const PRODUCT_VOICE_TOOL_NAMES = [
   "save_message",
   "transfer_to_staff",
   "send_sms",
+  "create_outbound_task",
+  "report_outbound_result",
 ] as const;

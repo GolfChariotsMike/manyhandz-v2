@@ -129,7 +129,7 @@ test("old provision stub is leftover so a new account recomposes", () => {
 test("provision tools match Glacier product tools on a generic customer id", () => {
   const tools = provisionAgentTools(SUPABASE, ACME_ID);
   const names = toolNames(tools);
-  for (const name of ["lookup_simpro_customer", "create_simpro_job", "save_message", "transfer_to_staff", "send_sms", "end_call"]) {
+  for (const name of ["lookup_simpro_customer", "create_simpro_job", "save_message", "transfer_to_staff", "send_sms", "create_outbound_task", "report_outbound_result", "end_call"]) {
     assert.equal(names.includes(name), true, `missing ${name}`);
   }
   assert.equal(names.includes("grokbot"), false);

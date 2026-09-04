@@ -10,6 +10,7 @@ import {
   patchSimproCustomerDetails,
   type SimproConnection,
 } from "../mhv2-simpro-create-job/create.ts";
+import { handleOwnerSmsTask, type OutboundTaskEnv } from "../mh-outbound-task/handler.ts";
 import { handleInboundSms, parseTwilioSms, twimlMessage, INACTIVE_REPLY } from "./inbound.ts";
 
 const corsHeaders = {
@@ -185,6 +186,20 @@ Deno.serve(async (req) => {
           return { name: result.customer.name };
         }
         return null;
+      },
+      handleOutboundTaskSms: async (input) => {
+        const taskEnv: OutboundTaskEnv = {
+          now: () => new Date(),
+          fetch: globalThis.fetch.bind(globalThis),
+          jwtSecret: Deno.env.get("MH_JWT_SECRET") || "mh-v2-secret-key-change-in-prod",
+          supabaseUrl,
+          serviceKey,
+          twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
+          twilioToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
+          fallbackFrom: Deno.env.get("MANYHANDZ_SMS_FROM") || Deno.env.get("TWILIO_SMS_FROM") || "",
+          elApiKey: Deno.env.get("ELEVENLABS_API_KEY") || Deno.env.get("EL_API_KEY") || "",
+        };
+        return handleOwnerSmsTask(taskEnv, input);
       },
       applySmsCorrection: async (pending, correction) => {
         const encryptionKey = Deno.env.get("ENCRYPTION_KEY") || "";
