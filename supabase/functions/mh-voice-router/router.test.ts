@@ -4,11 +4,16 @@ import { test } from "node:test";
 import {
   CALL_SIDS_TABLE,
   FALLBACK_TWIML,
+  WHITELIST_UNCONFIGURED_TWIML,
   accountSuspended,
+  bridgeDialTwiml,
   conversationIdFromTwiml,
   handleVoiceRouter,
   inboundLogLine,
+  isWhitelistedCaller,
+  normalizeBridgeNumber,
   parseTwilioVoice,
+  parseWhitelist,
   registerCallBody,
   voiceCallerId,
   type VoiceRouterEnv,
@@ -16,6 +21,7 @@ import {
 
 const GLACIER_TO = "+61468164301";
 const MIKE = "+61433121933";
+const BRIDGE = "+61422962169";
 const AGENT = "agent_glacier";
 const CUST = "cust-glacier";
 const SIGNED_TWIML =
@@ -35,6 +41,7 @@ function post(fields: Record<string, string>): Request {
 
 function envFor(opts?: {
   customer?: Record<string, unknown> | null;
+  voiceConfig?: { whitelist?: unknown; bridge_to_number?: string | null } | null;
 }): {
   env: VoiceRouterEnv;
   writes: Array<{ method: string; url: string; body: Record<string, unknown> | null }>;
@@ -66,6 +73,11 @@ function envFor(opts?: {
       if (url.includes("/rest/v1/")) writes.push({ method, url, body });
       if (url.includes("/rest/v1/mh_v2_customers")) {
         return Response.json(customer ? [customer] : []);
+      }
+      if (url.includes("/rest/v1/mh_voice_config")) {
+        if (opts?.voiceConfig === null) return Response.json([]);
+        const vc = opts?.voiceConfig ?? { whitelist: [], bridge_to_number: null };
+        return Response.json([vc]);
       }
       if (url.includes("/rest/v1/mh_call_log") && method === "POST") {
         return Response.json([{ id: "row-live" }]);
@@ -121,6 +133,7 @@ test("registerCallBody keeps from/to and never sends system__* dynamic variables
   assert.equal(dyn.caller_id, MIKE);
   assert.equal(dyn.return_from_staff, "false");
   assert.equal(dyn.return_instruction, "");
+  assert.equal(dyn.outbound_task_id, "");
   assert.equal(Object.keys(dyn).some((k) => k.startsWith("system__")), false);
   assert.equal(JSON.stringify(body).includes("system__"), false);
   assert.equal(JSON.stringify(body).includes(GLACIER_TO.slice(-3)), true);
@@ -144,6 +157,7 @@ test("Glacier inbound registers EL + logs with Mike's mobile, not …301", async
     dynamic_variables: Record<string, string>;
   }).dynamic_variables;
   assert.equal(dyn.caller_id, MIKE);
+  assert.equal(dyn.outbound_task_id, "");
   assert.equal(Object.keys(dyn).some((k) => k.startsWith("system__")), false);
 
   const callLog = writes.find((w) => w.method === "POST" && w.url.includes("mh_call_log"));
@@ -200,4 +214,102 @@ test("conversationIdFromTwiml reads the EL Parameter", () => {
 test("config.toml leaves the Twilio voice webhook verify_jwt false", async () => {
   const toml = await readFile(new URL("../../config.toml", import.meta.url), "utf8");
   assert.match(toml, /\[functions\.mh-voice-router\]\s*\nverify_jwt = false/);
+});
+
+test("parseWhitelist accepts arrays and ignores blanks", () => {
+  assert.deepEqual(parseWhitelist(["+61433121933", "  ", "0433121933"]), [MIKE, "0433121933"]);
+  assert.deepEqual(parseWhitelist(JSON.stringify([MIKE])), [MIKE]);
+  assert.deepEqual(parseWhitelist([]), []);
+  assert.deepEqual(parseWhitelist(null), []);
+});
+
+test("isWhitelistedCaller matches AU 04… ↔ +614… and last-9", () => {
+  assert.equal(isWhitelistedCaller(MIKE, [MIKE]), true);
+  assert.equal(isWhitelistedCaller(MIKE, ["0433121933"]), true);
+  assert.equal(isWhitelistedCaller("0433121933", [MIKE]), true);
+  assert.equal(isWhitelistedCaller("0433 121 933", ["+61 433 121 933"]), true);
+  assert.equal(isWhitelistedCaller(MIKE, ["433121933"]), true);
+  assert.equal(isWhitelistedCaller("61433121933", ["0433121933"]), true);
+  assert.equal(isWhitelistedCaller(MIKE, ["+61422962169"]), false);
+  assert.equal(isWhitelistedCaller(MIKE, []), false);
+  assert.equal(isWhitelistedCaller("", [MIKE]), false);
+  assert.equal(isWhitelistedCaller(MIKE, null), false);
+});
+
+test("bridgeDialTwiml Dials the bridge with the customer DID as callerId", () => {
+  assert.equal(
+    bridgeDialTwiml(BRIDGE, GLACIER_TO),
+    `<?xml version="1.0" encoding="UTF-8"?><Response><Dial callerId="${GLACIER_TO}">${BRIDGE}</Dial></Response>`,
+  );
+  assert.equal(
+    bridgeDialTwiml(BRIDGE, ""),
+    `<?xml version="1.0" encoding="UTF-8"?><Response><Dial>${BRIDGE}</Dial></Response>`,
+  );
+  assert.equal(normalizeBridgeNumber("0422962169"), BRIDGE);
+  assert.equal(normalizeBridgeNumber("  "), null);
+});
+
+test("Glacier whitelist + bridge Dials Mike through to the bridge with no EL", async () => {
+  const { env, writes, registerBodies } = envFor({
+    voiceConfig: { whitelist: [MIKE], bridge_to_number: BRIDGE },
+  });
+  const res = await handleVoiceRouter(post({
+    From: MIKE,
+    To: GLACIER_TO,
+    CallSid: "CA91875bb4ef7862daf3642486904b1561",
+  }), env);
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), bridgeDialTwiml(BRIDGE, GLACIER_TO));
+  assert.equal(registerBodies.length, 0);
+
+  const callLog = writes.find((w) => w.method === "POST" && w.url.includes("mh_call_log"));
+  assert.equal(callLog?.body?.from_number, MIKE);
+  assert.equal(callLog?.body?.status, "in-progress");
+
+  const patch = writes.find((w) => w.method === "PATCH" && w.url.includes("mh_call_log"));
+  assert.equal(patch?.body?.transcript_summary, `Bridged to ${BRIDGE}`);
+  assert.equal(patch?.body?.conversation_id, undefined);
+});
+
+test("whitelist 04… still matches E.164 From and Dials the bridge", async () => {
+  const { env, registerBodies } = envFor({
+    voiceConfig: { whitelist: ["0433121933"], bridge_to_number: "0422962169" },
+  });
+  const res = await handleVoiceRouter(post({
+    From: "0468164301",
+    ForwardedFrom: MIKE,
+    To: GLACIER_TO,
+    CallSid: "CA2",
+  }), env);
+  assert.equal(await res.text(), bridgeDialTwiml(BRIDGE, GLACIER_TO));
+  assert.equal(registerBodies.length, 0);
+});
+
+test("whitelisted caller with no bridge gets Polly + Hangup, not EL", async () => {
+  const { env, writes, registerBodies } = envFor({
+    voiceConfig: { whitelist: [MIKE], bridge_to_number: null },
+  });
+  const res = await handleVoiceRouter(post({ From: MIKE, To: GLACIER_TO, CallSid: "CA3" }), env);
+  assert.equal(await res.text(), WHITELIST_UNCONFIGURED_TWIML);
+  assert.equal(registerBodies.length, 0);
+  const patch = writes.find((w) => w.method === "PATCH" && w.url.includes("mh_call_log"));
+  assert.match(String(patch?.body?.transcript_summary || ""), /no bridge/i);
+});
+
+test("empty whitelist keeps the existing ElevenLabs path", async () => {
+  const { env, registerBodies } = envFor({
+    voiceConfig: { whitelist: [], bridge_to_number: BRIDGE },
+  });
+  const res = await handleVoiceRouter(post({ From: MIKE, To: GLACIER_TO, CallSid: "CA4" }), env);
+  assert.match(await res.text(), /conversation_id/);
+  assert.equal(registerBodies.length, 1);
+});
+
+test("non-whitelist caller still gets Charlie (EL) even when a bridge is set", async () => {
+  const { env, registerBodies } = envFor({
+    voiceConfig: { whitelist: ["+61400000000"], bridge_to_number: BRIDGE },
+  });
+  const res = await handleVoiceRouter(post({ From: MIKE, To: GLACIER_TO, CallSid: "CA5" }), env);
+  assert.match(await res.text(), /conversation_id/);
+  assert.equal(registerBodies.length, 1);
 });

@@ -1,63 +1,53 @@
-# Apply migrations on DraftPilot
+# Apply / deploy on DraftPilot
 
 Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
-After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
+## This branch (voice whitelist + inbound dyn-var 1008)
 
-## This branch
+No new SQL. Production inbound hangup is an ElevenLabs agent config error:
 
-`20260904130000_mh_outbound_tasks.sql`
+`Missing required dynamic variables in tools: {'outbound_task_id'}`
 
-Adds:
-
-- `mh_outbound_tasks` — per-customer personal-assistant outbound calls (owner/staff SMS, inbound voice tool, or dashboard). Service role only. Not Jake/Sam Outreach.
-
-Also still apply if not already on the project:
-
-`20260903070000_mh_sms_confirms.sql`
-`20260903060000_mh_voice_config_return_to_ai_prompt.sql`
-`20260902030000_notify_email_and_sms_toggles.sql`
-
-## How to apply
-
-In the Supabase SQL editor for `kouembkldbpdbhzeaoth`, run the migration file, **or**:
-
-```bash
-supabase db push
-```
-
-against that project. `IF NOT EXISTS` / `ON CONFLICT DO NOTHING` is idempotent.
+PR 78 attached `report_outbound_result` with `outbound_task_id` as a required tool dyn var. Inbound `mh-voice-router` did not send it, so Glacier Charlie (and any re-synced customer agent) died in ~1s.
 
 ## Edge functions to pin / redeploy
 
-Deploy these after the migration (verify_jwt stays false except `mh-sync-agent`):
+`verify_jwt` stays **false** for Twilio webhooks (`mh-voice-router`). `mh-sync-agent` stays **true**.
 
-1. **`mh-outbound-task`** (new) — create/list, Twilio TwiML, status, report
-2. **`mh-sms-inbound`** — owner/staff SMS task detect (after confirm-open handling)
-3. **`mh-sync-agent`** — attach `create_outbound_task` + `report_outbound_result` and the prompt rule
-4. **`mh-provision-number`** — new signups get the same tools via `mergeProductVoiceTools`
+1. **`mh-voice-router`** (Twilio inbound, `verify_jwt = false`)
+   - Whitelist callers Dial `bridge_to_number` (no EL).
+   - `register-call` always sends `outbound_task_id: ""` plus the existing `caller_id` / `return_from_staff` / `return_instruction`.
+2. **`mh-sync-agent`** — rewrite `report_outbound_result` so `task_id` is an optional body field, **not** a required dynamic variable.
+3. **`mh-outbound-task`** — outbound prompt now includes `task_id`; report handler also reads `outbound_task_id`.
 
-`mh-call-status` does not need a pin unless you want a fresh deploy; outbound talk time reuses it by inserting `mh_call_log` and forwarding completed callbacks.
+## Glacier sync (required)
 
-## Glacier sync
-
-After pin, backfill every customer agent (same path Voice / Knowledge already hit):
+After the two functions above are live, re-sync Glacier Charlie so the attached tool no longer requires `outbound_task_id`:
 
 ```bash
-# service role — patches every customer ConvAI agent plus Jake hangup extras
+# Glacier Air
+curl -X POST "$SUPABASE_URL/functions/v1/mh-sync-agent" \
+  -H "apikey: $ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"a77816d9-3b5f-4635-a77d-095e767a532e"}'
+```
+
+Or backfill every customer agent:
+
+```bash
 curl -X POST "$SUPABASE_URL/functions/v1/mh-sync-agent" \
   -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
   -H "Content-Type: application/json" \
   -d '{"backfill": true}'
 ```
 
-Or sync one customer:
+Router deploy alone unblocks inbound (empty `outbound_task_id`). Re-sync removes the required dyn var so it cannot 1008 again.
 
-```bash
-curl -X POST "$SUPABASE_URL/functions/v1/mh-sync-agent" \
-  -H "apikey: $ANON_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"customer_id":"<uuid>"}'
-```
+Do **not** change Jake Outreach (`agent_0301m07zpn6eebwvy5p25j7kzeqh`) opener copy.
 
-Do **not** change Jake Outreach (`agent_0301m07zpn6eebwvy5p25j7kzeqh`) opener copy. Sync only attaches hangup extras to Jake; outbound tasks use each customer's own `el_agent_id`.
+## Still apply if missing on the project
+
+`20260904130000_mh_outbound_tasks.sql`
+`20260903070000_mh_sms_confirms.sql`
+`20260903060000_mh_voice_config_return_to_ai_prompt.sql`
+`20260902030000_notify_email_and_sms_toggles.sql`

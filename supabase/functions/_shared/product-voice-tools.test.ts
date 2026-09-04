@@ -18,6 +18,7 @@ test("product voice tools are lookup + create + save + transfer + sms + outbound
   assert.match(JSON.stringify(tools), /customer_id=cust-acme-0001/);
   assert.match(JSON.stringify(tools), /mh-outbound-task\/create\?customer_id=cust-acme-0001/);
   assert.doesNotMatch(JSON.stringify(tools), /a77816d9-3b5f-4635-a77d-095e767a532e/);
+  assert.doesNotMatch(JSON.stringify(tools), /"dynamic_variable":"outbound_task_id"/);
 });
 
 test("mergeSimproBookingTools replaces stale create/lookup webhooks", () => {

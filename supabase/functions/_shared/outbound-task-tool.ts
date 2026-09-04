@@ -78,9 +78,12 @@ export function reportOutboundResultWebhookTool(functionUrl: string): Record<str
         type: "object",
         required: ["result"],
         properties: {
+          // Do NOT bind outbound_task_id as a dynamic_variable — EL then
+          // requires it on every conversation, including inbound Charlie,
+          // and register-call 1008s (agent_configuration_error).
           task_id: {
             type: "string",
-            dynamic_variable: "outbound_task_id",
+            description: "Outbound task id when known (outbound leg only). Optional on inbound.",
             is_system_provided: false,
           },
           result: {

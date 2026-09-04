@@ -302,6 +302,7 @@ test("outbound TwiML registers EL with the brief and customer agent", async () =
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.first_message, /Adam/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /ask if he's free for lunch/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /NOT Sam/);
+  assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /task_id task-9/);
 });
 
 test("no-answer status marks the task done and SMS the owner", async () => {
@@ -325,6 +326,27 @@ test("no-answer status marks the task done and SMS the owner", async () => {
   assert.equal(store.tasks[0]?.status, "done");
   assert.equal(store.tasks[0]?.result, "No answer.");
   assert.match(smsBodies[0], /Called Adam: No answer/);
+});
+
+test("report_outbound_result accepts outbound_task_id alias", async () => {
+  const { env, store } = envFor();
+  store.tasks.push({
+    id: "task-alias",
+    customer_id: CUST,
+    contact_name: "Adam",
+    brief: "lunch",
+    status: "calling",
+    requester_phone: "+61400111222",
+    source: "phone",
+  });
+  const res = await handleRequest(new Request("https://x/functions/v1/mh-outbound-task/report?customer_id=" + CUST, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ outbound_task_id: "task-alias", result: "Voicemail." }),
+  }), env);
+  const json = await res.json() as { ok: boolean };
+  assert.equal(json.ok, true);
+  assert.equal(store.tasks[0]?.result, "Voicemail.");
 });
 
 test("report_outbound_result stores the agreed time", async () => {

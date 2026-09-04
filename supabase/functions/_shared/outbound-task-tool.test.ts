@@ -7,6 +7,7 @@ import {
   createOutboundTaskWebhookTool,
   mergeOutboundTaskTools,
   reportOutboundResultUrl,
+  reportOutboundResultWebhookTool,
 } from "./outbound-task-tool.ts";
 
 test("URLs are customer-scoped on mh-outbound-task", () => {
@@ -28,6 +29,21 @@ test("create tool binds caller_id for the allowlist, not the target", () => {
   assert.equal(props.phone.dynamic_variable, undefined);
   assert.match(String(tool.description), /owner or staff/i);
   assert.match(String(tool.description), /text the owner/i);
+});
+
+test("report tool does not require outbound_task_id as a dynamic variable", () => {
+  const tool = reportOutboundResultWebhookTool("https://example.test/report?customer_id=c1");
+  const schema = tool.api_schema as {
+    request_body_schema: {
+      required: string[];
+      properties: Record<string, { dynamic_variable?: string; description?: string }>;
+    };
+  };
+  const taskId = schema.request_body_schema.properties.task_id;
+  assert.equal(taskId.dynamic_variable, undefined);
+  assert.equal(schema.request_body_schema.required.includes("task_id"), false);
+  assert.equal(JSON.stringify(tool).includes("outbound_task_id"), false);
+  assert.match(String(taskId.description), /optional on inbound/i);
 });
 
 test("mergeOutboundTaskTools replaces stale copies and keeps extras", () => {

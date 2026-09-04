@@ -1,6 +1,7 @@
 /**
  * mh-voice-router — Twilio inbound VoiceUrl for customer numbers.
- * verify_jwt is false. Twilio inbound webhook → ElevenLabs media stream.
+ * verify_jwt is false. Twilio inbound webhook → whitelist Dial or ElevenLabs.
+ * Pin/redeploy on DraftPilot kouembkldbpdbhzeaoth after merge.
  */
 import { handleVoiceRouter, type VoiceRouterEnv } from "./router.ts";
 

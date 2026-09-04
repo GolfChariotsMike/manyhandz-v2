@@ -444,6 +444,7 @@ export async function handleOutboundTwiml(req: Request, env: OutboundTaskEnv): P
     contactName: task.contact_name,
     brief: task.brief || "",
     standingPrompt: voice?.system_prompt,
+    taskId: task.id,
   });
   const elRes = await env.fetch("https://api.elevenlabs.io/v1/convai/twilio/register-call", {
     method: "POST",
@@ -556,7 +557,7 @@ export async function handleReport(
 ): Promise<Response> {
   const src = flattenWebhookBody(body);
   const result = field(src, "result", "outcome", "summary");
-  const taskId = field(src, "task_id", "id");
+  const taskId = field(src, "task_id", "id", "outbound_task_id");
   if (!result) return json({ ok: false, error: "Need a short result." }, 400);
   let task: OutboundTaskRow | null = null;
   if (taskId) {

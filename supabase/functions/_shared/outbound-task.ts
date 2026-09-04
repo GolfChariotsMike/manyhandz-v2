@@ -307,17 +307,22 @@ export function outboundPromptOverride(opts: {
   contactName?: string | null;
   brief: string;
   standingPrompt?: string | null;
+  taskId?: string | null;
 }): string {
   const ai = opts.aiName.trim() || "the AI receptionist";
   const biz = opts.businessName.trim() || "the business";
   const who = String(opts.contactName || "them").trim() || "them";
   const brief = String(opts.brief || "").trim() || "have a short conversation as requested";
+  const taskId = String(opts.taskId || "").trim();
+  const reportLine = taskId
+    ? `When you have an outcome (agreed time, not free, voicemail, they asked to call back), call report_outbound_result with task_id ${taskId} and a short result, then say goodbye and end_call.`
+    : `When you have an outcome (agreed time, not free, voicemail, they asked to call back), call report_outbound_result with a short result, then say goodbye and end_call.`;
   const prefix = [
     `OUTBOUND TASK CALL (this call only). You are ${ai}, the AI receptionist for ${biz}.`,
     `You are calling ${who} as a favour for the business owner. You are NOT Sam, Jake, or a ManyHandz sales agent. Do not pitch ManyHandz.`,
     `TASK: ${brief}`,
     `Introduce yourself as ${ai} from ${biz}. Say the owner asked you to call. Carry out the brief. Be brief and polite.`,
-    `When you have an outcome (agreed time, not free, voicemail, they asked to call back), call report_outbound_result with a short result, then say goodbye and end_call.`,
+    reportLine,
     `Do not create SimPRO leads or transfer unless the brief says so.`,
   ].join("\n");
   const standing = String(opts.standingPrompt || "").trim();
