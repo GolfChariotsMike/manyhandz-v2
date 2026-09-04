@@ -1,12 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
+  CHAT_SESSION_LIMIT,
   DEFAULT_JWT_SECRET,
   handleRequest,
   jwtSecretFromEnv,
   parseKnowledgeBody,
   parseProfileBody,
   parseVoiceNotifyBody,
+  projectChatSessions,
   routeAction,
   signHs256Jwt,
   verifyHs256Jwt,
@@ -24,6 +26,8 @@ type Store = {
   customers: Record<string, Record<string, unknown>>;
   knowledge: Record<string, Record<string, unknown>>;
   voice: Record<string, Record<string, unknown>>;
+  sessions: Record<string, unknown>[];
+  sessionError?: string;
 };
 
 function memoryAdmin(store: Store): AdminClient {
@@ -32,6 +36,9 @@ function memoryAdmin(store: Store): AdminClient {
       let mode: "select" | "update" | "upsert" | "insert" = "select";
       let payload: Record<string, unknown> = {};
       const filters: { col: string; val: unknown }[] = [];
+      let orderCol = "";
+      let orderAsc = true;
+      let limitCount: number | undefined;
 
       const run = (): QueryResult => {
         if (table === "mh_v2_customers") {
@@ -74,6 +81,20 @@ function memoryAdmin(store: Store): AdminClient {
           }
           return { data: store.voice[cid] || null, error: null };
         }
+        if (table === "mh_chat_sessions") {
+          if (store.sessionError) return { data: null, error: { message: store.sessionError } };
+          const cid = String(filters.find((f) => f.col === "customer_id")?.val || "");
+          let rows = store.sessions.filter((row) => row.customer_id === cid);
+          if (orderCol) {
+            rows = [...rows].sort((a, b) => {
+              const av = String(a[orderCol] ?? "");
+              const bv = String(b[orderCol] ?? "");
+              return orderAsc ? av.localeCompare(bv) : bv.localeCompare(av);
+            });
+          }
+          if (limitCount !== undefined) rows = rows.slice(0, limitCount);
+          return { data: rows, error: null };
+        }
         return { data: null, error: { message: `unknown table ${table}` } };
       };
 
@@ -83,7 +104,16 @@ function memoryAdmin(store: Store): AdminClient {
         insert(row) { mode = "insert"; payload = row; return builder; },
         upsert(row) { mode = "upsert"; payload = row; return builder; },
         eq(col, val) { filters.push({ col, val }); return builder; },
+        order(column, options) {
+          orderCol = column;
+          orderAsc = options?.ascending !== false;
+          return builder;
+        },
+        limit(count) { limitCount = count; return builder; },
         maybeSingle() { return Promise.resolve(run()); },
+        then(onfulfilled, onrejected) {
+          return Promise.resolve(run()).then(onfulfilled, onrejected);
+        },
       };
       return builder;
     },
@@ -105,6 +135,7 @@ function seed(): Store {
     },
     knowledge: {},
     voice: {},
+    sessions: [],
   };
 }
 
@@ -124,10 +155,19 @@ async function authed(path: string, body: unknown, token?: string) {
   });
 }
 
+async function authedGet(path: string, token?: string) {
+  const jwt = token ?? await signHs256Jwt({ sub: CUST, exp: Math.floor(Date.now() / 1000) + 3600 }, SECRET);
+  return new Request(`https://example.supabase.co/functions/v1/mh-v2-save/${path}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${jwt}` },
+  });
+}
+
 describe("path + jwt helpers", () => {
   it("uses the last pathname segment the same way mh-v2-auth does", () => {
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/profile")), "profile");
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/knowledge")), "knowledge");
+    assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/chat-sessions")), "chat-sessions");
     assert.equal(routeAction(new URL("https://x.supabase.co/functions/v1/mh-v2-save/")), "");
   });
 
@@ -388,6 +428,121 @@ describe("POST /voice", () => {
   });
 });
 
+describe("GET /chat-sessions", () => {
+  it("returns 401 when the token is missing or not signed with MH_JWT_SECRET", async () => {
+    const store = seed();
+    const noAuth = await json(await handleRequest(
+      new Request("https://x/functions/v1/mh-v2-save/chat-sessions", { method: "GET" }),
+      envFor(store),
+    ));
+    assert.equal(noAuth.status, 401);
+
+    const anonJwt = await signHs256Jwt({ sub: CUST }, "supabase-anon-secret");
+    const bad = await json(await handleRequest(
+      await authedGet("chat-sessions", anonJwt),
+      envFor(store),
+    ));
+    assert.equal(bad.status, 401);
+  });
+
+  it("rejects POST on the list path", async () => {
+    const res = await json(await handleRequest(
+      await authed("chat-sessions", {}),
+      envFor(seed()),
+    ));
+    assert.equal(res.status, 405);
+  });
+
+  it("lists only jwt.sub sessions, newest first, without messages", async () => {
+    const store = seed();
+    store.sessions = [
+      {
+        id: "old",
+        customer_id: CUST,
+        visitor_id: "v-old",
+        created_at: "2026-08-01T00:00:00.000Z",
+        resolved: false,
+        messages: [{ role: "user", content: "secret-old" }],
+      },
+      {
+        id: "new",
+        customer_id: CUST,
+        visitor_id: "v-new",
+        created_at: "2026-09-02T12:00:00.000Z",
+        resolved: true,
+        messages: [{ role: "user", content: "secret-new" }],
+      },
+      {
+        id: "other",
+        customer_id: OTHER,
+        visitor_id: "v-other",
+        created_at: "2026-09-03T00:00:00.000Z",
+        resolved: false,
+        messages: [{ role: "user", content: "leave-me" }],
+      },
+    ];
+
+    const res = await json(await handleRequest(await authedGet("chat-sessions"), envFor(store)));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.sessions.length, 2);
+    assert.deepEqual(res.body.sessions.map((s: { id: string }) => s.id), ["new", "old"]);
+    assert.equal(res.body.sessions[0].visitor_id, "v-new");
+    assert.equal(res.body.sessions[0].resolved, true);
+    assert.equal(res.body.sessions[0].customer_id, CUST);
+    assert.equal("messages" in res.body.sessions[0], false);
+    assert.equal(JSON.stringify(res.body).includes("secret"), false);
+  });
+
+  it("returns an empty list when the customer has no sessions", async () => {
+    const store = seed();
+    store.sessions = [{
+      id: "other",
+      customer_id: OTHER,
+      visitor_id: "v-other",
+      created_at: "2026-09-02T00:00:00.000Z",
+      resolved: false,
+    }];
+    const res = await json(await handleRequest(await authedGet("chat-sessions"), envFor(store)));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body.sessions, []);
+  });
+
+  it("caps the list at 50 even if the store has more", async () => {
+    const store = seed();
+    store.sessions = Array.from({ length: CHAT_SESSION_LIMIT + 10 }, (_, i) => ({
+      id: `s${i}`,
+      customer_id: CUST,
+      visitor_id: `v${i}`,
+      created_at: `2026-09-01T00:${String(i).padStart(2, "0")}:00.000Z`,
+      resolved: false,
+    }));
+    const res = await json(await handleRequest(await authedGet("chat-sessions"), envFor(store)));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.sessions.length, CHAT_SESSION_LIMIT);
+  });
+
+  it("returns 500 when the sessions query fails", async () => {
+    const store = seed();
+    store.sessionError = "relation does not exist";
+    const res = await json(await handleRequest(await authedGet("chat-sessions"), envFor(store)));
+    assert.equal(res.status, 500);
+    assert.match(res.body.error, /relation does not exist/);
+  });
+
+  it("projectChatSessions drops non-rows and never leaks messages", () => {
+    assert.deepEqual(projectChatSessions(null), []);
+    assert.deepEqual(projectChatSessions({ id: "x" }), []);
+    const rows = projectChatSessions([
+      { id: "s1", customer_id: CUST, visitor_id: "v1", created_at: "t", resolved: 1, messages: ["nope"] },
+      { visitor_id: "missing-id" },
+    ]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, "s1");
+    assert.equal(rows[0].resolved, true);
+    assert.equal("messages" in rows[0], false);
+  });
+});
+
 describe("CORS / routing", () => {
   it("answers OPTIONS without auth", async () => {
     const res = await handleRequest(
@@ -396,6 +551,7 @@ describe("CORS / routing", () => {
     );
     assert.equal(res.status, 200);
     assert.equal(res.headers.get("Access-Control-Allow-Origin"), "*");
+    assert.equal(res.headers.get("Access-Control-Allow-Methods"), "GET, POST, OPTIONS");
     assert.equal(await res.text(), "ok");
   });
 

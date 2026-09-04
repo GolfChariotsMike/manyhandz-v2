@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { asRows, getChatConfig, getChatSessions } from "./api.ts";
+import { asRows, getChatConfig } from "./api.ts";
 
 test("asRows: PostgREST 400 object is never treated as a row list", () => {
   const err = {
@@ -22,12 +22,6 @@ test("asRows: old sess || [] footgun still hands the object to .map", () => {
 test("asRows: real arrays pass through", () => {
   const rows = [{ id: "1" }, { id: "2" }];
   assert.equal(asRows(rows), rows);
-});
-
-test("getChatSessions returns an array even when the table is empty", async () => {
-  const sess = await getChatSessions("00000000-0000-0000-0000-000000000000");
-  assert.ok(Array.isArray(sess), "sessions must be an array");
-  assert.doesNotThrow(() => sess.map((s) => s.id));
 });
 
 test("getChatConfig returns an array (config table exists)", async () => {

@@ -9,6 +9,7 @@ export default function Chat() {
   const [config, setConfig] = useState<any>(null);
   const [sessions, setSessions] = useState<any[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -31,9 +32,15 @@ export default function Chat() {
         return;
       }
 
-      getChatSessions(cid)
-        .then((sess) => setSessions(Array.isArray(sess) ? sess : []))
-        .catch(() => setSessions([]))
+      getChatSessions()
+        .then((sess) => {
+          setSessions(Array.isArray(sess) ? sess : []);
+          setSessionsError(null);
+        })
+        .catch((err: unknown) => {
+          setSessions([]);
+          setSessionsError(err instanceof Error ? err.message : "Could not load conversations");
+        })
         .finally(() => setSessionsLoading(false));
 
       const cfg = await getChatConfig(cid);
@@ -43,6 +50,8 @@ export default function Chat() {
         setFormData({ widget_name: cfgRows[0].widget_name || "", widget_color: cfgRows[0].widget_color || "#6366f1", greeting: cfgRows[0].greeting || "", fallback_message: cfgRows[0].fallback_message || "" });
       }
     } catch {
+      setSessionsError("Could not load conversations");
+      setSessionsLoading(false);
     } finally {
       setLoading(false);
     }
@@ -182,6 +191,8 @@ export default function Chat() {
             <h2 className="font-semibold mb-4">Recent Conversations</h2>
             {sessionsLoading ? (
               <p className="text-sm text-white/40">Loading conversations…</p>
+            ) : sessionsError ? (
+              <p className="text-sm text-red-400">{sessionsError}</p>
             ) : !Array.isArray(sessions) || sessions.length === 0 ? (
               <p className="text-sm text-white/40">No conversations yet. Deploy the widget and start chatting!</p>
             ) : (
