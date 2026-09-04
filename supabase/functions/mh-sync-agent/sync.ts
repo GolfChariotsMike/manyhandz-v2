@@ -33,6 +33,7 @@ import {
   operatorPromptOverride,
   type PriceItem,
 } from "./prompt.ts";
+import { productAgentPlatformSettings } from "../_shared/el-agent-platform.ts";
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -415,13 +416,18 @@ export async function syncCustomerAgent(
     },
   );
 
-  const patched = await patchElAgent(env, agentId, hangupAgentPatch({
-    systemPrompt,
-    firstMessage,
-    existingTools: toolsWithSms,
-    existingBuiltIn: bag.builtIn,
-    hangupEnabled,
-  }));
+  const patched = await patchElAgent(env, agentId, {
+    ...hangupAgentPatch({
+      systemPrompt,
+      firstMessage,
+      existingTools: toolsWithSms,
+      existingBuiltIn: bag.builtIn,
+      hangupEnabled,
+    }),
+    // Existing Glacier/product agents were created without Security overrides.
+    // Outbound task + return-to-ai register-call need first_message + prompt.
+    platform_settings: productAgentPlatformSettings(),
+  });
   if (!patched.ok) return { ok: false, agent_id: agentId, error: patched.error };
   const after = await inspectElAgent(env, agentId);
   return {

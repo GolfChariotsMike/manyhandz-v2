@@ -10,6 +10,7 @@ import {
 } from "./search.ts";
 import {
   provisionElConversationConfig,
+  provisionElPlatformSettings,
   provisionNotifySms,
   provisionSystemPrompt,
   provisionUsageBalanceInsert,
@@ -134,7 +135,7 @@ serve(async (req) => {
         elVoiceId,
         systemPrompt,
       }),
-      platform_settings: { auth: { enable_auth: false } },
+      platform_settings: provisionElPlatformSettings(),
     });
 
     if (!agentRes?.agent_id) throw new Error(`EL agent creation failed: ${JSON.stringify(agentRes)}`);

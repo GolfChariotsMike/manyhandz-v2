@@ -4,22 +4,60 @@ Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
-## This branch (Tasks Call now — Account not found)
+## This branch (outbound first_message override permission)
+
+No new SQL. Glacier dashboard outbound Tasks ring, then hang up in ~1s because ElevenLabs rejects the register-call override:
+
+`Override for field 'first_message' is not allowed by config.` (error 1008 / `invalid_client_request`)
+
+Confirmed on conversation `conv_6701m1n7v6jzecsahda2qzkgvh7c` (Twilio `CA8c24b6aad4d03544c68c8f744b8a0200`, task `f28bd0ce-0cc4-48f9-9f71-2a0055fd2010`, Charlie `agent_5601m19fh53yenw8tjsv1r6g04a2`).
+
+`mh-outbound-task` still sends `conversation_config_override.agent.first_message` + `prompt` on the existing receptionist agent. Product agents were created with `platform_settings.auth` only — Security overrides default **false**. This branch enables `first_message` and `prompt.prompt` on provision + `mh-sync-agent` (same receptionist; no separate outbound agent).
+
+**Code deploy alone does not fix Glacier.** Charlie must be re-synced after `mh-sync-agent` is live so the live agent picks up the permission. Do not treat Glacier as fixed until that curl (or a full backfill) succeeds.
+
+### Edge functions to pin / redeploy (this branch)
+
+`verify_jwt` stays **false** for Twilio webhooks (`mh-outbound-task`). `mh-sync-agent` stays **true**.
+
+1. **`mh-sync-agent`** — customer PATCH now includes `platform_settings.overrides.conversation_config_override.agent.first_message` + `prompt.prompt`. **Must redeploy**, then sync.
+2. **`mh-provision-number`** — new signups get the same Security overrides at create time.
+3. **`mh-outbound-task`** — register-call no longer sends `disable_first_message_interruptions` (not an EL-overridable field). Failed register-call logs the EL body instead of a silent FALLBACK Hangup.
+
+After those functions are live, re-sync Glacier Charlie:
+
+```bash
+# Glacier Air — required after merge. Charlie is not fixed until this returns ok.
+curl -X POST "$SUPABASE_URL/functions/v1/mh-sync-agent" \
+  -H "apikey: $ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"a77816d9-3b5f-4635-a77d-095e767a532e"}'
+```
+
+Or backfill every customer agent:
+
+```bash
+curl -X POST "$SUPABASE_URL/functions/v1/mh-sync-agent" \
+  -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"backfill": true}'
+```
+
+Do **not** change Jake Outreach (`agent_0301m07zpn6eebwvy5p25j7kzeqh`) opener copy. Jake extras are hangup-only and are not rewritten with this platform_settings payload (Jake already allows first_message / prompt in the dashboard).
+
+### Success check
+
+- `mh-sync-agent` for Glacier returns `ok: true` with Charlie `agent_5601m19fh53yenw8tjsv1r6g04a2`.
+- A new Glacier Tasks outbound call stays up after answer (not `call_duration_secs: 1` / 1008 first_message).
+- New signup provision agents allow first_message + prompt overrides without a follow-up sync.
+
+## Already on main (Tasks Call now — Account not found)
 
 No new SQL. Glacier `mh_v2_customers` already has `twilio_number` + `el_agent_id`. Dashboard **Call now** 404'd because `mh-outbound-task` `loadCustomer` SELECTed `phone` / `mobile` / `owner_*` / `notify_*` / `contact_*` columns that are not on the table. PostgREST returned an error object; the handler treated that as a missing row.
 
 Owner/result SMS numbers stay on `mh_voice_config.notify_sms` and `mh_staff.phone` (`loadAllowlist` / `ownerPhoneFromCustomer`). Do not add those columns to `mh_v2_customers`.
 
-### Edge functions to pin / redeploy (this branch)
-
-1. **`mh-outbound-task`** — `loadCustomer` now selects only `id,business_name,twilio_number,el_agent_id,country`. **Must redeploy** or Glacier Tasks → Call now still returns `Account not found.` Dashboard copy on Tasks is a frontend-only change.
-
-`verify_jwt` stays **false** (Twilio/EL webhooks + dashboard `mh_token`).
-
-### Success check
-
-- Glacier dashboard Tasks → Call now (existing provisioned customer) gets past customer load. No 404 `Account not found.` from a bad SELECT.
-- Allowlist for SMS/phone create is unchanged: `mh_voice_config.notify_sms` + active `mh_staff.phone`.
+`mh-outbound-task` — `loadCustomer` now selects only `id,business_name,twilio_number,el_agent_id,country`. `verify_jwt` stays **false**.
 
 ## Already on main (usage minutes = Billing 600 / 2,000)
 

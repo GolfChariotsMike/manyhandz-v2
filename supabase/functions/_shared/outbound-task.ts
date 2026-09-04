@@ -352,7 +352,6 @@ export function registerOutboundTaskBody(opts: {
       conversation_config_override: {
         agent: {
           first_message: padCallOpening(opts.firstMessage),
-          disable_first_message_interruptions: true,
           prompt: { prompt: opts.prompt },
         },
       },

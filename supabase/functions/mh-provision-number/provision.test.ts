@@ -10,6 +10,7 @@ import {
   provisionAgentTools,
   provisionAiName,
   provisionElConversationConfig,
+  provisionElPlatformSettings,
   provisionGreeting,
   provisionNotifySms,
   provisionSystemPrompt,
@@ -186,6 +187,22 @@ test("provision tools match Glacier product tools on a generic customer id", () 
   assert.equal((toolByName(tools, "end_call") as { tool_call_sound?: string }).tool_call_sound, undefined);
 });
 
+test("provision platform_settings allow first_message and prompt overrides", () => {
+  const settings = provisionElPlatformSettings();
+  const overrides = settings.overrides as {
+    conversation_config_override: {
+      agent: { first_message: boolean; prompt: { prompt: boolean } };
+    };
+  };
+  assert.deepEqual(settings.auth, { enable_auth: false });
+  assert.equal(overrides.conversation_config_override.agent.first_message, true);
+  assert.equal(overrides.conversation_config_override.agent.prompt.prompt, true);
+  assert.equal(
+    JSON.stringify(settings).includes("disable_first_message_interruptions"),
+    false,
+  );
+});
+
 test("provision EL payload and voice_config defaults match the product notify shape", () => {
   const systemPrompt = provisionSystemPrompt(acmeInput);
   const el = provisionElConversationConfig({ ...acmeInput, systemPrompt, elVoiceId: "voice-acme" });
@@ -327,6 +344,7 @@ test("provision index uses the shared product builder and no longer asks for nam
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
   assert.match(src, /provisionSystemPrompt/);
   assert.match(src, /provisionElConversationConfig/);
+  assert.match(src, /provisionElPlatformSettings/);
   assert.match(src, /provisionVoiceConfigInsert/);
   assert.match(src, /provisionUsageBalanceInsert/);
   assert.match(src, /requestCustomerAgentSync/);

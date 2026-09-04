@@ -174,6 +174,7 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   assert.deepEqual(prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey");
   assert.equal(agent.disable_first_message_interruptions, false);
+  assert.equal("platform_settings" in patch, false);
   assert.deepEqual(
     (patch.conversation_config as { turn: { transcribe_on_disabled_interruptions: boolean } }).turn,
     { transcribe_on_disabled_interruptions: true },
@@ -264,6 +265,19 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
   assert.deepEqual(agent.prompt.built_in_tools.end_call, END_CALL_BUILT_IN);
   assert.equal(agent.first_message, "... ... Hey, thanks for calling Acme.");
   assert.equal(agent.disable_first_message_interruptions, false);
+  const platform = (customerPatch.body as {
+    platform_settings: {
+      auth: { enable_auth: boolean };
+      overrides: {
+        conversation_config_override: {
+          agent: { first_message: boolean; prompt: { prompt: boolean } };
+        };
+      };
+    };
+  }).platform_settings;
+  assert.equal(platform.auth.enable_auth, false);
+  assert.equal(platform.overrides.conversation_config_override.agent.first_message, true);
+  assert.equal(platform.overrides.conversation_config_override.agent.prompt.prompt, true);
   assert.deepEqual(
     (customerPatch.body as {
       conversation_config: { turn: { transcribe_on_disabled_interruptions: boolean } };
@@ -286,6 +300,7 @@ test("customer sync PATCHes end_call + hangup rule and keeps webhook tools", asy
     }).conversation_config;
     assert.equal(extraCfg.agent.disable_first_message_interruptions, false);
     assert.equal(extraCfg.turn.transcribe_on_disabled_interruptions, true);
+    assert.equal("platform_settings" in extraPatch.body, false);
     const extraTools = extraCfg.agent.prompt.tools;
     const extraSave = extraTools.find((t) => t.name === "save_message");
     const extraEnd = extraTools.find((t) => t.name === "end_call");
@@ -629,8 +644,11 @@ test("connector tools stay off when caps are on but nothing is connected", async
 
 test("index never hardcodes an API key", async () => {
   const src = await readFile(new URL("./index.ts", import.meta.url), "utf8");
+  const sync = await readFile(new URL("./sync.ts", import.meta.url), "utf8");
   assert.match(src, /Deno\.env\.get\("ELEVENLABS_API_KEY"\)/);
   assert.equal(/sk_|xi-|EL_[A-Z0-9]{10,}/.test(src), false);
+  assert.match(sync, /productAgentPlatformSettings/);
+  assert.match(sync, /platform_settings:\s*productAgentPlatformSettings\(\)/);
 });
 
 test("empty system_prompt syncs the composed live prompt and persists it", async () => {
@@ -720,6 +738,13 @@ test("generic customer sync allows greeting barge-in and transcribes disabled in
   }).conversation_config;
   assert.equal(config.agent.disable_first_message_interruptions, false);
   assert.equal(config.turn.transcribe_on_disabled_interruptions, true);
+  const overrides = (customerPatch.body as {
+    platform_settings: {
+      overrides: { conversation_config_override: { agent: { first_message: boolean; prompt: { prompt: boolean } } } };
+    };
+  }).platform_settings.overrides.conversation_config_override.agent;
+  assert.equal(overrides.first_message, true);
+  assert.equal(overrides.prompt.prompt, true);
   assert.doesNotMatch(JSON.stringify(customerPatch.body), /a77816d9-3b5f-4635-a77d-095e767a532e/);
   assert.doesNotMatch(JSON.stringify(customerPatch.body), /github\.com/);
   assert.doesNotMatch(JSON.stringify(customerPatch.body), /Tradify/);

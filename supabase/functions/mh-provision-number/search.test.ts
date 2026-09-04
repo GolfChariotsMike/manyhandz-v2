@@ -136,6 +136,7 @@ test("provision pads EL first_message, stays patient, and stores greeting unpadd
   assert.match(src, /twilioPurchaseFields/);
   assert.match(src, /smsUrl:\s*SMS_INBOUND_URL/);
   assert.match(src, /provisionElConversationConfig/);
+  assert.match(src, /provisionElPlatformSettings/);
   assert.match(src, /provisionVoiceConfigInsert/);
   assert.match(src, /provisionSystemPrompt/);
   assert.match(src, /requestCustomerAgentSync/);

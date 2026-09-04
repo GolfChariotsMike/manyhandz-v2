@@ -399,6 +399,11 @@ test("outbound TwiML registers EL with the brief and customer agent", async () =
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /ask if he's free for lunch/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /NOT Sam/);
   assert.match(body.conversation_initiation_client_data.conversation_config_override.agent.prompt.prompt, /task_id task-9/);
+  assert.equal(
+    "disable_first_message_interruptions" in
+      body.conversation_initiation_client_data.conversation_config_override.agent,
+    false,
+  );
 });
 
 test("no-answer status marks the task done and SMS the owner", async () => {
@@ -483,4 +488,38 @@ test("TwiML without a task returns the fallback, not a hang", async () => {
   const { env } = envFor();
   const res = await handleRequest(new Request("https://x/functions/v1/mh-outbound-task/outbound-twiml"), env);
   assert.equal(await res.text(), FALLBACK_TWIML);
+});
+
+test("register-call failure logs the EL body and still returns fallback TwiML", async () => {
+  const errors: string[] = [];
+  const orig = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+  try {
+    const { env, store } = envFor({ elOk: false });
+    store.tasks.push({
+      id: "task-1008",
+      customer_id: CUST,
+      contact_name: "Adam",
+      target_phone: "+61412222333",
+      brief: "lunch",
+      status: "calling",
+      source: "dashboard",
+    });
+    const res = await handleRequest(
+      new Request("https://x/functions/v1/mh-outbound-task/outbound-twiml?task_id=task-1008"),
+      env,
+    );
+    const twiml = await res.text();
+    assert.equal(twiml, FALLBACK_TWIML);
+    assert.doesNotMatch(twiml, /nope/);
+    const logged = errors.join("\n");
+    assert.match(logged, /register-call failed/);
+    assert.match(logged, /task-1008/);
+    assert.match(logged, /agent_glacier/);
+    assert.match(logged, /nope/);
+  } finally {
+    console.error = orig;
+  }
 });

@@ -144,5 +144,10 @@ test("registerOutboundTaskBody is outbound with task id and padded first_message
   };
   assert.equal(init.dynamic_variables.outbound_task_id, "task-1");
   assert.match(init.conversation_config_override.agent.first_message, /^\.\.\. \.\.\. /);
+  assert.equal(init.conversation_config_override.agent.prompt.prompt, "OUTBOUND TASK CALL");
+  assert.equal(
+    "disable_first_message_interruptions" in init.conversation_config_override.agent,
+    false,
+  );
   assert.doesNotMatch(JSON.stringify(body), /system__/);
 });

@@ -18,7 +18,13 @@ import {
   type VoicePromptSource,
 } from "../mh-sync-agent/prompt.ts";
 import { newUsageBalanceRow } from "../_shared/plan-minutes.ts";
+import { productAgentPlatformSettings } from "../_shared/el-agent-platform.ts";
 import { defaultVoiceId, type Market } from "./search.ts";
+
+/** Auth off + first_message / prompt overrides for outbound task + return-to-ai. */
+export function provisionElPlatformSettings(): Record<string, unknown> {
+  return productAgentPlatformSettings();
+}
 
 /** What a new customer still types after signup. Never invent these. */
 export const CUSTOMER_FILL_INS = [
