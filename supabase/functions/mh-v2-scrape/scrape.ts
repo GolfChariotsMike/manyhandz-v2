@@ -225,10 +225,9 @@ export function extractAuBusinessAddress(text: string): ScrapedAuAddress {
   for (const m of cleaned.matchAll(suburbStateRe)) {
     const state = normalizeHomeState(m[2]);
     let suburb = (m[1] || "").replace(/[,\s]+$/g, "").trim();
-    const cuePrefix = /^(?:based|located|in|at|our|the|from|serving|across|throughout|office|visit|find|see|us)\s+/i;
-    while (cuePrefix.test(suburb)) suburb = suburb.replace(cuePrefix, "").trim();
+    const drop = /^(?:proudly|based|located|in|at|our|the|from|serving|across|throughout|office|visit|find|see|us|and|or|we|of)$/i;
+    suburb = suburb.split(/\s+/).filter((word) => !drop.test(word)).join(" ").trim();
     if (!state || !suburb) continue;
-    if (/^(and|or|the|in|of|our|we|serving|across|throughout)$/i.test(suburb)) continue;
     suburbHits.push({
       home_state: state,
       suburb,
