@@ -61,6 +61,10 @@ test("create_simpro_job tool copy is a lead and never sends system__* vars", () 
   assert.match(created.description, /do not read them back or spell the email/i);
   assert.match(created.description, /Do not collect or confirm email this way for existing customers/);
   assert.ok((created.api_schema.request_body_schema.properties as { caller_email?: { type?: string } }).caller_email);
+  assert.ok((created.api_schema.request_body_schema.properties as { preferred_time?: { type?: string } }).preferred_time);
+  assert.match(created.description, /preferred_time/);
+  assert.match(created.description, /morning or afternoon/);
+  assert.match(created.description, /not a confirmed booking slot/i);
   assert.doesNotMatch(created.description, /job number/i);
   assert.equal(created.api_schema.request_body_schema.properties.caller_phone.dynamic_variable, "caller_id");
   assert.equal(created.api_schema.request_body_schema.properties.site_contact_name?.type, "string");

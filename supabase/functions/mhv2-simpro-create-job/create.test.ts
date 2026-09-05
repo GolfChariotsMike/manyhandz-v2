@@ -18,6 +18,8 @@ import {
   lookupSimproCustomer,
   parseCreateJobInput,
   parseLookupCustomerInput,
+  buildLeadDescription,
+  preferredTimeNote,
   parseSiteAddress,
   simproAddressBody,
   patchSimproCustomerDetails,
@@ -37,6 +39,7 @@ import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import {
   LEAD_NOTIFY_FROM,
   leadNotifyEmailSubject,
+  leadNotifyEmailText,
   leadNotifySmsBody,
   pickNotifyEmail,
   pickNotifySms,
@@ -282,6 +285,17 @@ test("parseCreateJobInput requires phone and description; name and site optional
   assert.equal((withIds as { simpro_customer_id?: number }).simpro_customer_id, 9);
   assert.equal((withIds as { site_id?: number }).site_id, 3);
   assert.equal((withIds as { existing_customer?: boolean }).existing_customer, true);
+  const withPref = parseCreateJobInput({
+    ...input,
+    preferred_time: "Wednesday afternoon",
+  }, CUST);
+  assert.equal("ok" in withPref, false);
+  assert.equal((withPref as { preferred_time?: string }).preferred_time, "Wednesday afternoon");
+  const aliasPref = parseCreateJobInput({
+    ...input,
+    time_of_day: "  after 3  ",
+  }, CUST);
+  assert.equal((aliasPref as { preferred_time?: string }).preferred_time, "after 3");
   const companyOnly = parseCreateJobInput({
     ...input,
     caller_name: "Woolies Pty Ltd",
@@ -292,6 +306,78 @@ test("parseCreateJobInput requires phone and description; name and site optional
     assert.match(companyOnly.error, /site contact/i);
     assert.match(companyOnly.error, /who'?s the site contact at the site/i);
   }
+});
+
+test("lead Description includes Preferred time when set, and skips a duplicate", () => {
+  const base = {
+    customer_id: CUST,
+    caller_name: "Sam Glacier",
+    caller_phone: "+61411122333",
+    site_address: "12 Frost St, Malaga WA 6090",
+    description: "Split system not cooling",
+  };
+  assert.equal(preferredTimeNote(""), "");
+  assert.equal(preferredTimeNote("Wednesday afternoon"), "Preferred time: Wednesday afternoon");
+  const withPref = buildLeadDescription({ ...base, preferred_time: "Wednesday afternoon" });
+  assert.match(withPref, /Split system not cooling/);
+  assert.match(withPref, /Preferred time: Wednesday afternoon/);
+  assert.match(withPref, /Caller: Sam Glacier/);
+  const none = buildLeadDescription(base);
+  assert.doesNotMatch(none, /Preferred time:/);
+  const already = buildLeadDescription({
+    ...base,
+    description: "Split system not cooling\nPreferred time: after 3",
+    preferred_time: "after 3",
+  });
+  assert.equal((already.match(/Preferred time:/g) || []).length, 1);
+  assert.match(leadNotifyEmailText({
+    customer_id: CUST,
+    caller_name: "Sam Glacier",
+    caller_phone: "+61411122333",
+    site_address: "12 Frost St",
+    description: "Split system not cooling",
+    preferred_time: "Wednesday afternoon",
+  }, "18421", "Glacier Air"), /Preferred time: Wednesday afternoon/);
+});
+
+test("createSimproJob POSTs Preferred time on the SimPRO lead Description", async () => {
+  const conn = await connected();
+  const posted: Array<{ method: string; url: string; body: unknown }> = [];
+  const { env, emails } = envFor({
+    connection: conn,
+    notify: { notify_email: "office@glacier.test", business_name: "Glacier Air" },
+    fetchImpl: async (inputUrl, init) => {
+      const url = String(inputUrl);
+      const method = init?.method || "GET";
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      posted.push({ method, url, body });
+      if (method === "GET" && url.includes("/sites")) {
+        return Response.json([{ ID: 44, Name: "12 Frost St" }]);
+      }
+      if (url.includes("/customers/") && method === "GET") return Response.json([]);
+      if (url.includes("/customers/individuals/") && method === "POST") {
+        return Response.json({ ID: 88 }, { status: 201 });
+      }
+      if (url.includes("/leads/") && method === "POST") {
+        assert.match(body.Description, /Split system not cooling/);
+        assert.match(body.Description, /Preferred time: Wednesday afternoon/);
+        return Response.json({ ID: 18421 }, { status: 201 });
+      }
+      return Response.json([]);
+    },
+  });
+  const parsed = parseCreateJobInput({
+    ...input,
+    preferred_time: "Wednesday afternoon",
+  }, CUST);
+  assert.equal("ok" in parsed, false);
+  const result = await createSimproJob(parsed as typeof input & { preferred_time: string }, env);
+  if (!result.ok) throw new Error(result.error);
+  assert.equal(result.lead_number, "18421");
+  assert.equal(posted.some((c) => c.method === "POST" && String(c.url).includes("/leads/")), true);
+  const notify = emails[0] as { text?: string; html?: string } | undefined;
+  assert.match(String(notify?.text), /Preferred time: Wednesday afternoon/);
+  assert.match(String(notify?.html), /Preferred time: Wednesday afternoon/);
 });
 
 test("sanitizeSimproError redacts bearer tokens and secrets", () => {
@@ -401,6 +487,7 @@ test("createSimproJob new customer POSTs individual createSite+address then lead
         assert.equal(body.DateIssued, undefined);
         assert.equal(body.Name, undefined);
         assert.match(body.Description, /Split system/);
+        assert.doesNotMatch(body.Description, /Preferred time:/);
         return Response.json({ ID: 18421 }, { status: 201 });
       }
       if (url.includes("/jobs/") && method === "POST") {

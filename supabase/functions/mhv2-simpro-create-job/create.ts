@@ -80,6 +80,8 @@ export type CreateJobInput = {
   site_id?: number;
   /** They said they are existing — search by name if the phone misses. */
   existing_customer?: boolean;
+  /** Preferred time of day / window for the office — not a confirmed slot. */
+  preferred_time?: string;
 };
 
 export type CreateJobFailureCode =
@@ -349,6 +351,31 @@ export function resolveSiteContactPerson(input: {
   return "";
 }
 
+export function normalizePreferredTime(raw: unknown): string {
+  return String(raw || "").replace(/\s+/g, " ").trim();
+}
+
+/** Office-facing line on the SimPRO lead. Empty when they did not give a preference. */
+export function preferredTimeNote(preferredTime?: string): string {
+  const t = normalizePreferredTime(preferredTime);
+  return t ? `Preferred time: ${t}` : "";
+}
+
+/** SimPRO lead Description — work + caller details + preferred time for the office. */
+export function buildLeadDescription(input: CreateJobInput): string {
+  const preferred = preferredTimeNote(input.preferred_time);
+  const alreadyNoted = /preferred time\s*:/i.test(input.description);
+  return [
+    input.description,
+    `Caller: ${input.caller_name}`,
+    `Phone: ${input.caller_phone}`,
+    input.caller_email ? `Email: ${input.caller_email}` : "",
+    `Site: ${input.site_address}`,
+    `Site contact: ${resolveSiteContactPerson(input) || input.caller_name}`,
+    preferred && !alreadyNoted ? preferred : "",
+  ].filter(Boolean).join("\n");
+}
+
 export function siteContactMissingError(): CreateJobResult {
   return {
     ok: false,
@@ -529,6 +556,9 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
   const site_contact_name = String(src.site_contact_name || src.SiteContactName || "").trim();
   const site_contact_phone = String(src.site_contact_phone || src.SiteContactPhone || "").trim();
   const caller_email = String(src.caller_email || src.email || "").trim();
+  const preferred_time = normalizePreferredTime(
+    src.preferred_time ?? src.preferredTime ?? src.time_of_day ?? src.preferred_time_of_day,
+  );
   const simpro_customer_id = optionalPositiveId(src.simpro_customer_id ?? src.SimproCustomerId);
   const site_id = optionalPositiveId(src.site_id ?? src.SiteId ?? src.siteId);
   const existing_customer = truthyFlag(src.existing_customer ?? src.existingCustomer);
@@ -552,6 +582,7 @@ export function parseCreateJobInput(body: unknown, customerId: string): CreateJo
     ...(site_contact_name ? { site_contact_name } : {}),
     ...(site_contact_phone ? { site_contact_phone } : {}),
     ...(caller_email ? { caller_email } : {}),
+    ...(preferred_time ? { preferred_time } : {}),
     ...(simpro_customer_id ? { simpro_customer_id } : {}),
     ...(site_id ? { site_id } : {}),
     ...(existing_customer ? { existing_customer: true } : {}),
@@ -1622,14 +1653,7 @@ async function postLead(
     throw simproFail("Could not create or find a SimPRO site contact");
   }
   const name = (input.job_name || input.description).slice(0, 80);
-  const description = [
-    input.description,
-    `Caller: ${input.caller_name}`,
-    `Phone: ${input.caller_phone}`,
-    input.caller_email ? `Email: ${input.caller_email}` : "",
-    `Site: ${input.site_address}`,
-    `Site contact: ${resolveSiteContactPerson(input) || input.caller_name}`,
-  ].filter(Boolean).join("\n");
+  const description = buildLeadDescription(input);
   const res = await simproJson(env, token, `${apiBase(conn)}/leads/`, {
     method: "POST",
     body: {

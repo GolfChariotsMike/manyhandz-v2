@@ -100,9 +100,9 @@ export function composeChatSystemPrompt(data: ChatPromptInput): string {
     : "";
 
   const bookingRule = capConfirmBookings
-    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with visitors.${capCreateSimproJob ? " If they want work done, you MUST still call create_simpro_job once you have the work description (use what they already said — do not ask again if they already described the fault or work)." : ""}`
+    ? `- BOOKINGS: You can confirm bookings. Use your knowledge base to check availability and confirm with visitors.${capCreateSimproJob ? " If they want work done, you MUST still call create_simpro_job once you have the work description (use what they already said — do not ask again if they already described the fault or work) and preferred_time." : ""}`
     : (capCreateSimproJob
-      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants work done or a technician booked, that is a SimPRO lead — collect a mobile first if needed, then FIRST look them up with lookup_simpro_customer (do not ask name or address until it returns), then create_simpro_job once you have the work description (use what they already said — do not ask again if they already described the fault or work). Do not only take a verbal message. Do not use send_sms to notify the office.`
+      ? `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants work done or a technician booked, that is a SimPRO lead — collect a mobile first if needed, then FIRST look them up with lookup_simpro_customer (do not ask name or address until it returns), then create_simpro_job once you have the work description (use what they already said — do not ask again if they already described the fault or work) and a preferred time of day if they have not already said one. Do not only take a verbal message. Do not use send_sms to notify the office.`
       : `- BOOKINGS: You CANNOT confirm, reserve, or make any booking. If a visitor wants to book, collect their name, preferred date/time, mobile, and details — then use the save_message tool and tell them: "I've passed your details to the team and someone will be in touch to confirm."`);
 
   const pricingRule = capQuotePrices

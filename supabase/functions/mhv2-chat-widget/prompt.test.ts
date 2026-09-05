@@ -94,6 +94,11 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /callers do not know site IDs/i);
   assert.match(on, /BOOKING PATH ONLY/);
   assert.match(on, /NEVER create a new customer/);
+  assert.match(on, /PREFERRED TIME/);
+  assert.match(on, /preferred_time/);
+  assert.match(on, /morning or afternoon/);
+  assert.match(on, /Do not re-ask if they already said it/);
+  assert.match(on, /not a confirmed booking slot/);
   assert.doesNotMatch(on, /always collect their mobile first/);
   assert.doesNotMatch(on, /SIMPRO JOBS/);
   const off = buildChatSystemPrompt({ ...base, capCreateSimproJob: false });

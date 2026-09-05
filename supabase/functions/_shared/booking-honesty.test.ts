@@ -10,6 +10,7 @@ import {
   lookupMissSpokenReply,
   neverFakeLeadCloseRule,
   neverSpeakLeadNumberRule,
+  preferredTimeOfDayRule,
   simproHonestyAddon,
   simproLeadsBookingRule,
   siteContactRule,
@@ -121,4 +122,25 @@ test("miss-path uses the existing-customer question", () => {
   assert.match(alreadyCollectedRule("voice"), /confirm the service description/);
   assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /F-A95 fault/);
   assert.match(simproLeadsBookingRule("voice", "Glacier Air"), /do not ask for a short description of the service needed/);
+});
+
+test("preferred time of day is asked once and passed on create_simpro_job", () => {
+  const rule = preferredTimeOfDayRule();
+  assert.match(rule, /PREFERRED TIME/);
+  assert.match(rule, /morning or afternoon/);
+  assert.match(rule, /Do not re-ask if they already said it/);
+  assert.match(rule, /not a confirmed booking slot/);
+  assert.match(rule, /preferred_time/);
+  assert.match(alreadyCollectedRule("voice"), /preferred time of day/);
+  assert.match(alreadyCollectedRule("chat"), /preferred time of day/);
+  assert.match(bookingConfirmMustCreateRule(), /preferred_time/);
+  assert.match(bookingConfirmMustCreateRule(), /ask once first/);
+  const voice = simproLeadsBookingRule("voice", "Glacier Air");
+  const chat = simproLeadsBookingRule("chat", "Glacier Air");
+  for (const text of [voice, chat, simproHonestyAddon("voice"), simproHonestyAddon("chat")]) {
+    assert.match(text, /preferred time of day/i);
+    assert.match(text, /preferred_time/);
+    assert.match(text, /Do not re-ask if they already said it/);
+  }
+  assert.match(voice, /ask once first/);
 });

@@ -11,6 +11,7 @@ import {
   extractEmailFromText,
   extractNameFromText,
   extractPhoneFromText,
+  extractPreferredTimeFromText,
   extractSiteFromText,
   formatCollectedSlots,
   honestLeadFailureReply,
@@ -131,6 +132,31 @@ test("mobile on a booking path must lookup before name/address", () => {
   assert.match(success, /Someone will be in touch/);
   assert.doesNotMatch(success, /4421/);
   assert.doesNotMatch(success, /lead number|SimPRO lead/i);
+});
+
+test("extracts preferred time of day without treating greetings as a slot", () => {
+  assert.equal(extractPreferredTimeFromText("Wednesday afternoon"), "Wednesday afternoon");
+  assert.equal(extractPreferredTimeFromText("Wednesdays afternoon"), "Wednesdays afternoon");
+  assert.equal(extractPreferredTimeFromText("after 3"), "after 3");
+  assert.equal(extractPreferredTimeFromText("prefer the morning"), "morning");
+  assert.equal(extractPreferredTimeFromText("afternoon"), "afternoon");
+  assert.equal(extractPreferredTimeFromText("Good morning"), undefined);
+  assert.equal(extractPreferredTimeFromText("I need a split system clean"), undefined);
+  const slots = collectSlots([
+    { role: "user", content: "I need a split system clean, Malaga" },
+    { role: "user", content: "Wednesdays afternoon" },
+  ]);
+  assert.equal(slots.preferred_time, "Wednesdays afternoon");
+  assert.match(String(slots.description), /split system clean/i);
+  const input = createJobInputFromSlots({
+    ...slots,
+    phone: "+61433121933",
+  });
+  assert.equal(input.preferred_time, "Wednesdays afternoon");
+  assert.match(formatCollectedSlots({
+    ...slots,
+    phone: "+61433121933",
+  }), /Preferred time: Wednesdays afternoon/);
 });
 
 test("tech to look at a fault is already a description", () => {
