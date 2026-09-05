@@ -99,6 +99,12 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.ok(create.input_schema.properties.caller_email);
   assert.match(create.description, /ask name and email once/i);
   assert.match(create.description, /Do not collect or confirm email this way for existing customers/);
+  assert.ok(create.input_schema.properties.preferred_time);
+  assert.match(create.description, /preferred_time/);
+  assert.match(create.description, /morning or afternoon/);
+  assert.match(create.description, /not a confirmed booking slot/i);
+  assert.match(lookup.description, /preferred time of day/);
+  assert.match(lookup.description, /preferred_time/);
 });
 
 test("caps strip send_sms and create_simpro_job; transfer and lookup never appear", () => {
@@ -173,6 +179,7 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
     caller_phone: "+61411122333",
     site_address: "12 Frost St, Malaga WA 6090",
     description: "Split system not cooling",
+    preferred_time: "Wednesday afternoon",
   }, ctx);
   const result = JSON.parse(raw);
   assert.equal(result.ok, true);
@@ -185,6 +192,7 @@ test("executeChatTool runs phone find-or-create create_simpro_job", async () => 
     site_address: "12 Frost St, Malaga WA 6090",
     description: "Split system not cooling",
     job_name: undefined,
+    preferred_time: "Wednesday afternoon",
   });
 });
 

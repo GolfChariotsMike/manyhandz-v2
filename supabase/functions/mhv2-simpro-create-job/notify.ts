@@ -38,6 +38,7 @@ export type LeadNotifyInput = {
   caller_phone: string;
   site_address: string;
   description: string;
+  preferred_time?: string;
 };
 
 export type LeadNotifyEnv = {
@@ -113,7 +114,8 @@ export function leadNotifyEmailText(
     `Phone: ${input.caller_phone}`,
     `Site: ${input.site_address}`,
     `Work: ${input.description}`,
-  ].join("\n");
+    input.preferred_time ? `Preferred time: ${input.preferred_time}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 export function leadNotifyEmailHtml(
@@ -131,6 +133,9 @@ export function leadNotifyEmailHtml(
     `Phone: ${escapeNotifyHtml(input.caller_phone)}<br/>` +
     `Site: ${escapeNotifyHtml(input.site_address)}<br/>` +
     `Work: ${escapeNotifyHtml(input.description)}` +
+    (input.preferred_time
+      ? `<br/>Preferred time: ${escapeNotifyHtml(input.preferred_time)}`
+      : "") +
     `</p>` +
     `</div>`
   );

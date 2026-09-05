@@ -14,6 +14,7 @@ export type CollectedSlots = {
   description?: string;
   quote?: string;
   email?: string;
+  preferred_time?: string;
 };
 
 const PHONE_RE = /(?:\+?61[\s.-]*|0)4[\d\s.-]{8,}/g;
@@ -101,6 +102,42 @@ export function extractQuoteFromText(text: string): string | undefined {
   return quotes.length ? quotes[quotes.length - 1] : undefined;
 }
 
+const DAY_NAME =
+  "(?:mon(?:day)?|tue(?:s(?:day)?)?|wed(?:nes(?:day)?)?|thu(?:rs(?:day)?)?|fri(?:day)?|sat(?:ur(?:day)?)?|sun(?:day)?)s?";
+const TIME_OF_DAY = "(?:morning|afternoon|evening)";
+const CLOCK_WINDOW =
+  "(?:after|before|around)\\s+\\d{1,2}(?::\\d{2})?\\s*(?:am|pm)?";
+
+/** Preference text for the office — not a confirmed slot. Skip greetings. */
+export function extractPreferredTimeFromText(text: string): string | undefined {
+  const raw = String(text || "").trim();
+  if (!raw) return undefined;
+  if (/^good\s+(morning|afternoon|evening)\b/i.test(raw)) return undefined;
+
+  const dayWindow = raw.match(
+    new RegExp(`\\b(${DAY_NAME}\\s+(?:${TIME_OF_DAY}|${CLOCK_WINDOW}))\\b`, "i"),
+  );
+  if (dayWindow?.[1]) return dayWindow[1].replace(/\s+/g, " ").trim();
+
+  const prefer = raw.match(
+    new RegExp(
+      `(?:prefer(?:red)?(?:\\s+time(?:\\s+of\\s+day)?)?|can do|available)\\s+(?:the\\s+)?(${TIME_OF_DAY}|${CLOCK_WINDOW}|anytime|any time)`,
+      "i",
+    ),
+  );
+  if (prefer?.[1]) return prefer[1].replace(/\s+/g, " ").trim();
+
+  const clock = raw.match(new RegExp(`\\b(${CLOCK_WINDOW})\\b`, "i"));
+  if (clock?.[1]) return clock[1].replace(/\s+/g, " ").trim();
+
+  const standalone = raw.match(
+    new RegExp(`^(?:the\\s+)?(${TIME_OF_DAY}s?|anytime|any time)[.!]?$`, "i"),
+  );
+  if (standalone?.[1]) return standalone[1].replace(/\s+/g, " ").trim();
+
+  return undefined;
+}
+
 export function looksLikeBookingConfirm(text: string): boolean {
   const t = String(text || "").trim();
   return CONFIRM_ONLY.test(t) || CONFIRM_INLINE.test(t);
@@ -174,6 +211,8 @@ export function collectSlots(turns: ChatTurn[], country?: string | null): Collec
           slots.description = `${slots.description.replace(/[.\s]+$/, "")}. ${desc}`;
         }
       }
+      const preferred = extractPreferredTimeFromText(text);
+      if (preferred) slots.preferred_time = preferred;
     }
     if (turn.role === "assistant") {
       const quote = extractQuoteFromText(text);
@@ -193,6 +232,7 @@ export function formatCollectedSlots(slots: CollectedSlots): string {
   if (slots.phone) lines.push(`  Mobile: ${slots.phone}`);
   if (slots.site) lines.push(`  Site/suburb: ${slots.site}`);
   if (slots.description) lines.push(`  Job: ${slots.description}`);
+  if (slots.preferred_time) lines.push(`  Preferred time: ${slots.preferred_time}`);
   if (slots.phone) {
     lines.push(
       "  LOOKUP NOW: call lookup_simpro_customer with this mobile THIS TURN — do not ask name or address until it returns. Do not treat chat as a new customer.",
@@ -217,6 +257,7 @@ export function createJobInputFromSlots(slots: CollectedSlots): {
   site_address?: string;
   description: string;
   caller_email?: string;
+  preferred_time?: string;
 } {
   return {
     caller_name: slots.name,
@@ -224,5 +265,6 @@ export function createJobInputFromSlots(slots: CollectedSlots): {
     site_address: slots.site,
     description: slots.description || "",
     ...(slots.email ? { caller_email: slots.email } : {}),
+    ...(slots.preferred_time ? { preferred_time: slots.preferred_time } : {}),
   };
 }
