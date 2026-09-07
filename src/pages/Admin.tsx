@@ -5,6 +5,7 @@ import { setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
 import {
   mergeRecentCalls,
+  queueFromAdminPayload,
   sortQueueRows,
   statusBadgeClass,
   statusLabel,
@@ -151,7 +152,6 @@ export default function Admin() {
       if (data.demo_agent) { setDemoGreeting(data.demo_agent.first_message || ""); setDemoPrompt(data.demo_agent.prompt || ""); }
       setOutreachContacts(Array.isArray(data.outreach_contacts) ? data.outreach_contacts : []);
       setOutboundCalls(Array.isArray(data.outbound_calls) ? data.outbound_calls : []);
-      if (Array.isArray(data.recent_queue)) setQueueAttempts(data.recent_queue);
       if (data.outreach_stats) setOutreachStats(data.outreach_stats);
     } catch (e: unknown) {
       setError(String(e));
@@ -163,6 +163,7 @@ export default function Admin() {
     } catch {
       // Accounts / Demo Line / Outreach still load if leads fail.
     }
+    await checkQueueStatus();
     setLoading(false);
   }
 
@@ -204,7 +205,7 @@ export default function Admin() {
       });
       const d = await res.json();
       setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
-      if (Array.isArray(d.queue)) setQueueAttempts(d.queue);
+      setQueueAttempts(queueFromAdminPayload(d));
       fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
         method: "POST",
         headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
@@ -399,7 +400,7 @@ export default function Admin() {
               <div className="flex items-center gap-4 text-sm">
                 {queueStatus && (
                   <>
-                    <span className="text-white/50">{queueStatus.done}/{queueStatus.total} done</span>
+                    <span className="text-white/50">{queueStatus.pending} pending · {queueStatus.done}/{queueStatus.total} done</span>
                     <div className="w-32 h-1.5 rounded-full bg-white/10 overflow-hidden">
                       <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${queueStatus.total ? (queueStatus.done / queueStatus.total) * 100 : 0}%` }} />
                     </div>
@@ -438,6 +439,7 @@ export default function Admin() {
                     const d = await res.json();
                     setQueueStatus({ pending: d.queued, done: 0, total: d.queued });
                     await setDiallerEnabled(true);
+                    await checkQueueStatus();
                   } catch {}
                   setQueuing(false);
                 }}
@@ -481,12 +483,9 @@ export default function Admin() {
                 Clear Queue
               </button>
             </div>
-          </div>
-
-          {queueAttempts.length > 0 && (
-            <div className="aurora-card overflow-hidden">
-              <div className="p-4 border-b border-white/10 font-semibold text-sm">Call Queue</div>
-              <div className="overflow-x-auto max-h-[28rem]">
+            <div className="mt-4 border-t border-white/10 pt-3">
+              <div className="text-xs text-white/40 mb-2">Who is in the queue</div>
+              <div className="overflow-x-auto max-h-[28rem] rounded-xl border border-white/10">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b border-white/10 text-white/40 text-xs uppercase">
                     <th className="text-left p-3">#</th>
@@ -497,7 +496,9 @@ export default function Admin() {
                     <th className="text-left p-3">Notes</th>
                   </tr></thead>
                   <tbody>
-                    {sortQueueRows(queueAttempts).map((row) => (
+                    {queueAttempts.length === 0 ? (
+                      <tr><td colSpan={6} className="p-4 text-sm text-white/40">Queue is empty — press Queue Calls to load contacts.</td></tr>
+                    ) : sortQueueRows(queueAttempts).map((row) => (
                       <tr key={row.id} className="border-b border-white/5">
                         <td className="p-3 text-xs text-white/40">{row.position ?? "—"}</td>
                         <td className="p-3 text-xs">{row.business || row.name || "—"}</td>
@@ -511,7 +512,7 @@ export default function Admin() {
                 </table>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Outbound call log — EL conversations + Twilio/queue no-answer/busy/failed */}
           {(() => {
