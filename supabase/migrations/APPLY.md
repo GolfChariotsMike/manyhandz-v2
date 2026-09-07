@@ -2,6 +2,26 @@
 
 Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
+## This branch (Admin Outreach Start / Stop Dialler)
+
+`20260907000000_mh_outreach_dialler.sql` + `20260907010000_mh_outreach_dialler_default_on.sql` — one-row `public.mh_outreach_dialler` (`id=1`, `enabled` default **true**). Queue Calls starts the dialler. Service role only.
+
+AU geographic landlines (`0[2378]` / `+61[2378]`) are dialable. Only 13 / 1300 / 1800 are skipped.
+
+`mhv2-outreach-dialler` + `mhv2-outbound-call` — **Must redeploy** (`verify_jwt` false). Start/Stop persist the flag. A tick while stopped returns `{ skipped: true, reason: "dialler stopped" }` and does not walk `outreach_call_queue`. Do not wire `dial_queue` / tate-outreach-dashboard.
+
+A Twilio Call SID is **not** a final outcome. The dialler leaves `outreach_call_queue` as `calling` and passes `queue_id` so `mhv2-outbound-call` sets `StatusCallback` (`initiated ringing answered completed`). `POST /mhv2-outbound-call/status` (no admin token) writes `done` / `no_answer` / `busy` / `failed`, duration, and notes. Contact is marked `contacted` only after an answered completed call. Dialler ticks also poll Twilio for stale `calling` rows.
+
+Admin Recent Calls merges queue/Twilio attempts (including no-answer) with ElevenLabs conversations (who / outcome / sentiment from real EL fields only).
+
+Admin Call Queue (`src/pages/Admin.tsx`) Start Dialler / Stop Dialler + Running chip. While Running, Check Status polls every 20s.
+
+### Success check
+
+- Admin Outreach Call Queue shows Start / Stop; chip matches the flag after refresh.
+- `POST …/mhv2-outreach-dialler` with `{ "action": "stop" }` then a tick returns `dialler stopped`.
+- `POST` `{ "action": "start" }` then a tick is allowed (still respects Perth hours / cooldown / empty queue).
+
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
 ## This branch (ConvAI call summaries)
