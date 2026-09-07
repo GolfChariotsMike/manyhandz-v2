@@ -595,11 +595,18 @@ export default function Admin() {
                           onClick={async () => {
                             setDialingId(c.id);
                             try {
-                              const SRK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
-                              await fetch("https://qpmwjkcxfyreudexawpw.supabase.co/rest/v1/outreach_call_queue", {
+                              await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
                                 method: "POST",
-                                headers: { Authorization: `Bearer ${SRK}`, apikey: SRK, "Content-Type": "application/json", Prefer: "return=minimal" },
-                                body: JSON.stringify({ contact_id: c.id, name: c.name, phone: c.phone, business: c.business, category: c.category, status: "pending", position: 999 }),
+                                headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  contact: {
+                                    id: c.id,
+                                    name: c.name,
+                                    phone: c.phone,
+                                    business: c.business,
+                                    category: c.category,
+                                  },
+                                }),
                               });
                             } catch {}
                             setTimeout(() => setDialingId(null), 1000);

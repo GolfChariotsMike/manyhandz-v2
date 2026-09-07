@@ -4,16 +4,15 @@
  * GET  /twiml — Twilio fetches this when the callee answers (EL register-call).
  * POST /status — Twilio StatusCallback (no admin token). Finalises outreach_call_queue.
  */
+import { outreachKeyMissingError } from "../_shared/outreach-env.ts";
 import {
   normAuPhone,
   queueRowPatchFromTwilio,
 } from "./outreach-outcome.ts";
 
+export { FALLBACK_OUTREACH_URL } from "../_shared/outreach-env.ts";
 export const AGENT_ID = "agent_0301m07zpn6eebwvy5p25j7kzeqh";
 export const FALLBACK_TWILIO_FROM = "+61485021312";
-export const FALLBACK_OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
-export const FALLBACK_OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -178,6 +177,7 @@ async function handleTwiml(req: Request, env: OutboundCallEnv): Promise<Response
 }
 
 async function handleStatus(req: Request, env: OutboundCallEnv): Promise<Response> {
+  if (!env.outreachKey) return jsonResponse(outreachKeyMissingError(), 503);
   const url = new URL(req.url);
   const text = await req.text();
   const params = new URLSearchParams(text);
