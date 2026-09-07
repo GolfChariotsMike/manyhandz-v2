@@ -98,11 +98,15 @@ describe("admin token + helpers", () => {
     assert.equal(controlAction(req("POST", { body: {} }), {}), null);
   });
 
-  it("normalises AU mobiles and skips landlines / 13 numbers", () => {
+  it("normalises AU mobiles and geographic landlines; skips 13/1300/1800 only", () => {
     assert.equal(normMobile("0433121933"), "+61433121933");
+    assert.equal(normMobile("0291606442"), "+61291606442");
+    assert.equal(normMobile("+61291606442"), "+61291606442");
     assert.equal(skipReason("0433121933"), null);
+    assert.equal(skipReason("0291606442"), null);
+    assert.equal(skipReason("0892223333"), null);
     assert.equal(skipReason("1300123456"), "skipped special/1300/1800 number");
-    assert.equal(skipReason("0892223333"), "skipped non-mobile (landline)");
+    assert.equal(skipReason("+611300247247"), "skipped special/1300/1800 number");
   });
 
   it("Perth weekday 8am–5pm is business hours", () => {
@@ -144,7 +148,7 @@ describe("handleRequest", () => {
     }) as typeof fetch;
 
     const status = await json(await handleRequest(req("POST", { body: { action: "status" } }), env));
-    assert.deepEqual(status, { status: 200, body: { enabled: false, running: false } });
+    assert.deepEqual(status, { status: 200, body: { enabled: false, running: false, outcomes: 0 } });
     assert.equal(patches.length, 0);
 
     const started = await json(await handleRequest(req("POST", { body: { action: "start" } }), env));
@@ -162,7 +166,7 @@ describe("handleRequest", () => {
     const outreachCalls: Array<{ url: string; method: string }> = [];
     const { env } = envFor({ enabled: true, outreachCalls });
     const out = await json(await handleRequest(req("GET", { query: "?action=status" }), env));
-    assert.deepEqual(out, { status: 200, body: { enabled: true, running: true } });
+    assert.deepEqual(out, { status: 200, body: { enabled: true, running: true, outcomes: 0 } });
     assert.equal(outreachCalls.length, 0);
   });
 
@@ -177,6 +181,59 @@ describe("handleRequest", () => {
     assert.equal(outreachCalls.length, 0);
     assert.equal(rest.length, 1);
     assert.match(rest[0].url, /mh_outreach_dialler/);
+  });
+
+  it("leaves queue calling on Twilio SID and does not mark contacted", async () => {
+    const patches: Array<{ url: string; body: unknown }> = [];
+    const pending = {
+      id: "q-cbd",
+      name: "CBD",
+      business: "CBD LOCKSMITHS",
+      phone: "0292328839",
+      category: "locksmith",
+      contact_id: "c-cbd",
+      status: "pending",
+    };
+    const { env } = envFor({ enabled: true, inBusinessHours: true });
+    env.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const req = new Request(input, init);
+      const url = new URL(req.url);
+      if (url.pathname.includes("mh_outreach_dialler")) {
+        return new Response(JSON.stringify([{ enabled: true }]), { status: 200 });
+      }
+      if (url.pathname.includes("mhv2-outbound-call") && req.method === "POST") {
+        const body = await req.json();
+        assert.equal(body.queue_id, "q-cbd");
+        assert.equal(body.to, "+61292328839");
+        return new Response(JSON.stringify({ ok: true, sid: "CAplaced00000000000000000000000001" }), { status: 200 });
+      }
+      if (url.pathname.includes("outreach_contacts") && req.method === "PATCH") {
+        patches.push({ url: req.url, body: await req.json() });
+        return new Response(JSON.stringify([{ status: "contacted" }]), { status: 200 });
+      }
+      if (url.pathname.includes("outreach_call_queue") && req.method === "PATCH") {
+        const body = await req.json();
+        patches.push({ url: req.url, body });
+        return new Response(JSON.stringify([{ id: "q-cbd", ...body }]), { status: 200 });
+      }
+      if (url.pathname.includes("outreach_call_queue") && url.search.includes("status=eq.pending")) {
+        return new Response(JSON.stringify([pending]), { status: 200 });
+      }
+      if (url.pathname.includes("outreach_call_queue")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as typeof fetch;
+
+    const out = await json(await handleRequest(req("POST", { body: {} }), env));
+    assert.equal(out.status, 200);
+    assert.equal(out.body.success, true);
+    assert.equal(out.body.status, "calling");
+    assert.equal(out.body.sid, "CAplaced00000000000000000000000001");
+    const finalQueue = patches.filter((p) => String(p.url).includes("outreach_call_queue")).pop();
+    assert.equal((finalQueue?.body as Record<string, unknown>).status, "calling");
+    assert.match(String((finalQueue?.body as Record<string, unknown>).notes), /sid=CAplaced/);
+    assert.equal(patches.some((p) => String(p.url).includes("outreach_contacts")), false);
   });
 
   it("tick while running walks outreach_call_queue not dial_queue", async () => {

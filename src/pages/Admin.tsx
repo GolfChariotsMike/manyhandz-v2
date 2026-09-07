@@ -3,6 +3,12 @@ import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, 
 import { DASHBOARD_ADMIN_PIN as ADMIN_PIN } from "../../supabase/functions/_shared/admin-dashboard-pin.ts";
 import { setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
+import {
+  mergeRecentCalls,
+  statusBadgeClass,
+  statusLabel,
+  type QueueAttempt,
+} from "../lib/outreach-recent-calls";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
 const ADMIN_TOKEN = "mh_admin_mikek";
@@ -55,6 +61,8 @@ type OutboundCall = {
   duration_seconds: number | null;
   status: string;
   transcript_summary: string | null;
+  call_summary_title?: string | null;
+  phone?: string | null;
 };
 
 type OutreachStats = { total: number; new: number; contacted: number; not_interested: number };
@@ -111,6 +119,7 @@ export default function Admin() {
   const [queueCategory, setQueueCategory] = useState("all");
   const [queueLimit, setQueueLimit] = useState(50);
   const [queueStatus, setQueueStatus] = useState<{ pending: number; done: number; total: number } | null>(null);
+  const [queueAttempts, setQueueAttempts] = useState<QueueAttempt[]>([]);
   const [queueRunning, setQueueRunning] = useState(false);
   const [diallerBusy, setDiallerBusy] = useState(false);
   const [queuing, setQueuing] = useState(false);
@@ -141,6 +150,7 @@ export default function Admin() {
       if (data.demo_agent) { setDemoGreeting(data.demo_agent.first_message || ""); setDemoPrompt(data.demo_agent.prompt || ""); }
       setOutreachContacts(Array.isArray(data.outreach_contacts) ? data.outreach_contacts : []);
       setOutboundCalls(Array.isArray(data.outbound_calls) ? data.outbound_calls : []);
+      if (Array.isArray(data.recent_queue)) setQueueAttempts(data.recent_queue);
       if (data.outreach_stats) setOutreachStats(data.outreach_stats);
     } catch (e: unknown) {
       setError(String(e));
@@ -193,6 +203,7 @@ export default function Admin() {
       });
       const d = await res.json();
       setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
+      if (Array.isArray(d.queue)) setQueueAttempts(d.queue);
     } catch {
       // Keep last counts.
     }
@@ -225,9 +236,9 @@ export default function Admin() {
   }, [authed]);
 
   useEffect(() => {
-    if (!authed || tab !== "outreach" || !queueRunning) return;
+    if (!authed || tab !== "outreach") return;
     checkQueueStatus();
-    const id = setInterval(checkQueueStatus, 20000);
+    const id = setInterval(checkQueueStatus, queueRunning ? 20000 : 45000);
     return () => clearInterval(id);
   }, [authed, tab, queueRunning]);
 
@@ -393,6 +404,11 @@ export default function Admin() {
                 </span>
               </div>
             </div>
+            {!queueRunning && (
+              <div className="mb-3 px-3 py-2 rounded-xl bg-yellow-500/15 border border-yellow-500/30 text-yellow-300 text-sm">
+                Dialler is stopped. Press <span className="font-semibold">Start Dialler</span> to walk the queue — Queue Calls also starts it.
+              </div>
+            )}
             <div className="flex items-center gap-3 flex-wrap">
               <select value={queueCategory} onChange={e => setQueueCategory(e.target.value)} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none">
                 <option value="all">All categories</option>
@@ -415,6 +431,7 @@ export default function Admin() {
                     });
                     const d = await res.json();
                     setQueueStatus({ pending: d.queued, done: 0, total: d.queued });
+                    await setDiallerEnabled(true);
                   } catch {}
                   setQueuing(false);
                 }}
@@ -425,9 +442,9 @@ export default function Admin() {
               <button
                 disabled={diallerBusy || queueRunning}
                 onClick={() => setDiallerEnabled(true)}
-                className="px-4 py-2 rounded-xl bg-green-500/20 text-green-400 text-sm font-medium hover:bg-green-500/30 disabled:opacity-50 transition-all"
+                className="px-5 py-2.5 rounded-xl bg-green-500 text-black text-sm font-semibold hover:bg-green-400 disabled:opacity-50 transition-all"
               >
-                {diallerBusy && !queueRunning ? "Starting..." : "Start Dialler"}
+                {diallerBusy && !queueRunning ? "Starting..." : "▶ Start Dialler"}
               </button>
               <button
                 disabled={diallerBusy || !queueRunning}
@@ -459,27 +476,36 @@ export default function Admin() {
             </div>
           </div>
 
-          {/* Outbound call log */}
-          {outboundCalls.length > 0 && (
+          {/* Outbound call log — EL conversations + Twilio/queue no-answer/busy/failed */}
+          {(() => {
+            const recentCalls = mergeRecentCalls(queueAttempts, outboundCalls);
+            if (!recentCalls.length) return null;
+            return (
             <div className="aurora-card overflow-hidden">
               <div className="p-4 border-b border-white/10 font-semibold text-sm">Jake Outbound — Recent Calls</div>
               <table className="w-full text-sm">
                 <thead><tr className="border-b border-white/10 text-white/40 text-xs uppercase">
-                  <th className="text-left p-3">Date</th><th className="text-left p-3">Duration</th><th className="text-left p-3">Status</th><th className="text-left p-3">Summary</th>
+                  <th className="text-left p-3">Date</th>
+                  <th className="text-left p-3">Who</th>
+                  <th className="text-left p-3">Duration</th>
+                  <th className="text-left p-3">Status</th>
+                  <th className="text-left p-3">Summary</th>
                 </tr></thead>
                 <tbody>
-                  {outboundCalls.map(c => (
+                  {recentCalls.map(c => (
                     <tr key={c.id} className="border-b border-white/5">
                       <td className="p-3 text-xs text-white/60">{c.started_at ? new Date(c.started_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                      <td className="p-3 text-xs">{c.who || c.phone || "—"}</td>
                       <td className="p-3 text-xs">{c.duration_seconds != null ? `${c.duration_seconds}s` : "—"}</td>
-                      <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${c.status === "done" ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"}`}>{c.status}</span></td>
-                      <td className="p-3 text-xs text-white/50 max-w-xs">{c.transcript_summary || "—"}</td>
+                      <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${statusBadgeClass(c.status)}`}>{statusLabel(c.status)}</span></td>
+                      <td className="p-3 text-xs text-white/50 max-w-xs">{c.summary || "—"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          )}
+            );
+          })()}
 
           {/* Contact list */}
           <div className="aurora-card overflow-hidden">

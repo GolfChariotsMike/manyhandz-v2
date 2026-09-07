@@ -4,9 +4,15 @@ Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
 ## This branch (Admin Outreach Start / Stop Dialler)
 
-`20260907000000_mh_outreach_dialler.sql` — one-row `public.mh_outreach_dialler` (`id=1`, `enabled` default false). Service role only.
+`20260907000000_mh_outreach_dialler.sql` + `20260907010000_mh_outreach_dialler_default_on.sql` — one-row `public.mh_outreach_dialler` (`id=1`, `enabled` default **true**). Queue Calls starts the dialler. Service role only.
 
-`mhv2-outreach-dialler` — **Must redeploy** (`verify_jwt` false, `x-admin-token`). Start/Stop persist the flag. A tick while stopped returns `{ skipped: true, reason: "dialler stopped" }` and does not walk `outreach_call_queue`. Do not wire `dial_queue` / tate-outreach-dashboard.
+AU geographic landlines (`0[2378]` / `+61[2378]`) are dialable. Only 13 / 1300 / 1800 are skipped.
+
+`mhv2-outreach-dialler` + `mhv2-outbound-call` — **Must redeploy** (`verify_jwt` false). Start/Stop persist the flag. A tick while stopped returns `{ skipped: true, reason: "dialler stopped" }` and does not walk `outreach_call_queue`. Do not wire `dial_queue` / tate-outreach-dashboard.
+
+A Twilio Call SID is **not** a final outcome. The dialler leaves `outreach_call_queue` as `calling` and passes `queue_id` so `mhv2-outbound-call` sets `StatusCallback` (`initiated ringing answered completed`). `POST /mhv2-outbound-call/status` (no admin token) writes `done` / `no_answer` / `busy` / `failed`, duration, and notes. Contact is marked `contacted` only after an answered completed call. Dialler ticks also poll Twilio for stale `calling` rows.
+
+Admin Recent Calls merges queue/Twilio attempts (including no-answer) with ElevenLabs conversations (who / outcome / sentiment from real EL fields only).
 
 Admin Call Queue (`src/pages/Admin.tsx`) Start Dialler / Stop Dialler + Running chip. While Running, Check Status polls every 20s.
 

@@ -3,6 +3,18 @@
  * Same dial path as Test Cold Call (mhv2-outbound-call / Sam Outbound).
  * Auth: x-admin-token. Start/Stop persist on public.mh_outreach_dialler (one row).
  */
+import {
+  OUTBOUND_AGENT_ID,
+  classifyOutreachCall,
+  normAuPhone,
+  phoneFromElConversation,
+  phonesMatch,
+  queueRowPatchFromTwilio,
+  sidFromNotes,
+  skipReason,
+} from "./outreach-outcome.ts";
+
+export { normAuPhone, normMobile, skipReason } from "./outreach-outcome.ts";
 
 export const FALLBACK_ADMIN_TOKEN = "mh_admin_mikek";
 export const FALLBACK_OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
@@ -23,6 +35,9 @@ export type DiallerEnv = {
   serviceKey: string;
   outreachUrl: string;
   outreachKey: string;
+  elApiKey?: string;
+  twilioSid?: string;
+  twilioToken?: string;
   /** When set, skip the Perth weekday clock (tests). */
   inBusinessHours?: boolean;
 };
@@ -46,27 +61,6 @@ export function isPerthBusinessHours(now: Date): boolean {
   const day = perth.getUTCDay();
   const totalMins = perth.getUTCHours() * 60 + perth.getUTCMinutes();
   return day >= 1 && day <= 5 && totalMins >= 480 && totalMins < 1020;
-}
-
-/** AU mobiles only for cold outreach — 04… / +614… */
-export function normMobile(raw: string): string | null {
-  let p = String(raw || "").replace(/[\s().-]/g, "");
-  if (!p) return null;
-  if (p.startsWith("+614") && p.length === 12) return p;
-  if (p.startsWith("614") && p.length === 11) return "+" + p;
-  if (p.startsWith("04") && p.length === 10) return "+61" + p.slice(1);
-  if (p.startsWith("4") && p.length === 9) return "+61" + p;
-  return null;
-}
-
-export function skipReason(raw: string): string | null {
-  const p = String(raw || "").replace(/[\s().-]/g, "");
-  if (!p) return "no phone number";
-  if (/^(?:\+?61)?(?:1300|1800|13\d{4}|1800)/.test(p) || /^(?:1300|1800|13)\d+/.test(p)) {
-    return "skipped special/1300/1800 number";
-  }
-  if (normMobile(p)) return null;
-  return "skipped non-mobile (landline)";
 }
 
 export function controlAction(req: Request, body: Record<string, unknown> | null): ControlAction | null {
@@ -126,6 +120,123 @@ async function outreachFetch(env: DiallerEnv, path: string, init: RequestInit = 
   });
 }
 
+async function applyTwilioToQueue(
+  env: DiallerEnv,
+  row: { id: string; contact_id?: string | null; notes?: string | null; status?: string | null },
+  callStatus: string,
+  duration: number,
+  sid?: string | null,
+): Promise<boolean> {
+  const already = ["done", "no_answer", "busy", "failed", "skipped"].includes(String(row.status || ""));
+  const mapped = queueRowPatchFromTwilio({
+    callStatus,
+    duration,
+    sid,
+    existingNotes: row.notes,
+  });
+  if (!mapped.finalize) return false;
+  if (already) return false;
+  await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${row.id}`, {
+    method: "PATCH",
+    body: JSON.stringify(mapped.patch),
+  });
+  if (mapped.answered && row.contact_id) {
+    await outreachFetch(env, `/rest/v1/outreach_contacts?id=eq.${row.contact_id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "contacted" }),
+    });
+  }
+  return true;
+}
+
+/** Fallback when StatusCallback is late/missing: poll Twilio for rows still `calling`. */
+async function reconcileCalling(env: DiallerEnv): Promise<number> {
+  if (!env.twilioSid || !env.twilioToken) return 0;
+  const res = await outreachFetch(
+    env,
+    `/rest/v1/outreach_call_queue?status=eq.calling&called_at=not.is.null&select=id,contact_id,notes,status,called_at&limit=20`,
+  );
+  const rows = await res.json().catch(() => null);
+  if (!Array.isArray(rows) || !rows.length) return 0;
+  const auth = btoa(`${env.twilioSid}:${env.twilioToken}`);
+  let n = 0;
+  for (const row of rows) {
+    const sid = sidFromNotes(row.notes);
+    if (!sid) continue;
+    const tw = await env.fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${env.twilioSid}/Calls/${sid}.json`,
+      { headers: { Authorization: `Basic ${auth}` } },
+    );
+    const call = await tw.json().catch(() => ({})) as { status?: string; duration?: string };
+    const status = String(call.status || "");
+    const duration = parseInt(String(call.duration || "0"), 10) || 0;
+    if (await applyTwilioToQueue(env, row, status, duration, sid)) n += 1;
+  }
+  return n;
+}
+
+async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
+  if (!env.elApiKey) return 0;
+  const listRes = await env.fetch(
+    `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${OUTBOUND_AGENT_ID}&page_size=15`,
+    { headers: { "xi-api-key": env.elApiKey } },
+  );
+  const list = await listRes.json().catch(() => ({})) as { conversations?: Array<Record<string, unknown>> };
+  const convs = Array.isArray(list.conversations) ? list.conversations : [];
+  if (!convs.length) return 0;
+
+  const queueRes = await outreachFetch(
+    env,
+    `/rest/v1/outreach_call_queue?status=in.(done,calling,failed)&called_at=not.is.null&select=id,contact_id,name,business,phone,notes,outcome&order=called_at.desc&limit=40`,
+  );
+  const rows = await queueRes.json().catch(() => null);
+  if (!Array.isArray(rows)) return 0;
+
+  let marked = 0;
+  for (const c of convs.slice(0, 8)) {
+    const id = typeof c.conversation_id === "string" ? c.conversation_id : "";
+    if (!id) continue;
+    const detailRes = await env.fetch(
+      `https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(id)}`,
+      { headers: { "xi-api-key": env.elApiKey } },
+    );
+    const detail = await detailRes.json().catch(() => ({}));
+    const phone = phoneFromElConversation(detail);
+    const match = rows.find((r) => phonesMatch(r.phone, phone));
+    if (!match) continue;
+    const outcome = classifyOutreachCall({
+      name: match.name,
+      business: match.business,
+      durationSeconds: typeof c.call_duration_secs === "number" ? c.call_duration_secs : null,
+      status: typeof c.status === "string" ? c.status : null,
+      transcriptSummary: typeof c.analysis === "object" && c.analysis
+        ? (c.analysis as { transcript_summary?: string }).transcript_summary
+        : null,
+      callSummaryTitle: typeof c.call_summary_title === "string" ? c.call_summary_title : null,
+      analysis: (detail as { analysis?: unknown }).analysis,
+      transcript: (detail as { transcript?: unknown }).transcript,
+    });
+    const note = outcome.summary;
+    if (note && !String(match.notes || "").includes(note.slice(0, 40))) {
+      await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${match.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          notes: note,
+          outcome: outcome.notInterested ? "not_interested" : (match.outcome || "contacted"),
+        }),
+      });
+    }
+    if (outcome.notInterested && match.contact_id) {
+      await outreachFetch(env, `/rest/v1/outreach_contacts?id=eq.${match.contact_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "not_interested" }),
+      });
+      marked += 1;
+    }
+  }
+  return marked;
+}
+
 async function parseBody(req: Request): Promise<Record<string, unknown> | null> {
   if (req.method === "GET" || req.method === "OPTIONS") return null;
   try {
@@ -156,7 +267,8 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
 
   if (action === "status") {
     const enabled = await readEnabled(env);
-    return jsonResponse({ enabled, running: enabled });
+    const outcomes = await processRecentOutcomes(env).catch(() => 0);
+    return jsonResponse({ enabled, running: enabled, outcomes });
   }
 
   if (action === "start" || action === "stop") {
@@ -187,6 +299,8 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
     },
   );
 
+  await reconcileCalling(env).catch(() => 0);
+
   const inProgRes = await outreachFetch(
     env,
     `/rest/v1/outreach_call_queue?status=eq.calling&called_at=gte.${staleCut}&select=id&limit=1`,
@@ -198,7 +312,7 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
 
   const lastRes = await outreachFetch(
     env,
-    `/rest/v1/outreach_call_queue?status=in.(calling,done,failed)&called_at=not.is.null&select=called_at&order=called_at.desc&limit=1`,
+    `/rest/v1/outreach_call_queue?status=in.(calling,done,failed,no_answer,busy)&called_at=not.is.null&select=called_at&order=called_at.desc&limit=1`,
   );
   const last = await lastRes.json();
   if (Array.isArray(last) && last[0]?.called_at) {
@@ -212,7 +326,7 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
     }
   }
 
-  // Walk pending until we find a dialable mobile (skip up to 10 non-mobiles per tick)
+  // Walk pending until we find a dialable AU mobile or geographic landline (skip 13/1300/1800)
   for (let i = 0; i < 10; i++) {
     const nextRes = await outreachFetch(
       env,
@@ -232,7 +346,7 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
       continue;
     }
 
-    const phone = normMobile(next.phone)!;
+    const phone = normAuPhone(next.phone)!;
     const now = env.now().toISOString();
     await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${next.id}`, {
       method: "PATCH",
@@ -247,31 +361,29 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
         name: next.name || "there",
         business: next.business || "",
         category: next.category || "",
+        queue_id: next.id,
       }),
     });
     const dial = await dialRes.json().catch(() => ({}));
 
     if (dialRes.ok && dial.ok) {
+      // SID is not a final outcome — stay `calling` until StatusCallback / poll.
       await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${next.id}`, {
         method: "PATCH",
         body: JSON.stringify({
-          status: "done",
-          notes: `Called ${phone} sid=${dial.sid || ""}`,
+          status: "calling",
+          notes: `Called ${phone} sid=${dial.sid || ""} ringing`,
         }),
       });
-      if (next.contact_id) {
-        await outreachFetch(env, `/rest/v1/outreach_contacts?id=eq.${next.contact_id}`, {
-          method: "PATCH",
-          body: JSON.stringify({ status: "contacted" }),
-        });
-      }
       return jsonResponse({
         success: true,
+        placed: true,
         contact: next.name,
         business: next.business,
         phone,
         sid: dial.sid,
         queue_id: next.id,
+        status: "calling",
         enabled: true,
       });
     }
@@ -286,5 +398,5 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
     return jsonResponse({ success: false, error: dial, phone, contact: next.name, enabled: true });
   }
 
-  return jsonResponse({ skipped: true, reason: "no dialable mobiles in next batch", enabled: true });
+  return jsonResponse({ skipped: true, reason: "no dialable numbers in next batch", enabled: true });
 }
