@@ -112,6 +112,7 @@ export default function Admin() {
   const [queueLimit, setQueueLimit] = useState(50);
   const [queueStatus, setQueueStatus] = useState<{ pending: number; done: number; total: number } | null>(null);
   const [queueRunning, setQueueRunning] = useState(false);
+  const [diallerBusy, setDiallerBusy] = useState(false);
   const [queuing, setQueuing] = useState(false);
   const [testPhone, setTestPhone] = useState("");
   const [testName, setTestName] = useState("");
@@ -154,6 +155,49 @@ export default function Admin() {
     setLoading(false);
   }
 
+  async function loadDiallerStatus() {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
+        method: "POST",
+        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status" }),
+      });
+      const d = await res.json();
+      if (typeof d.enabled === "boolean") setQueueRunning(d.enabled);
+    } catch {
+      // Chip stays at last known value.
+    }
+  }
+
+  async function setDiallerEnabled(enabled: boolean) {
+    setDiallerBusy(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
+        method: "POST",
+        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: enabled ? "start" : "stop" }),
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(d.error);
+      setQueueRunning(!!d.enabled);
+    } catch (e: unknown) {
+      setError(String(e));
+    }
+    setDiallerBusy(false);
+  }
+
+  async function checkQueueStatus() {
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
+        headers: { "x-admin-token": ADMIN_TOKEN },
+      });
+      const d = await res.json();
+      setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
+    } catch {
+      // Keep last counts.
+    }
+  }
+
   async function setFollowupCalled(id: string, followup_called: boolean) {
     const prev = leads;
     const stamp = followup_called ? new Date().toISOString() : null;
@@ -174,7 +218,18 @@ export default function Admin() {
     }
   }
 
-  useEffect(() => { if (authed) load(); }, [authed]);
+  useEffect(() => {
+    if (!authed) return;
+    load();
+    loadDiallerStatus();
+  }, [authed]);
+
+  useEffect(() => {
+    if (!authed || tab !== "outreach" || !queueRunning) return;
+    checkQueueStatus();
+    const id = setInterval(checkQueueStatus, 20000);
+    return () => clearInterval(id);
+  }, [authed, tab, queueRunning]);
 
   if (!authed) {
     return (
@@ -324,17 +379,19 @@ export default function Admin() {
                 <h3 className="font-semibold">Call Queue</h3>
                 <p className="text-white/40 text-xs mt-0.5">Jake Outbound — agent_0301m07zpn6eebwvy5p25j7kzeqh</p>
               </div>
-              {queueStatus && (
-                <div className="flex items-center gap-4 text-sm">
-                  <span className="text-white/50">{queueStatus.done}/{queueStatus.total} done</span>
-                  <div className="w-32 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                    <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${queueStatus.total ? (queueStatus.done / queueStatus.total) * 100 : 0}%` }} />
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-xs ${queueRunning ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"}`}>
-                    {queueRunning ? "● Running" : "Stopped"}
-                  </span>
-                </div>
-              )}
+              <div className="flex items-center gap-4 text-sm">
+                {queueStatus && (
+                  <>
+                    <span className="text-white/50">{queueStatus.done}/{queueStatus.total} done</span>
+                    <div className="w-32 h-1.5 rounded-full bg-white/10 overflow-hidden">
+                      <div className="h-full bg-yellow-400 rounded-full transition-all" style={{ width: `${queueStatus.total ? (queueStatus.done / queueStatus.total) * 100 : 0}%` }} />
+                    </div>
+                  </>
+                )}
+                <span className={`px-2 py-0.5 rounded-full text-xs ${queueRunning ? "bg-green-500/20 text-green-400" : "bg-white/10 text-white/40"}`}>
+                  {queueRunning ? "● Running" : "Stopped"}
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-3 flex-wrap">
               <select value={queueCategory} onChange={e => setQueueCategory(e.target.value)} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm focus:outline-none">
@@ -358,7 +415,6 @@ export default function Admin() {
                     });
                     const d = await res.json();
                     setQueueStatus({ pending: d.queued, done: 0, total: d.queued });
-                    setQueueRunning(false);
                   } catch {}
                   setQueuing(false);
                 }}
@@ -367,13 +423,21 @@ export default function Admin() {
                 {queuing ? "Queuing..." : "💼 Queue Calls"}
               </button>
               <button
-                onClick={async () => {
-                  const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
-                    headers: { "x-admin-token": ADMIN_TOKEN },
-                  });
-                  const d = await res.json();
-                  setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
-                }}
+                disabled={diallerBusy || queueRunning}
+                onClick={() => setDiallerEnabled(true)}
+                className="px-4 py-2 rounded-xl bg-green-500/20 text-green-400 text-sm font-medium hover:bg-green-500/30 disabled:opacity-50 transition-all"
+              >
+                {diallerBusy && !queueRunning ? "Starting..." : "Start Dialler"}
+              </button>
+              <button
+                disabled={diallerBusy || !queueRunning}
+                onClick={() => setDiallerEnabled(false)}
+                className="px-4 py-2 rounded-xl bg-red-500/15 text-red-400 text-sm font-medium hover:bg-red-500/25 disabled:opacity-50 transition-all"
+              >
+                {diallerBusy && queueRunning ? "Stopping..." : "Stop Dialler"}
+              </button>
+              <button
+                onClick={checkQueueStatus}
                 className="px-4 py-2 rounded-xl bg-white/5 text-white/50 text-sm hover:bg-white/10 transition-all"
               >
                 Check Status
@@ -387,7 +451,6 @@ export default function Admin() {
                     body: JSON.stringify({ clear: true }),
                   });
                   setQueueStatus({ pending: 0, done: 0, total: 0 });
-                  setQueueRunning(false);
                 }}
                 className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
               >

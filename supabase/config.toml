@@ -110,3 +110,6 @@ verify_jwt = false
 
 [functions.mhv2-chat-widget]
 verify_jwt = false
+
+[functions.mhv2-outreach-dialler]
+verify_jwt = false

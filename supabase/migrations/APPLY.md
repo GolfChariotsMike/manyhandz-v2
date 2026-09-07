@@ -2,6 +2,20 @@
 
 Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
+## This branch (Admin Outreach Start / Stop Dialler)
+
+`20260907000000_mh_outreach_dialler.sql` — one-row `public.mh_outreach_dialler` (`id=1`, `enabled` default false). Service role only.
+
+`mhv2-outreach-dialler` — **Must redeploy** (`verify_jwt` false, `x-admin-token`). Start/Stop persist the flag. A tick while stopped returns `{ skipped: true, reason: "dialler stopped" }` and does not walk `outreach_call_queue`. Do not wire `dial_queue` / tate-outreach-dashboard.
+
+Admin Call Queue (`src/pages/Admin.tsx`) Start Dialler / Stop Dialler + Running chip. While Running, Check Status polls every 20s.
+
+### Success check
+
+- Admin Outreach Call Queue shows Start / Stop; chip matches the flag after refresh.
+- `POST …/mhv2-outreach-dialler` with `{ "action": "stop" }` then a tick returns `dialler stopped`.
+- `POST` `{ "action": "start" }` then a tick is allowed (still respects Perth hours / cooldown / empty queue).
+
 After this PR merges, Grok (or whoever deploys) must apply new SQL on that project before the dashboard and edge functions rely on the columns.
 
 ## This branch (ConvAI call summaries)
