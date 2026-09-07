@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { verifyMagicLink } from "../lib/api";
+import { fireSignupPurchaseConversion } from "../lib/gtag";
 import { Check, XCircle, Loader2 } from "lucide-react";
 
 export default function Verify() {
@@ -18,6 +19,10 @@ export default function Verify() {
     }
     verifyMagicLink(token)
       .then(({ isNew, customer }) => {
+        fireSignupPurchaseConversion({
+          isNew: Boolean(isNew),
+          customerId: typeof customer?.id === "string" ? customer.id : "",
+        });
         setStatus("success");
         setTimeout(() => {
           if (isNew || !customer?.onboarding_complete) {

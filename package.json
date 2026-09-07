@@ -9,7 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test:grokbot": "node --experimental-strip-types --test supabase/functions/mhv2-grokbot/handler.test.ts",
-    "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts src/lib/api-save.test.ts src/lib/login.test.ts",
+    "test:api": "node --experimental-strip-types --test src/lib/api-rest.test.ts src/lib/api-save.test.ts src/lib/login.test.ts src/lib/gtag.test.ts",
     "test:widget-preview": "node --experimental-strip-types --test src/lib/chat-widget-preview.test.ts src/lib/chat-widget-launcher.test.ts",
     "test:chat": "node --experimental-strip-types --test supabase/functions/mhv2-chat-widget/prompt.test.ts supabase/functions/mhv2-chat-widget/tools.test.ts supabase/functions/mhv2-chat-widget/handler.test.ts supabase/functions/_shared/collected-slots.test.ts supabase/functions/_shared/booking-honesty.test.ts",
     "test:dashboard": "node --experimental-strip-types --test src/lib/meCache.test.ts src/lib/chat-page.test.ts src/lib/chat-sessions.test.ts src/lib/trialCountdown.test.ts src/lib/capabilities.test.ts src/lib/notify-settings.test.ts src/lib/knowledge-prompt.test.ts src/lib/return-to-ai-prompt.test.ts src/lib/whitelist.test.ts",
