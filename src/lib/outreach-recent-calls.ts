@@ -1,4 +1,4 @@
-import { classifyOutreachCall, phonesMatch } from "../../supabase/functions/_shared/outreach-outcome.ts";
+import { classifyOutreachCall, phonesMatch, timeCloseIso } from "../../supabase/functions/_shared/outreach-outcome.ts";
 
 export type QueueAttempt = {
   id: string;
@@ -10,6 +10,7 @@ export type QueueAttempt = {
   outcome?: string | null;
   called_at?: string | null;
   duration_seconds?: number | null;
+  position?: number | null;
 };
 
 export type ElOutboundCall = {
@@ -30,6 +31,7 @@ export type RecentCallRow = {
   duration_seconds: number | null;
   status: string;
   summary: string;
+  outcomeLabel: string;
   source: "queue" | "el";
 };
 
@@ -40,11 +42,7 @@ function whoOf(row: QueueAttempt): string {
 }
 
 function timeClose(a: string | null | undefined, b: string | null | undefined, ms = 180_000): boolean {
-  if (!a || !b) return false;
-  const da = new Date(a).getTime();
-  const db = new Date(b).getTime();
-  if (!Number.isFinite(da) || !Number.isFinite(db)) return false;
-  return Math.abs(da - db) <= ms;
+  return timeCloseIso(a, b, ms);
 }
 
 export function isAttemptRow(row: QueueAttempt): boolean {
@@ -64,31 +62,29 @@ export function matchElToQueue(el: ElOutboundCall, queue: QueueAttempt): boolean
   return timeClose(el.started_at, queue.called_at);
 }
 
-export function attemptSummary(row: QueueAttempt, el?: ElOutboundCall | null): string {
-  const who = whoOf(row);
-  if (el && (el.transcript_summary || el.call_summary_title)) {
-    return classifyOutreachCall({
-      name: row.name,
-      business: row.business,
-      durationSeconds: row.duration_seconds ?? el.duration_seconds,
-      status: row.status,
-      transcriptSummary: el.transcript_summary,
-      callSummaryTitle: el.call_summary_title,
-    }).summary;
-  }
-  const notes = String(row.notes || "").replace(/\s+sid=CA[0-9a-f]{32}/i, "").trim();
+export function classifyAttempt(row: QueueAttempt, el?: ElOutboundCall | null, smsSent?: boolean) {
+  return classifyOutreachCall({
+    name: row.name,
+    business: row.business,
+    durationSeconds: row.duration_seconds ?? el?.duration_seconds,
+    status: row.status,
+    transcriptSummary: el?.transcript_summary,
+    callSummaryTitle: el?.call_summary_title,
+    smsSent,
+  });
+}
+
+export function attemptSummary(row: QueueAttempt, el?: ElOutboundCall | null, smsSent?: boolean): string {
+  const classified = classifyAttempt(row, el, smsSent);
+  if (classified.line2) return classified.summary;
   if (row.status === "no_answer") {
-    return [who, notes || "No answer — Sam never connected."].filter(Boolean).join(" — ");
+    return `${classified.line1}\nSam never connected.`;
   }
-  if (row.status === "busy") return [who, notes || "Busy."].filter(Boolean).join(" — ");
-  if (row.status === "failed") return [who, notes || "Call failed."].filter(Boolean).join(" — ");
-  if (row.status === "skipped") return [who, notes || "Skipped."].filter(Boolean).join(" — ");
-  if (row.status === "calling") return [who, notes || "Ringing…"].filter(Boolean).join(" — ");
-  if (notes) return [who, notes].filter(Boolean).join(" — ");
-  if (who && row.duration_seconds != null && row.duration_seconds > 0) {
-    return `${who} — answered (${row.duration_seconds}s)`;
+  if (row.status === "skipped") {
+    const notes = String(row.notes || "").replace(/\s+sid=CA[0-9a-f]{32}/i, "").trim();
+    return notes && !classified.line1.includes(notes) ? `${classified.line1}\n${notes}` : classified.line1;
   }
-  return who || "—";
+  return classified.summary;
 }
 
 /** Queue/Twilio attempts first (so no-answer shows), then unmatched EL conversations. */
@@ -101,6 +97,7 @@ export function mergeRecentCalls(queue: QueueAttempt[], elCalls: ElOutboundCall[
   for (const row of attempts) {
     const el = els.find((c) => !usedEl.has(c.id) && matchElToQueue(c, row)) || null;
     if (el) usedEl.add(el.id);
+    const classified = classifyAttempt(row, el);
     rows.push({
       id: `queue-${row.id}`,
       started_at: row.called_at || el?.started_at || null,
@@ -109,18 +106,19 @@ export function mergeRecentCalls(queue: QueueAttempt[], elCalls: ElOutboundCall[
       duration_seconds: row.duration_seconds ?? el?.duration_seconds ?? null,
       status: row.status,
       summary: attemptSummary(row, el),
+      outcomeLabel: classified.outcomeLabel,
       source: "queue",
     });
   }
 
   for (const el of els) {
     if (usedEl.has(el.id)) continue;
-    const summary = classifyOutreachCall({
+    const classified = classifyOutreachCall({
       durationSeconds: el.duration_seconds,
       status: el.status,
       transcriptSummary: el.transcript_summary,
       callSummaryTitle: el.call_summary_title,
-    }).summary;
+    });
     rows.push({
       id: `el-${el.id}`,
       started_at: el.started_at,
@@ -128,7 +126,8 @@ export function mergeRecentCalls(queue: QueueAttempt[], elCalls: ElOutboundCall[
       phone: String(el.phone || ""),
       duration_seconds: el.duration_seconds,
       status: el.status === "done" ? "done" : el.status,
-      summary,
+      summary: classified.summary,
+      outcomeLabel: classified.outcomeLabel,
       source: "el",
     });
   }
@@ -143,14 +142,34 @@ export function mergeRecentCalls(queue: QueueAttempt[], elCalls: ElOutboundCall[
 
 export function statusBadgeClass(status: string): string {
   if (status === "done" || status === "contacted") return "bg-green-500/20 text-green-400";
+  if (status === "not_interested") return "bg-red-500/20 text-red-400";
   if (status === "no_answer" || status === "busy") return "bg-orange-500/20 text-orange-400";
   if (status === "failed") return "bg-red-500/20 text-red-400";
-  if (status === "calling") return "bg-yellow-500/20 text-yellow-300";
+  if (status === "calling" || status === "pending") return "bg-yellow-500/20 text-yellow-300";
   if (status === "skipped") return "bg-white/10 text-white/40";
   return "bg-white/10 text-white/40";
 }
 
 export function statusLabel(status: string): string {
   if (status === "no_answer") return "no answer";
+  if (status === "not_interested") return "not interested";
   return status.replace(/_/g, " ");
+}
+
+export function sortQueueRows(rows: QueueAttempt[]): QueueAttempt[] {
+  const rank = (s: string) => {
+    if (s === "calling") return 0;
+    if (s === "pending") return 1;
+    return 2;
+  };
+  return [...rows].sort((a, b) => {
+    const d = rank(a.status) - rank(b.status);
+    if (d !== 0) return d;
+    if (a.status === "pending" || a.status === "calling") {
+      return Number((a as { position?: number }).position || 0) - Number((b as { position?: number }).position || 0);
+    }
+    const ta = a.called_at ? new Date(a.called_at).getTime() : 0;
+    const tb = b.called_at ? new Date(b.called_at).getTime() : 0;
+    return tb - ta;
+  });
 }

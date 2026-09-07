@@ -6,9 +6,10 @@
 import {
   OUTBOUND_AGENT_ID,
   classifyOutreachCall,
+  matchQueueToConversation,
   normAuPhone,
   phoneFromElConversation,
-  phonesMatch,
+  queueNotesWithSid,
   queueRowPatchFromTwilio,
   sidFromNotes,
   skipReason,
@@ -140,11 +141,25 @@ async function applyTwilioToQueue(
     method: "PATCH",
     body: JSON.stringify(mapped.patch),
   });
-  if (mapped.answered && row.contact_id) {
+  if (row.contact_id) {
+    const hangup = mapped.answered && mapped.patch.duration_seconds <= 10;
     await outreachFetch(env, `/rest/v1/outreach_contacts?id=eq.${row.contact_id}`, {
       method: "PATCH",
-      body: JSON.stringify({ status: "contacted" }),
+      body: JSON.stringify({ status: hangup ? "not_interested" : "contacted" }),
     });
+    if (hangup) {
+      await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${row.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          outcome: "not_interested",
+          notes: queueNotesWithSid(
+            `hung up early (${mapped.patch.duration_seconds}s)`,
+            sid,
+            mapped.patch.notes,
+          ),
+        }),
+      });
+    }
   }
   return true;
 }
@@ -187,7 +202,7 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
 
   const queueRes = await outreachFetch(
     env,
-    `/rest/v1/outreach_call_queue?status=in.(done,calling,failed)&called_at=not.is.null&select=id,contact_id,name,business,phone,notes,outcome,status&order=called_at.desc&limit=40`,
+    `/rest/v1/outreach_call_queue?status=in.(done,calling,failed)&called_at=not.is.null&select=id,contact_id,name,business,phone,notes,outcome,status,called_at,duration_seconds&order=called_at.desc&limit=40`,
   );
   const rows = await queueRes.json().catch(() => null);
   if (!Array.isArray(rows)) return 0;
@@ -204,14 +219,19 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
     );
     const detail = await detailRes.json().catch(() => ({}));
     const phone = phoneFromElConversation(detail);
-    const match = rows.find((r) => phonesMatch(r.phone, phone));
+    const startedAt = typeof c.start_time_unix_secs === "number"
+      ? new Date(c.start_time_unix_secs * 1000).toISOString()
+      : null;
+    const durationSeconds = typeof c.call_duration_secs === "number" ? c.call_duration_secs : null;
+    const match = rows.find((r) =>
+      matchQueueToConversation(r, { phone, started_at: startedAt, durationSeconds })
+    );
     if (!match) continue;
-    if (String(match.status || "") === "calling") continue;
     const outcome = classifyOutreachCall({
       name: match.name,
       business: match.business,
-      durationSeconds: typeof c.call_duration_secs === "number" ? c.call_duration_secs : null,
-      status: typeof c.status === "string" ? c.status : null,
+      durationSeconds,
+      status: typeof match.status === "string" ? match.status : null,
       transcriptSummary: typeof c.analysis === "object" && c.analysis
         ? (c.analysis as { transcript_summary?: string }).transcript_summary
         : null,
@@ -219,16 +239,15 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
       analysis: (detail as { analysis?: unknown }).analysis,
       transcript: (detail as { transcript?: unknown }).transcript,
     });
-    const note = outcome.summary;
-    if (note && !String(match.notes || "").includes(note.slice(0, 40))) {
-      await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${match.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({
-          notes: note,
-          outcome: outcome.notInterested ? "not_interested" : (match.outcome || "contacted"),
-        }),
-      });
-    }
+    const note = outcome.summary.replace(/\n/g, " — ");
+    await outreachFetch(env, `/rest/v1/outreach_call_queue?id=eq.${match.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        status: "done",
+        notes: note,
+        outcome: outcome.notInterested ? "not_interested" : (match.outcome || "contacted"),
+      }),
+    });
     if (outcome.notInterested && match.contact_id) {
       await outreachFetch(env, `/rest/v1/outreach_contacts?id=eq.${match.contact_id}`, {
         method: "PATCH",

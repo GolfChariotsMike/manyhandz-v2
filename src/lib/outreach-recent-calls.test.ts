@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { attemptSummary, mergeRecentCalls } from "./outreach-recent-calls.ts";
+import { attemptSummary, mergeRecentCalls, sortQueueRows } from "./outreach-recent-calls.ts";
 
 describe("mergeRecentCalls", () => {
   it("shows Twilio no-answer even when ElevenLabs has no conversation", () => {
@@ -50,6 +50,7 @@ describe("mergeRecentCalls", () => {
     assert.match(rows[0].summary, /AR Locksmith Sydney/);
     assert.match(rows[0].summary, /Locksmith Business Help/);
     assert.match(rows[0].summary, /answered \(22s\)/);
+    assert.match(rows[0].outcomeLabel, /answered \(22s\)/);
   });
 
   it("does not let a skipped 1300 row steal an answered EL conversation", () => {
@@ -109,10 +110,20 @@ describe("mergeRecentCalls", () => {
 });
 
 describe("attemptSummary", () => {
-  it("uses queue notes for busy/failed without inventing sentiment", () => {
+  it("uses a scannable outcome for busy/failed without inventing sentiment", () => {
     assert.match(
       attemptSummary({ id: "1", business: "Shop", status: "busy", notes: "Twilio busy (duration 0)" }),
-      /Shop — Twilio busy/,
+      /Shop — busy/,
     );
+  });
+
+  it("lists pending rows first in the Call Queue table", () => {
+    const sorted = sortQueueRows([
+      { id: "d", business: "Done Co", status: "done", called_at: "2026-09-07T04:00:00.000Z", position: 1 },
+      { id: "p2", business: "Next", status: "pending", position: 3 },
+      { id: "p1", business: "First pending", status: "pending", position: 2 },
+      { id: "c", business: "Ringing", status: "calling", position: 1 },
+    ]);
+    assert.deepEqual(sorted.map((r) => r.id), ["c", "p1", "p2", "d"]);
   });
 });

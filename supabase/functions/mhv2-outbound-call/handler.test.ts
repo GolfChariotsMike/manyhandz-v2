@@ -113,6 +113,28 @@ describe("handleRequest", () => {
     assert.equal(contactPatch, undefined);
   });
 
+  it("StatusCallback short completed hangup marks not_interested", async () => {
+    const patches: Array<{ url: string; body: unknown }> = [];
+    const env = envFor({
+      patches,
+      queue: { id: "q-short", contact_id: "c-short", notes: "sid=CAshort00000000000000000000000001", status: "calling" },
+    });
+    const res = await handleRequest(
+      new Request("https://example.supabase.co/functions/v1/mhv2-outbound-call/status?queue_id=q-short", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: "CallSid=CAshort00000000000000000000000001&CallStatus=completed&CallDuration=8",
+      }),
+      env,
+    );
+    assert.equal(res.status, 204);
+    const queuePatch = patches.find((p) => p.url.includes("outreach_call_queue"))?.body as Record<string, unknown>;
+    const contactPatch = patches.find((p) => p.url.includes("outreach_contacts"))?.body as Record<string, unknown>;
+    assert.equal(queuePatch.status, "done");
+    assert.equal(queuePatch.outcome, "not_interested");
+    assert.equal(contactPatch.status, "not_interested");
+  });
+
   it("StatusCallback completed with duration marks done and contacted", async () => {
     const patches: Array<{ url: string; body: unknown }> = [];
     const env = envFor({
