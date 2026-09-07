@@ -53,7 +53,14 @@ export function isAttemptRow(row: QueueAttempt): boolean {
 }
 
 export function matchElToQueue(el: ElOutboundCall, queue: QueueAttempt): boolean {
+  if (queue.status === "skipped" || queue.status === "no_answer" || queue.status === "busy" || queue.status === "failed") {
+    return false;
+  }
   if (el.phone && queue.phone && phonesMatch(el.phone, queue.phone)) return true;
+  if (queue.status === "calling") return false;
+  const qd = queue.duration_seconds;
+  const ed = el.duration_seconds;
+  if (typeof qd === "number" && typeof ed === "number" && Math.abs(qd - ed) > 15) return false;
   return timeClose(el.started_at, queue.called_at);
 }
 

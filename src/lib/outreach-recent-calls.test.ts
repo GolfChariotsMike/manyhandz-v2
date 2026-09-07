@@ -52,6 +52,43 @@ describe("mergeRecentCalls", () => {
     assert.match(rows[0].summary, /answered \(22s\)/);
   });
 
+  it("does not let a skipped 1300 row steal an answered EL conversation", () => {
+    const rows = mergeRecentCalls(
+      [
+        {
+          id: "skip",
+          business: "Sydney Locksmiths Pty Ltd",
+          phone: "+611300247247",
+          status: "skipped",
+          notes: "skipped special/1300/1800 number",
+          called_at: "2026-09-07T04:42:44.000Z",
+        },
+        {
+          id: "ar",
+          business: "AR Locksmith Sydney",
+          phone: "0291606442",
+          status: "done",
+          notes: "Twilio completed (22s)",
+          called_at: "2026-09-07T04:42:45.000Z",
+          duration_seconds: 22,
+        },
+      ],
+      [{
+        id: "conv-ar",
+        started_at: "2026-09-07T04:42:46.000Z",
+        duration_seconds: 21,
+        status: "done",
+        transcript_summary: "The conversation began with the user stating A locksmith.",
+        call_summary_title: "Locksmith Business Help",
+      }],
+    );
+    const ar = rows.find((r) => r.who.includes("AR Locksmith"));
+    const skipped = rows.find((r) => r.who.includes("Sydney Locksmiths"));
+    assert.match(ar?.summary || "", /Locksmith Business Help|A locksmith/);
+    assert.equal((ar?.summary || "").includes("1300"), false);
+    assert.match(skipped?.summary || "", /skipped special/);
+  });
+
   it("does not invent a business name for an unmatched EL conversation", () => {
     const rows = mergeRecentCalls(
       [],

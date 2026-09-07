@@ -187,7 +187,7 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
 
   const queueRes = await outreachFetch(
     env,
-    `/rest/v1/outreach_call_queue?status=in.(done,calling,failed)&called_at=not.is.null&select=id,contact_id,name,business,phone,notes,outcome&order=called_at.desc&limit=40`,
+    `/rest/v1/outreach_call_queue?status=in.(done,calling,failed)&called_at=not.is.null&select=id,contact_id,name,business,phone,notes,outcome,status&order=called_at.desc&limit=40`,
   );
   const rows = await queueRes.json().catch(() => null);
   if (!Array.isArray(rows)) return 0;
