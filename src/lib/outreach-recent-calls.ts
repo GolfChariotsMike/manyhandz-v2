@@ -156,6 +156,12 @@ export function statusLabel(status: string): string {
   return status.replace(/_/g, " ");
 }
 
+/** Full GET /queue list only. Never use recent_queue (called_at only) — that hides pending. */
+export function queueFromAdminPayload(data: { queue?: unknown; recent_queue?: unknown }): QueueAttempt[] {
+  if (Array.isArray(data.queue)) return data.queue as QueueAttempt[];
+  return [];
+}
+
 export function sortQueueRows(rows: QueueAttempt[]): QueueAttempt[] {
   const rank = (s: string) => {
     if (s === "calling") return 0;

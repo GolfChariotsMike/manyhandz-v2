@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { attemptSummary, mergeRecentCalls, sortQueueRows } from "./outreach-recent-calls.ts";
+import { attemptSummary, mergeRecentCalls, queueFromAdminPayload, sortQueueRows } from "./outreach-recent-calls.ts";
 
 describe("mergeRecentCalls", () => {
   it("shows Twilio no-answer even when ElevenLabs has no conversation", () => {
@@ -115,6 +115,16 @@ describe("attemptSummary", () => {
       attemptSummary({ id: "1", business: "Shop", status: "busy", notes: "Twilio busy (duration 0)" }),
       /Shop — busy/,
     );
+  });
+
+  it("uses GET /queue and ignores recent_queue so pending names stay visible", () => {
+    const pending = { id: "p", business: "On Call Locksmith", status: "pending", position: 4 };
+    const called = { id: "d", business: "AR Locksmith Sydney", status: "done", called_at: "2026-09-07T04:42:00.000Z" };
+    assert.deepEqual(
+      queueFromAdminPayload({ queue: [pending, called], recent_queue: [called] }).map((r) => r.id),
+      ["p", "d"],
+    );
+    assert.deepEqual(queueFromAdminPayload({ recent_queue: [called] }), []);
   });
 
   it("lists pending rows first in the Call Queue table", () => {
