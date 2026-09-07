@@ -116,7 +116,15 @@ export async function applyTwilioQueueStatus(
   if (already) {
     return { finalized: true, answered: mapped.answered, status: String(row.status) };
   }
-  await patchQueue(env, opts.queueId, mapped.patch);
+  const hangup = mapped.answered && mapped.patch.duration_seconds <= 10;
+  const patch = hangup
+    ? {
+      ...mapped.patch,
+      outcome: "not_interested",
+      notes: mapped.patch.notes.replace(/Twilio completed/, "hung up early"),
+    }
+    : mapped.patch;
+  await patchQueue(env, opts.queueId, patch);
   const contactId = typeof row.contact_id === "string" ? row.contact_id : "";
   if (mapped.answered && contactId) {
     await env.fetch(
@@ -124,11 +132,11 @@ export async function applyTwilioQueueStatus(
       {
         method: "PATCH",
         headers: restHeaders(env.outreachKey),
-        body: JSON.stringify({ status: "contacted" }),
+        body: JSON.stringify({ status: hangup ? "not_interested" : "contacted" }),
       },
     );
   }
-  return { finalized: true, answered: mapped.answered, status: mapped.patch.status };
+  return { finalized: true, answered: mapped.answered, status: patch.status };
 }
 
 async function handleTwiml(req: Request, env: OutboundCallEnv): Promise<Response> {

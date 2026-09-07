@@ -82,13 +82,33 @@ export function phoneFromElConversation(data: unknown): string | null {
 
 export type OutreachOutcome = {
   summary: string;
+  line1: string;
+  line2: string;
+  outcomeLabel: string;
   notInterested: boolean;
   reason: string | null;
 };
 
+/** First sentence, scannable. Never pad with invented copy. */
+export function clipScan(text: string, max = 140): string {
+  const clean = String(text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return "";
+  const sentence = clean.match(/^(.+?[.!?])(?:\s|$)/)?.[1] || clean;
+  if (sentence.length <= max) return sentence;
+  return `${sentence.slice(0, max - 1).trim()}…`;
+}
+
+export function timeCloseIso(a: string | null | undefined, b: string | null | undefined, ms = 180_000): boolean {
+  if (!a || !b) return false;
+  const da = new Date(a).getTime();
+  const db = new Date(b).getTime();
+  if (!Number.isFinite(da) || !Number.isFinite(db)) return false;
+  return Math.abs(da - db) <= ms;
+}
+
 /**
- * One-line Admin summary from real EL fields only. Do not invent a name/business
- * unless the caller passed them (queue row) or EL analysis already has them.
+ * One or two lines Mike can scan: who — outcome, then real EL sentiment.
+ * Do not invent a name/business unless the caller passed them or EL already has them.
  */
 export function classifyOutreachCall(input: {
   name?: string | null;
@@ -99,6 +119,7 @@ export function classifyOutreachCall(input: {
   callSummaryTitle?: string | null;
   analysis?: unknown;
   transcript?: unknown;
+  smsSent?: boolean;
 }): OutreachOutcome {
   const analysis = asRecord(input.analysis);
   const fromAnalysis = firstString(
@@ -111,25 +132,53 @@ export function classifyOutreachCall(input: {
   const who = firstString(input.business, input.name);
   const dur = typeof input.durationSeconds === "number" ? input.durationSeconds : null;
   const userTurns = callerTurnCount(input.transcript);
-  const earlyHangup = dur != null && dur <= 15 && userTurns === 0 && !fromAnalysis;
+  const queueStatus = String(input.status || "").toLowerCase().replace(/ /g, "_");
+  const missed = queueStatus === "no_answer" || queueStatus === "busy" || queueStatus === "failed";
+  const earlyHangup = !missed && dur != null && dur <= 15 && userTurns <= 1;
   const negative = NEGATIVE_RE.test(fromAnalysis) ||
     NEGATIVE_RE.test(firstString(analysis?.transcript_summary));
-  const notInterested = earlyHangup || negative;
+  const notInterested = !missed && (earlyHangup || negative);
 
-  const outcome = earlyHangup
-    ? `hung up early (${dur}s)`
-    : dur != null && dur > 15
-    ? `answered (${dur}s)`
-    : firstString(input.status) || "called";
-  const sentiment = negative ? "negative / not interested" : fromAnalysis;
-  const bits = [who, outcome, sentiment].filter(Boolean);
-  const summary = bits.join(" — ").slice(0, 240) || outcome;
+  let outcomeLabel = "called";
+  if (queueStatus === "no_answer") outcomeLabel = dur != null ? `no answer (${dur}s)` : "no answer";
+  else if (queueStatus === "busy") outcomeLabel = "busy";
+  else if (queueStatus === "failed") outcomeLabel = "failed";
+  else if (queueStatus === "skipped") outcomeLabel = "skipped";
+  else if (queueStatus === "calling") outcomeLabel = "calling";
+  else if (earlyHangup) outcomeLabel = `hung up early (${dur}s)`;
+  else if (negative) outcomeLabel = dur != null ? `not interested (${dur}s)` : "not interested";
+  else if (dur != null && dur > 0 && input.smsSent) outcomeLabel = `answered (${dur}s) · SMS sent`;
+  else if (dur != null && dur > 0) outcomeLabel = `answered (${dur}s)`;
+  else if (input.smsSent) outcomeLabel = "SMS sent";
+  else if (firstString(input.status)) outcomeLabel = firstString(input.status).replace(/_/g, " ");
+
+  const line1 = [who, outcomeLabel].filter(Boolean).join(" — ");
+  const line2 = negative ? "negative / not interested" : clipScan(fromAnalysis);
+  const summary = [line1, line2].filter(Boolean).join("\n") || outcomeLabel;
 
   return {
     summary,
+    line1,
+    line2,
+    outcomeLabel,
     notInterested,
     reason: earlyHangup ? "early hangup" : negative ? "negative sentiment" : null,
   };
+}
+
+export function matchQueueToConversation(
+  row: { phone?: string | null; called_at?: string | null; duration_seconds?: number | null; status?: string | null },
+  el: { phone?: string | null; started_at?: string | null; durationSeconds?: number | null },
+): boolean {
+  const status = String(row.status || "");
+  if (status === "skipped" || status === "no_answer" || status === "busy" || status === "failed" || status === "calling") {
+    return false;
+  }
+  if (row.phone && el.phone && phonesMatch(row.phone, el.phone)) return true;
+  const qd = row.duration_seconds;
+  const ed = el.durationSeconds;
+  if (typeof qd === "number" && typeof ed === "number" && Math.abs(qd - ed) > 15) return false;
+  return timeCloseIso(row.called_at, el.started_at);
 }
 
 function callerTurnCount(transcript: unknown): number {

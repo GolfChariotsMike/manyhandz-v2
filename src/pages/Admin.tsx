@@ -5,6 +5,7 @@ import { setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
 import {
   mergeRecentCalls,
+  sortQueueRows,
   statusBadgeClass,
   statusLabel,
   type QueueAttempt,
@@ -204,6 +205,11 @@ export default function Admin() {
       const d = await res.json();
       setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
       if (Array.isArray(d.queue)) setQueueAttempts(d.queue);
+      fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
+        method: "POST",
+        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "status" }),
+      }).catch(() => undefined);
     } catch {
       // Keep last counts.
     }
@@ -468,6 +474,7 @@ export default function Admin() {
                     body: JSON.stringify({ clear: true }),
                   });
                   setQueueStatus({ pending: 0, done: 0, total: 0 });
+                  setQueueAttempts([]);
                 }}
                 className="px-4 py-2 rounded-xl bg-red-500/10 text-red-400 text-sm hover:bg-red-500/20 transition-all"
               >
@@ -475,6 +482,36 @@ export default function Admin() {
               </button>
             </div>
           </div>
+
+          {queueAttempts.length > 0 && (
+            <div className="aurora-card overflow-hidden">
+              <div className="p-4 border-b border-white/10 font-semibold text-sm">Call Queue</div>
+              <div className="overflow-x-auto max-h-[28rem]">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-white/10 text-white/40 text-xs uppercase">
+                    <th className="text-left p-3">#</th>
+                    <th className="text-left p-3">Who</th>
+                    <th className="text-left p-3">Phone</th>
+                    <th className="text-left p-3">Status</th>
+                    <th className="text-left p-3">Called</th>
+                    <th className="text-left p-3">Notes</th>
+                  </tr></thead>
+                  <tbody>
+                    {sortQueueRows(queueAttempts).map((row) => (
+                      <tr key={row.id} className="border-b border-white/5">
+                        <td className="p-3 text-xs text-white/40">{row.position ?? "—"}</td>
+                        <td className="p-3 text-xs">{row.business || row.name || "—"}</td>
+                        <td className="p-3 text-xs font-mono text-white/60">{row.phone || "—"}</td>
+                        <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${statusBadgeClass(row.status)}`}>{statusLabel(row.status)}</span></td>
+                        <td className="p-3 text-xs text-white/50">{row.called_at ? new Date(row.called_at).toLocaleString("en-AU", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "—"}</td>
+                        <td className="p-3 text-xs text-white/50 max-w-xs truncate">{String(row.notes || "").replace(/\s+sid=CA[0-9a-f]{32}/i, "") || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* Outbound call log — EL conversations + Twilio/queue no-answer/busy/failed */}
           {(() => {
@@ -498,7 +535,7 @@ export default function Admin() {
                       <td className="p-3 text-xs">{c.who || c.phone || "—"}</td>
                       <td className="p-3 text-xs">{c.duration_seconds != null ? `${c.duration_seconds}s` : "—"}</td>
                       <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${statusBadgeClass(c.status)}`}>{statusLabel(c.status)}</span></td>
-                      <td className="p-3 text-xs text-white/50 max-w-xs">{c.summary || "—"}</td>
+                      <td className="p-3 text-xs text-white/50 max-w-sm whitespace-pre-line">{c.summary || "—"}</td>
                     </tr>
                   ))}
                 </tbody>

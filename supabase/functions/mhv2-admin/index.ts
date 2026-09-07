@@ -266,18 +266,35 @@ Deno.serve(async (req) => {
         { headers: { "xi-api-key": EL_API_KEY } },
       );
       const obData = await obRes.json();
-      outboundCalls = (obData.conversations || []).map((c) => ({
-        id: c.conversation_id,
-        started_at: c.start_time_unix_secs
-          ? new Date(c.start_time_unix_secs * 1000).toISOString()
-          : null,
-        duration_seconds: c.call_duration_secs,
-        status: c.status,
-        transcript_summary: c.analysis?.transcript_summary ?? null,
-        call_summary_title: c.call_summary_title ?? null,
-        phone: c.metadata?.phone_call?.external_number ??
+      const listed = obData.conversations || [];
+      outboundCalls = await Promise.all(listed.slice(0, 12).map(async (c) => {
+        let detail = {};
+        try {
+          const detailRes = await fetch(
+            `https://api.elevenlabs.io/v1/convai/conversations/${c.conversation_id}`,
+            { headers: { "xi-api-key": EL_API_KEY } },
+          );
+          detail = await detailRes.json();
+        } catch {
+          detail = {};
+        }
+        const analysis = detail.analysis || c.analysis || {};
+        const phone = detail.metadata?.phone_call?.external_number ??
+          detail.metadata?.phone_call?.to_number ??
+          c.metadata?.phone_call?.external_number ??
           c.metadata?.phone_call?.to_number ??
-          null,
+          null;
+        return {
+          id: c.conversation_id,
+          started_at: c.start_time_unix_secs
+            ? new Date(c.start_time_unix_secs * 1000).toISOString()
+            : null,
+          duration_seconds: c.call_duration_secs,
+          status: c.status,
+          transcript_summary: analysis.transcript_summary ?? null,
+          call_summary_title: c.call_summary_title ?? analysis.call_summary_title ?? null,
+          phone,
+        };
       }));
     } catch (e) {
       console.error("EL outbound fetch failed:", e);

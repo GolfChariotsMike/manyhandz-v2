@@ -40,8 +40,32 @@ describe("classifyOutreachCall", () => {
     });
     assert.equal(out.notInterested, true);
     assert.equal(out.reason, "early hangup");
-    assert.match(out.summary, /CBD LOCKSMITHS/);
+    assert.match(out.line1, /CBD LOCKSMITHS/);
+    assert.match(out.outcomeLabel, /hung up early/);
     assert.match(out.summary, /hung up early/);
+  });
+
+  it("does not mark Twilio no-answer as not interested", () => {
+    const out = classifyOutreachCall({
+      business: "Allen locksmith Sydney",
+      durationSeconds: 0,
+      status: "no_answer",
+    });
+    assert.equal(out.notInterested, false);
+    assert.match(out.outcomeLabel, /no answer/);
+  });
+
+  it("puts who and outcome on line 1 and a real EL sentence on line 2", () => {
+    const out = classifyOutreachCall({
+      business: "AR Locksmith Sydney",
+      durationSeconds: 22,
+      callSummaryTitle: "Locksmith Business Help",
+      transcriptSummary: "The conversation began with the user stating A locksmith. Sam offered help.",
+    });
+    assert.equal(out.notInterested, false);
+    assert.match(out.line1, /AR Locksmith Sydney — answered \(22s\)/);
+    assert.match(out.line2, /The conversation began with the user stating A locksmith/);
+    assert.equal(out.line2.includes("Sam offered"), false);
   });
 
   it("marks negative analysis as not interested", () => {
