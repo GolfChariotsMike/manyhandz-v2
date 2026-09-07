@@ -196,6 +196,8 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
   for (const c of convs.slice(0, 8)) {
     const id = typeof c.conversation_id === "string" ? c.conversation_id : "";
     if (!id) continue;
+    const elStatus = typeof c.status === "string" ? c.status.toLowerCase() : "";
+    if (elStatus && elStatus !== "done" && elStatus !== "completed") continue;
     const detailRes = await env.fetch(
       `https://api.elevenlabs.io/v1/convai/conversations/${encodeURIComponent(id)}`,
       { headers: { "xi-api-key": env.elApiKey } },
@@ -204,6 +206,7 @@ async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
     const phone = phoneFromElConversation(detail);
     const match = rows.find((r) => phonesMatch(r.phone, phone));
     if (!match) continue;
+    if (String(match.status || "") === "calling") continue;
     const outcome = classifyOutreachCall({
       name: match.name,
       business: match.business,
