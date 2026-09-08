@@ -10,6 +10,9 @@
   localStorage.setItem('mhz_session_' + embedKey, sessionKey);
 
   var dataColor = script && (script.getAttribute('data-color') || '').trim();
+  var dataOpen = ((script && script.getAttribute('data-open')) || '').trim().toLowerCase();
+  var dataExpanded = ((script && script.getAttribute('data-expanded')) || '').trim().toLowerCase();
+  var autoOpen = dataOpen === 'true' || dataOpen === '1' || dataExpanded === 'true';
   var config = {
     widget_name: 'Chat with us',
     widget_color: dataColor || FALLBACK_COLOR,
@@ -180,6 +183,10 @@
   function revealLauncher() {
     launcherReady = true;
     btn.classList.add('mhz-ready');
+    if (autoOpen && !open) {
+      togglePanel();
+      return;
+    }
     syncTeaser();
   }
 
