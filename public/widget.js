@@ -95,6 +95,8 @@
     .mhz-msg { max-width: 82%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.45; word-break: break-word; }
     .mhz-msg.user { align-self: flex-end; color: #fff; border-radius: 14px 14px 4px 14px; }
     .mhz-msg.bot { align-self: flex-start; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.9); border-radius: 14px 14px 14px 4px; }
+    .mhz-msg a { color: #7dd3fc; text-decoration: underline; }
+    .mhz-msg.user a { color: #fff; }
     .mhz-typing { display: flex; gap: 4px; padding: 12px 14px; align-self: flex-start;
       background: rgba(255,255,255,0.08); border-radius: 14px 14px 14px 4px; }
     .mhz-typing span { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,0.4);
@@ -202,12 +204,81 @@
       : `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
   }
 
+  function mhzSafeHttpUrl(href) {
+    if (typeof href !== 'string' || !href) return '';
+    try {
+      var parsed = new URL(href);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+      return parsed.href;
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function mhzSplitTrailingPunct(raw) {
+    var punct = '';
+    var href = String(raw).replace(/[.,;:!?]+$/, function (p) {
+      punct = p;
+      return '';
+    });
+    if (href.charAt(href.length - 1) === ')' && href.indexOf('(') === -1) {
+      href = href.slice(0, -1);
+      punct = ')' + punct;
+    }
+    return { href: href, punct: punct };
+  }
+
+  function mhzLinkifyTokens(text) {
+    var src = text == null ? '' : String(text);
+    var tokens = [];
+    var re = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|https?:\/\/[^\s<>"']+/gi;
+    var last = 0;
+    var m;
+    while ((m = re.exec(src))) {
+      if (m.index > last) tokens.push({ type: 'text', value: src.slice(last, m.index) });
+      if (m[1] != null) {
+        var mdHref = mhzSafeHttpUrl(m[2]);
+        if (mdHref) tokens.push({ type: 'link', href: mdHref, value: m[1] });
+        else tokens.push({ type: 'text', value: m[0] });
+      } else {
+        var parts = mhzSplitTrailingPunct(m[0]);
+        var bareHref = mhzSafeHttpUrl(parts.href);
+        if (bareHref) {
+          tokens.push({ type: 'link', href: bareHref, value: parts.href });
+          if (parts.punct) tokens.push({ type: 'text', value: parts.punct });
+        } else {
+          tokens.push({ type: 'text', value: m[0] });
+        }
+      }
+      last = m.index + m[0].length;
+    }
+    if (last < src.length) tokens.push({ type: 'text', value: src.slice(last) });
+    return tokens;
+  }
+
+  function mhzAppendLinkified(el, text) {
+    var tokens = mhzLinkifyTokens(text);
+    for (var i = 0; i < tokens.length; i++) {
+      var t = tokens[i];
+      if (t.type === 'link') {
+        var a = document.createElement('a');
+        a.setAttribute('href', t.href);
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener noreferrer');
+        a.textContent = t.value;
+        el.appendChild(a);
+      } else {
+        el.appendChild(document.createTextNode(t.value));
+      }
+    }
+  }
+
   function addMessage(role, text) {
     messages.push({ role, text });
     var msgs = document.getElementById('mhz-messages');
     var el = document.createElement('div');
     el.className = 'mhz-msg ' + role;
-    el.textContent = text;
+    mhzAppendLinkified(el, text);
     if (role === 'user') el.style.background = config.widget_color;
     msgs.appendChild(el);
     msgs.scrollTop = msgs.scrollHeight;
