@@ -6,6 +6,13 @@ import {
   BIG_BUSINESS_INCLUDED_MINUTES,
   SMALL_BUSINESS_INCLUDED_MINUTES,
 } from "../../supabase/functions/_shared/plan-minutes.ts";
+import {
+  BIG_BUSINESS_MONTHLY_LABEL,
+  SMALL_BUSINESS_MONTHLY_LABEL,
+  activeSubscriptionLabel,
+  stripePriceIdBigBusinessMonthly,
+  stripePriceIdSmallBusinessMonthly,
+} from "../../supabase/functions/_shared/plan-pricing.ts";
 
 const PROVISION_URL = "https://provision.manyhandz.ai";
 
@@ -13,14 +20,20 @@ const PLANS = {
   small_business: {
     label: "Small Business",
     description: `${SMALL_BUSINESS_INCLUDED_MINUTES} mins/mo included`,
-    monthly: { id: "price_1U6On9Ex2m1vqgKrd4WcbAo5", amount: "$199", period: "/mo", savings: null },
-    annual:  { id: "price_1U6OnAEx2m1vqgKribI5jcGM", amount: "$116", period: "/mo", savings: "Save 30% — billed $1,399/yr" },
+    monthly: {
+      id: stripePriceIdSmallBusinessMonthly(),
+      amount: SMALL_BUSINESS_MONTHLY_LABEL,
+      period: "/mo",
+    },
   },
   big_business: {
     label: "Big Business",
     description: `${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} mins/mo included`,
-    monthly: { id: "price_1U6tqpEx2m1vqgKrwkDcVZnu", amount: "$499", period: "/mo", savings: null },
-    annual:  { id: "price_1U6tquEx2m1vqgKrgYZmvdMo", amount: "$349", period: "/mo", savings: "Save 30% — billed $4,199/yr" },
+    monthly: {
+      id: stripePriceIdBigBusinessMonthly(),
+      amount: BIG_BUSINESS_MONTHLY_LABEL,
+      period: "/mo",
+    },
   },
 };
 
@@ -36,7 +49,6 @@ type BillingCustomer = {
 export default function Billing() {
   const [customer, setCustomer] = useState<BillingCustomer | null>(null);
   const [loading, setLoading] = useState(true);
-  const [billing, setBilling] = useState<"monthly" | "annual">("monthly");
   const [tier, setTier] = useState<"small_business" | "big_business">("small_business");
   const [checkingOut, setCheckingOut] = useState(false);
   const [error, setError] = useState("");
@@ -59,11 +71,14 @@ export default function Billing() {
     setError("");
     try {
       const { customer: me } = await getMe();
-      const selectedPrice = PLANS[tier][billing];
+      const selectedPrice = PLANS[tier].monthly;
+      if (!selectedPrice.id) {
+        throw new Error("This plan is not available for checkout yet. Email hello@manyhandz.ai.");
+      }
       const res = await fetch(`${PROVISION_URL}/create-checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customer_id: me.id, price_id: selectedPrice.id, plan: `${tier}_${billing}` }),
+        body: JSON.stringify({ customer_id: me.id, price_id: selectedPrice.id, plan: `${tier}_monthly` }),
       });
       const data = await res.json();
       if (data.url) {
@@ -106,7 +121,7 @@ export default function Billing() {
           <div>
             {isActive && (
               <>
-                <div className="font-semibold text-green-400">Active — {customer?.plan === "annual" ? "Annual plan" : "Monthly plan"}</div>
+                <div className="font-semibold text-green-400">Active — {customer?.plan?.includes("annual") ? "Annual plan" : "Monthly plan"}</div>
                 <div className="text-sm text-white/40 mt-0.5">Your AI receptionist is live and answering calls.</div>
               </>
             )}
@@ -131,22 +146,10 @@ export default function Billing() {
         <div className="aurora-card p-6 space-y-6">
           <h2 className="text-sm font-semibold text-yellow-400 flex items-center gap-2"><CreditCard size={14} /> Choose a plan</h2>
 
-          {/* Billing period toggle */}
-          <div className="flex gap-2 p-1 bg-white/5 rounded-lg w-fit">
-            {(["monthly", "annual"] as const).map(b => (
-              <button key={b} onClick={() => setBilling(b)}
-                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all cursor-pointer ${
-                  billing === b ? "bg-yellow-400 text-black" : "text-white/50 hover:text-white"
-                }`}>
-                {b === "monthly" ? "Monthly" : "Annual — save 30%"}
-              </button>
-            ))}
-          </div>
-
           {/* Tier cards */}
           <div className="flex gap-3">
             {(["small_business", "big_business"] as const).map(t => {
-              const price = PLANS[t][billing];
+              const price = PLANS[t].monthly;
               const selected = tier === t;
               return (
                 <button key={t} onClick={() => setTier(t)}
@@ -164,7 +167,6 @@ export default function Billing() {
                   <div className="font-bold text-2xl mt-1">{price.amount}<span className="text-sm font-normal text-white/40">{price.period}</span></div>
                   <div className="text-sm font-semibold mt-1">{PLANS[t].label}</div>
                   <div className="text-xs text-yellow-400 mt-1">{PLANS[t].description}</div>
-                  {price.savings && <div className="text-xs text-white/40 mt-1">{price.savings}</div>}
                 </button>
               );
             })}
@@ -194,10 +196,11 @@ export default function Billing() {
             className="btn-primary w-full flex items-center justify-center gap-2"
           >
             {checkingOut ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-            {checkingOut ? "Redirecting to checkout..." : `Subscribe — ${PLANS[tier][billing].amount}${PLANS[tier][billing].period}`}
+            {checkingOut ? "Redirecting to checkout..." : `Subscribe — ${PLANS[tier].monthly.amount}${PLANS[tier].monthly.period}`}
           </button>
 
           <p className="text-xs text-white/30 text-center">Secure checkout via Stripe. Cancel anytime.</p>
+          <p className="text-xs text-white/30 text-center">Enterprise is custom — <a href="mailto:hello@manyhandz.ai" className="text-yellow-400/80 hover:text-yellow-300">hello@manyhandz.ai</a></p>
         </div>
       )}
 
@@ -206,7 +209,7 @@ export default function Billing() {
         <div className="aurora-card p-6">
           <h2 className="text-sm font-semibold text-yellow-400 mb-4">Plan details</h2>
           <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{customer?.plan === "annual" ? "Annual ($1,399/yr)" : "Monthly ($199/mo)"}</span></div>
+            <div className="flex justify-between"><span className="text-white/40">Plan</span><span>{activeSubscriptionLabel(customer?.plan)}</span></div>
             <div className="flex justify-between"><span className="text-white/40">Number</span><span>{customer?.twilio_number || "—"}</span></div>
           </div>
         </div>
