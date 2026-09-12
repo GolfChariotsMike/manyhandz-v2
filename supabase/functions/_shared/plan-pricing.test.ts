@@ -8,6 +8,8 @@ import {
   SMALL_BUSINESS_MONTHLY_LABEL,
   STRIPE_PRICE_ENV,
   activeSubscriptionLabel,
+  stripePriceIdBigBusinessMonthly,
+  stripePriceIdSmallBusinessMonthly,
 } from "./plan-pricing.ts";
 
 test("sticker prices are Small Business $499 and Big Business $999", () => {
@@ -22,6 +24,9 @@ test("legacy Stripe IDs are documented and are not the new $499/$999 checkout ID
   assert.equal(LEGACY_STRIPE_PRICE_IDS.big_business_monthly_499, "price_1U6tqpEx2m1vqgKrwkDcVZnu");
   assert.equal(STRIPE_PRICE_ENV.small_business_monthly, "VITE_STRIPE_PRICE_SMALL_BUSINESS_MONTHLY");
   assert.equal(STRIPE_PRICE_ENV.big_business_monthly, "VITE_STRIPE_PRICE_BIG_BUSINESS_MONTHLY");
+  assert.equal(stripePriceIdSmallBusinessMonthly(), "");
+  assert.equal(stripePriceIdBigBusinessMonthly(), "");
+  assert.equal(Object.values(LEGACY_STRIPE_PRICE_IDS).includes(stripePriceIdSmallBusinessMonthly()), false);
 });
 
 test("active subscription copy uses new monthly stickers and does not invent annual discounts", () => {

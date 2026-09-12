@@ -43,28 +43,25 @@ export const STRIPE_PRICE_ENV = {
   big_business_monthly: "VITE_STRIPE_PRICE_BIG_BUSINESS_MONTHLY",
 } as const;
 
-function viteEnv(name: string): string {
-  const env = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
-  const value = env?.[name];
-  return typeof value === "string" ? value.trim() : "";
-}
-
 function denoEnv(name: string): string {
   const deno = (globalThis as { Deno?: { env?: { get?: (key: string) => string | undefined } } }).Deno;
   const value = deno?.env?.get?.(name);
   return typeof value === "string" ? value.trim() : "";
 }
 
-export function readStripePriceId(envName: string): string {
-  return viteEnv(envName) || denoEnv(envName);
+function viteString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
+/** Vite only inlines these if the VITE_* key is a static member access. */
 export function stripePriceIdSmallBusinessMonthly(): string {
-  return readStripePriceId(STRIPE_PRICE_ENV.small_business_monthly);
+  return viteString(import.meta.env?.VITE_STRIPE_PRICE_SMALL_BUSINESS_MONTHLY)
+    || denoEnv(STRIPE_PRICE_ENV.small_business_monthly);
 }
 
 export function stripePriceIdBigBusinessMonthly(): string {
-  return readStripePriceId(STRIPE_PRICE_ENV.big_business_monthly);
+  return viteString(import.meta.env?.VITE_STRIPE_PRICE_BIG_BUSINESS_MONTHLY)
+    || denoEnv(STRIPE_PRICE_ENV.big_business_monthly);
 }
 
 /** Active-subscription line on Billing. Annual is labelled without a new invented yearly amount. */
