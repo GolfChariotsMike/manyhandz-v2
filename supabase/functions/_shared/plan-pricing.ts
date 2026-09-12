@@ -7,21 +7,20 @@
  *
  * No annual discount is defined. Do not invent 30% (or any) off these amounts.
  *
- * Stripe Price `unit_amount` is immutable. The hardcoded IDs previously used
- * in Billing.tsx still charge the old $199 / $499 / annual-30% SKUs — do not
- * reuse them for these sticker prices.
+ * Stripe Price `unit_amount` is immutable. Legacy IDs still charge the old
+ * $199 / $499 / annual-30% SKUs — do not reuse them for these sticker prices.
  *
- * TODO (Mike — Stripe Dashboard, then Vercel env on manyhandz-v2):
- * 1. Create Price: Small Business monthly, AUD $499.00 (unit_amount 49900), recurring month
- * 2. Create Price: Big Business monthly, AUD $999.00 (unit_amount 99900), recurring month
- * 3. Set VITE_STRIPE_PRICE_SMALL_BUSINESS_MONTHLY and VITE_STRIPE_PRICE_BIG_BUSINESS_MONTHLY
- *    to the new price_… IDs (Vite exposes only VITE_* to the Billing checkout page)
- * 4. Archive / deactivate legacy prices (do not point new checkout at these):
+ * Live monthly prices (created 2026-09-12 on ManyHandz Stripe):
+ *  - Small Business: price_1UEqC1Ex2m1vqgKrmoW7Mr8H  AUD 49900
+ *  - Big Business:   price_1UEqC1Ex2m1vqgKr3dpyz3y7  AUD 99900
+ * Prefer Vercel env VITE_STRIPE_PRICE_* (also mirrored in .env.production).
+ *
+ * Legacy (archive / do not checkout):
  *    - price_1U6On9Ex2m1vqgKrd4WcbAo5  Small Business monthly $199
  *    - price_1U6OnAEx2m1vqgKribI5jcGM  Small Business annual ~$116/mo ($1,399/yr)
  *    - price_1U6tqpEx2m1vqgKrwkDcVZnu  Big Business monthly $499
  *    - price_1U6tquEx2m1vqgKrgYZmvdMo  Big Business annual ~$349/mo ($4,199/yr)
- * 5. Existing subscribers stay on their current Stripe subscription until migrated
+ * Existing subscribers stay on their current Stripe subscription until migrated.
  */
 
 export const SMALL_BUSINESS_MONTHLY_AUD = 499;
@@ -29,6 +28,12 @@ export const BIG_BUSINESS_MONTHLY_AUD = 999;
 
 export const SMALL_BUSINESS_MONTHLY_LABEL = `$${SMALL_BUSINESS_MONTHLY_AUD}`;
 export const BIG_BUSINESS_MONTHLY_LABEL = `$${BIG_BUSINESS_MONTHLY_AUD}`;
+
+/** Live Stripe Price IDs for the current sticker amounts (AUD monthly). */
+export const LIVE_STRIPE_PRICE_IDS = {
+  small_business_monthly: "price_1UEqC1Ex2m1vqgKrmoW7Mr8H",
+  big_business_monthly: "price_1UEqC1Ex2m1vqgKr3dpyz3y7",
+} as const;
 
 /** Legacy Stripe Price IDs — old sticker amounts. Do not send to create-checkout. */
 export const LEGACY_STRIPE_PRICE_IDS = {
@@ -56,12 +61,14 @@ function viteString(value: unknown): string {
 /** Vite only inlines these if the VITE_* key is a static member access. */
 export function stripePriceIdSmallBusinessMonthly(): string {
   return viteString(import.meta.env?.VITE_STRIPE_PRICE_SMALL_BUSINESS_MONTHLY)
-    || denoEnv(STRIPE_PRICE_ENV.small_business_monthly);
+    || denoEnv(STRIPE_PRICE_ENV.small_business_monthly)
+    || LIVE_STRIPE_PRICE_IDS.small_business_monthly;
 }
 
 export function stripePriceIdBigBusinessMonthly(): string {
   return viteString(import.meta.env?.VITE_STRIPE_PRICE_BIG_BUSINESS_MONTHLY)
-    || denoEnv(STRIPE_PRICE_ENV.big_business_monthly);
+    || denoEnv(STRIPE_PRICE_ENV.big_business_monthly)
+    || LIVE_STRIPE_PRICE_IDS.big_business_monthly;
 }
 
 /** Active-subscription line on Billing. Annual is labelled without a new invented yearly amount. */
