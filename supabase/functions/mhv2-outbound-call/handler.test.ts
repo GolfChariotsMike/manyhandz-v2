@@ -157,6 +157,43 @@ describe("handleRequest", () => {
     assert.equal(contactPatch.status, "contacted");
   });
 
+  it("StatusCallback fails closed when OUTREACH_SERVICE_ROLE_KEY is missing", async () => {
+    const patches: Array<{ url: string; body: unknown }> = [];
+    const env = envFor({
+      patches,
+      queue: { id: "q1", status: "calling", notes: "" },
+    });
+    env.outreachKey = "";
+    const res = await handleRequest(
+      new Request("https://example.supabase.co/functions/v1/mhv2-outbound-call/status?queue_id=q1", {
+        method: "POST",
+        body: "CallStatus=completed&CallDuration=22",
+      }),
+      env,
+    );
+    assert.equal(res.status, 503);
+    const body = await res.json();
+    assert.deepEqual(body, { error: "OUTREACH_SERVICE_ROLE_KEY is not set" });
+    assert.equal(patches.length, 0);
+  });
+
+  it("POST still dials a landline when outreach key is missing and no queue_id", async () => {
+    const env = envFor({});
+    env.outreachKey = "";
+    const res = await handleRequest(
+      new Request("https://example.supabase.co/functions/v1/mhv2-outbound-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: "0291606442", name: "AR" }),
+      }),
+      env,
+    );
+    const body = await res.json();
+    assert.equal(res.status, 200);
+    assert.equal(body.ok, true);
+    assert.equal(body.to, "+61291606442");
+  });
+
   it("StatusCallback does not require x-admin-token", async () => {
     const env = envFor({ queue: { id: "q1", status: "calling", notes: "" } });
     const res = await handleRequest(

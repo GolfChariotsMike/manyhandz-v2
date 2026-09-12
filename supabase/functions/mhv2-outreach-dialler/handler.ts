@@ -3,6 +3,7 @@
  * Same dial path as Test Cold Call (mhv2-outbound-call / Sam Outbound).
  * Auth: x-admin-token. Start/Stop persist on public.mh_outreach_dialler (one row).
  */
+import { outreachKeyMissingError } from "../_shared/outreach-env.ts";
 import {
   OUTBOUND_AGENT_ID,
   classifyOutreachCall,
@@ -17,10 +18,8 @@ import {
 
 export { normAuPhone, normMobile, skipReason } from "./outreach-outcome.ts";
 
+export { FALLBACK_OUTREACH_URL } from "../_shared/outreach-env.ts";
 export const FALLBACK_ADMIN_TOKEN = "mh_admin_mikek";
-export const FALLBACK_OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
-export const FALLBACK_OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -111,6 +110,11 @@ async function writeEnabled(env: DiallerEnv, enabled: boolean): Promise<boolean>
   return enabled;
 }
 
+function requireOutreachKey(env: DiallerEnv): Response | null {
+  if (env.outreachKey) return null;
+  return jsonResponse(outreachKeyMissingError(), 503);
+}
+
 async function outreachFetch(env: DiallerEnv, path: string, init: RequestInit = {}) {
   return env.fetch(`${env.outreachUrl}${path}`, {
     ...init,
@@ -166,7 +170,7 @@ async function applyTwilioToQueue(
 
 /** Fallback when StatusCallback is late/missing: poll Twilio for rows still `calling`. */
 async function reconcileCalling(env: DiallerEnv): Promise<number> {
-  if (!env.twilioSid || !env.twilioToken) return 0;
+  if (!env.twilioSid || !env.twilioToken || !env.outreachKey) return 0;
   const res = await outreachFetch(
     env,
     `/rest/v1/outreach_call_queue?status=eq.calling&called_at=not.is.null&select=id,contact_id,notes,status,called_at&limit=20`,
@@ -191,7 +195,7 @@ async function reconcileCalling(env: DiallerEnv): Promise<number> {
 }
 
 async function processRecentOutcomes(env: DiallerEnv): Promise<number> {
-  if (!env.elApiKey) return 0;
+  if (!env.elApiKey || !env.outreachKey) return 0;
   const listRes = await env.fetch(
     `https://api.elevenlabs.io/v1/convai/conversations?agent_id=${OUTBOUND_AGENT_ID}&page_size=15`,
     { headers: { "xi-api-key": env.elApiKey } },
@@ -302,6 +306,9 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
   if (!enabled) {
     return jsonResponse({ skipped: true, reason: "dialler stopped", enabled: false });
   }
+
+  const missingKey = requireOutreachKey(env);
+  if (missingKey) return missingKey;
 
   const inHours = env.inBusinessHours ?? isPerthBusinessHours(env.now());
   if (!inHours) {
