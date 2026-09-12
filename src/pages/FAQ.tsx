@@ -1,5 +1,13 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import {
+  BIG_BUSINESS_INCLUDED_MINUTES,
+  SMALL_BUSINESS_INCLUDED_MINUTES,
+} from "../../supabase/functions/_shared/plan-minutes.ts";
+import {
+  BIG_BUSINESS_MONTHLY_LABEL,
+  SMALL_BUSINESS_MONTHLY_LABEL,
+} from "../../supabase/functions/_shared/plan-pricing.ts";
 
 const FAQS = [
   {
@@ -57,7 +65,7 @@ const FAQS = [
     items: [
       {
         q: "How do minutes work?",
-        a: "Your plan includes a set number of minutes per month (600 on Small Business, 2,000 on Big Business). Minutes are counted from when the AI picks up to when the call ends. Unused minutes don't roll over.",
+        a: `Your plan includes a set number of minutes per month (${SMALL_BUSINESS_INCLUDED_MINUTES} on Small Business, ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} on Big Business). Minutes are counted from when the AI picks up to when the call ends. Unused minutes don't roll over.`,
       },
       {
         q: "What happens if I go over my included minutes?",
@@ -72,6 +80,10 @@ const FAQS = [
   {
     category: "Account & Billing",
     items: [
+      {
+        q: "What do the plans cost?",
+        a: `Small Business is ${SMALL_BUSINESS_MONTHLY_LABEL}/mo AUD (${SMALL_BUSINESS_INCLUDED_MINUTES} minutes). Big Business is ${BIG_BUSINESS_MONTHLY_LABEL}/mo AUD (${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes). Enterprise is custom — email hello@manyhandz.ai.`,
+      },
       {
         q: "How do I change my plan?",
         a: "Head to the Billing page. You can upgrade or downgrade at any time — changes take effect at the start of your next billing period.",

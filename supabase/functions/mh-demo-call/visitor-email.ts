@@ -3,12 +3,27 @@
  * ManyHandz facts only — no DraftPilot, Tradify, SimPRO, or invoicing claims.
  */
 
+import {
+  BIG_BUSINESS_INCLUDED_MINUTES,
+  SMALL_BUSINESS_INCLUDED_MINUTES,
+} from "../_shared/plan-minutes.ts";
+import {
+  BIG_BUSINESS_MONTHLY_LABEL,
+  SMALL_BUSINESS_MONTHLY_LABEL,
+} from "../_shared/plan-pricing.ts";
+
 export const VISITOR_FROM = "ManyHandz <info@manyhandz.ai>";
 export const VISITOR_SUBJECT = "You're one step away from never missing a job";
 export const SIGNUP_URL = "https://app.manyhandz.ai/signup";
 export const SITE_URL = "https://manyhandz.ai";
 export const TRY_URL = "https://manyhandz.ai/try";
 export const PRIVACY_URL = "https://manyhandz.ai/privacy";
+
+export const VISITOR_PRICING_TEXT =
+  `Start with a 14-day free trial. Then Small Business is ${SMALL_BUSINESS_MONTHLY_LABEL}/mo AUD with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is ${BIG_BUSINESS_MONTHLY_LABEL}/mo AUD with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes — dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Enterprise is custom — reply to this email.`;
+
+export const VISITOR_PRICING_HTML =
+  `Start with a <strong>14-day free trial</strong>. Then Small Business is <strong>${SMALL_BUSINESS_MONTHLY_LABEL}/mo AUD</strong> with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is <strong>${BIG_BUSINESS_MONTHLY_LABEL}/mo AUD</strong> with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes — dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Enterprise is custom — reply to this email.`;
 
 export function visitorFirstName(name: string): string {
   const first = (name || "").trim().split(/\s+/)[0];
@@ -49,7 +64,7 @@ export function visitorEmailText(name: string): string {
     "One setup, phone and chat",
     "Enter your services, hours, and FAQs once in the ManyHandz dashboard. Voice and the website chat widget share the same knowledge base. We scan your site and you're live in about five minutes.",
     "",
-    "Start with a 14-day free trial. Then Small Business is $199/mo AUD with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.",
+    VISITOR_PRICING_TEXT,
     "",
     "Australian owned, built in Perth. Your data stays isolated and is never used to train models.",
     "",
@@ -117,7 +132,7 @@ export function visitorEmailHtml(name: string): string {
           <tr>
             <td style="padding:24px 32px 8px;color:#334155;font-size:15px;line-height:1.7;">
               <p style="margin:0 0 8px;color:#0f1f3d;font-weight:700;">Simple pricing</p>
-              <p style="margin:0 0 16px;">Start with a <strong>14-day free trial</strong>. Then Small Business is <strong>$199/mo AUD</strong> with 600 minutes, a dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Need more? Reply to this email for Enterprise.</p>
+              <p style="margin:0 0 16px;">${VISITOR_PRICING_HTML}</p>
               <p style="margin:0 0 24px;">Australian owned, built in Perth. Your data stays isolated and is never used to train models.</p>
               <p style="margin:0 0 8px;">${button}</p>
             </td>
