@@ -62,6 +62,37 @@ async function callFn(fn: string, path: string, method: string, body?: unknown) 
   return data;
 }
 
+export type OnboardingKnowledge = {
+  about: string;
+  services: unknown[];
+  faqs: unknown[];
+  hours: Record<string, unknown>;
+  tone: string;
+};
+
+export type SignupLinkPayload = {
+  email: string;
+  business_name?: string;
+  industry?: string;
+  website_url?: string;
+  country?: string;
+  home_state?: string | null;
+  notify_mobile?: string;
+  capabilities?: string[];
+  knowledge?: OnboardingKnowledge;
+  no_website?: boolean;
+};
+
+/** Pre-auth signup: create/update the draft and email a 24h setup link. */
+export async function requestSignupLink(payload: SignupLinkPayload) {
+  const body: Record<string, unknown> = {
+    ...payload,
+    intent: "signup",
+  };
+  if (payload.country !== undefined) body.country = payload.country === "US" ? "US" : "AU";
+  return callFn("mh-v2-auth", "magic-link", "POST", body);
+}
+
 export async function requestMagicLink(
   email: string,
   business_name?: string,
@@ -70,15 +101,17 @@ export async function requestMagicLink(
   country?: string,
 ) {
   const isSignup = business_name !== undefined || industry !== undefined || website_url !== undefined || country !== undefined;
-  const body: Record<string, unknown> = {
-    email,
-    business_name,
-    industry,
-    website_url,
-    intent: isSignup ? "signup" : "login",
-  };
-  if (country !== undefined) body.country = country === "US" ? "US" : "AU";
-  return callFn("mh-v2-auth", "magic-link", "POST", body);
+  if (isSignup) {
+    return requestSignupLink({ email, business_name, industry, website_url, country });
+  }
+  return callFn("mh-v2-auth", "magic-link", "POST", { email, intent: "login" });
+}
+
+export async function provisionNumber(customerId: string, country?: string | null) {
+  return callFn("mh-provision-number", "", "POST", {
+    customer_id: customerId,
+    country: String(country || "AU").trim().toUpperCase() === "US" ? "US" : "AU",
+  });
 }
 
 export async function verifyMagicLink(token: string) {
@@ -108,14 +141,6 @@ export async function updateProfile(updates: ProfileUpdates) {
   meCache.clear();
   return data;
 }
-
-export type OnboardingKnowledge = {
-  about: string;
-  services: unknown[];
-  faqs: unknown[];
-  hours: Record<string, unknown>;
-  tone: string;
-};
 
 /** Persist mh_knowledge_base via mh-v2-save (JWT sub = customer). */
 export async function saveOnboardingKnowledge(kb: OnboardingKnowledge) {

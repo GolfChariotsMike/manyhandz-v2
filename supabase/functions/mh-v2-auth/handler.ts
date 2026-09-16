@@ -9,10 +9,19 @@
  */
 
 import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
-import { newCustomerRow, normalizeMarket, signupData } from "./country.ts";
-import { NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
+import { newCustomerRow, normalizeMarket } from "./country.ts";
+import {
+  customerPatchFromDraft,
+  emailKindForMagicLink,
+  knowledgeRowFromDraft,
+  parseSignupDraft,
+  shouldPersistSignupDraft,
+  signupDataFromDraft,
+  voicePatchFromDraft,
+} from "./draft.ts";
+import { MAGIC_LINK_TTL_MS, NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
 
-export { NO_ACCOUNT_CODE };
+export { NO_ACCOUNT_CODE, MAGIC_LINK_TTL_MS };
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -28,6 +37,7 @@ export type QueryBuilder = {
   select(cols?: string): QueryBuilder;
   insert(row: Record<string, unknown>): QueryBuilder;
   update(row: Record<string, unknown>): QueryBuilder;
+  upsert(row: Record<string, unknown>, opts?: { onConflict?: string }): QueryBuilder;
   eq(col: string, val: unknown): QueryBuilder;
   maybeSingle(): Promise<QueryResult>;
 };
@@ -43,7 +53,7 @@ export type AuthEnv = {
   adminSecrets: Set<string>;
   now: () => Date;
   randomToken: () => string;
-  sendMagicLinkEmail: (email: string, magicUrl: string, isNew: boolean) => Promise<void>;
+  sendMagicLinkEmail: (email: string, magicUrl: string, isSetup: boolean) => Promise<void>;
 };
 
 export function serviceKeyFromEnv(getEnv: (key: string) => string | undefined): string {
@@ -167,8 +177,55 @@ type MagicTokenRow = {
   signup_data?: { country?: unknown } | null;
 };
 
-async function findCustomerByEmail(admin: AdminClient, email: string): Promise<{ id: string; email: string } | null> {
-  return optionalRow(await admin.from("mh_v2_customers").select("id, email").eq("email", email).maybeSingle());
+async function findCustomerByEmail(
+  admin: AdminClient,
+  email: string,
+): Promise<{ id: string; email: string; onboarding_complete?: boolean } | null> {
+  return optionalRow(
+    await admin.from("mh_v2_customers").select("id, email, onboarding_complete").eq("email", email).maybeSingle(),
+  );
+}
+
+async function persistSignupDraftForCustomer(
+  admin: AdminClient,
+  customerId: string,
+  body: Record<string, unknown>,
+  now: Date,
+  isNew: boolean,
+): Promise<void> {
+  const draft = parseSignupDraft(body);
+  if (!isNew) {
+    await ignoreError(() =>
+      admin.from("mh_v2_customers").update(customerPatchFromDraft(draft)).eq("id", customerId).maybeSingle(),
+    );
+  }
+  if (draft.knowledge) {
+    await ignoreError(() =>
+      admin.from("mh_knowledge_base").upsert(
+        knowledgeRowFromDraft(customerId, draft.knowledge!, now),
+        { onConflict: "customer_id" },
+      ).maybeSingle(),
+    );
+  }
+  const voicePatch = voicePatchFromDraft(draft);
+  if (voicePatch) {
+    const existingVoice = optionalRow<{ id?: string }>(
+      await admin.from("mh_voice_config").select("id").eq("customer_id", customerId).maybeSingle(),
+    );
+    if (existingVoice?.id) {
+      await ignoreError(() =>
+        admin.from("mh_voice_config").update(voicePatch).eq("customer_id", customerId).maybeSingle(),
+      );
+    } else {
+      await ignoreError(() =>
+        admin.from("mh_voice_config").insert({
+          customer_id: customerId,
+          active: true,
+          ...voicePatch,
+        }).maybeSingle(),
+      );
+    }
+  }
 }
 
 async function findCustomerById(admin: AdminClient, id: string): Promise<CustomerRow | null> {
@@ -206,13 +263,15 @@ async function handleMagicLink(body: Record<string, unknown>, env: AuthEnv): Pro
   let customerId = plan.action === "send_existing" ? plan.customerId : null;
   const isNew = plan.action === "create_and_send";
 
+  const draft = parseSignupDraft(body);
   if (isNew) {
     const row = newCustomerRow({
       email: cleanEmail,
-      business_name: typeof body.business_name === "string" ? body.business_name : null,
-      industry: typeof body.industry === "string" ? body.industry : null,
-      website_url: typeof body.website_url === "string" ? body.website_url : null,
+      business_name: draft.business_name,
+      industry: draft.industry,
+      website_url: draft.website_url,
       country: market,
+      home_state: draft.home_state,
     });
     const created = requireRow<{ id: string }>(
       await env.admin.from("mh_v2_customers").insert(row).select("id").maybeSingle(),
@@ -224,25 +283,26 @@ async function handleMagicLink(body: Record<string, unknown>, env: AuthEnv): Pro
   }
   if (!customerId) throw new Error("Account not found");
 
+  if (shouldPersistSignupDraft(intent, existing)) {
+    await persistSignupDraftForCustomer(env.admin, customerId, body, env.now(), isNew);
+  }
+
   const rawToken = env.randomToken();
-  const expiresAt = new Date(env.now().getTime() + 15 * 60 * 1000).toISOString();
+  const expiresAt = new Date(env.now().getTime() + MAGIC_LINK_TTL_MS).toISOString();
+  const persistDraft = shouldPersistSignupDraft(intent, existing);
   const tokenRow: Record<string, unknown> = {
     email: cleanEmail,
     customer_id: customerId,
     token: rawToken,
     expires_at: expiresAt,
-    signup_data: isNew ? signupData({
-      business_name: body.business_name,
-      industry: body.industry,
-      website_url: body.website_url,
-      country: market,
-    }) : null,
+    signup_data: persistDraft ? signupDataFromDraft(draft) : null,
   };
   const tokenInsert = await env.admin.from("mh_magic_tokens").insert(tokenRow).maybeSingle();
   if (tokenInsert.error) throw new Error(tokenInsert.error.message);
 
   const magicUrl = `${env.appUrl}/verify?token=${rawToken}`;
-  await env.sendMagicLinkEmail(cleanEmail, magicUrl, isNew);
+  const isSetup = emailKindForMagicLink(intent, existing) === "setup";
+  await env.sendMagicLinkEmail(cleanEmail, magicUrl, isSetup);
 
   await ignoreError(() =>
     env.admin.from("mh_v2_customers").update({ last_login_at: env.now().toISOString() }).eq("id", customerId).maybeSingle(),

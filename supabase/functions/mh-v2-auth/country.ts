@@ -16,6 +16,7 @@ export type NewCustomerRow = {
   industry: string | null;
   website_url: string | null;
   country: Market;
+  home_state?: string | null;
 };
 
 export function newCustomerRow(input: {
@@ -24,14 +25,17 @@ export function newCustomerRow(input: {
   industry?: string | null;
   website_url?: string | null;
   country?: unknown;
+  home_state?: string | null;
 }): NewCustomerRow {
-  return {
+  const row: NewCustomerRow = {
     email: input.email.toLowerCase().trim(),
     business_name: emptyToNull(input.business_name),
     industry: emptyToNull(input.industry),
     website_url: emptyToNull(input.website_url),
     country: normalizeMarket(input.country),
   };
+  if (input.home_state) row.home_state = input.home_state;
+  return row;
 }
 
 export type SignupData = {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
+import { MAGIC_LINK_TTL_HOURS, MAGIC_LINK_TTL_MS, NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
 
 test("missing or login intent never creates a customer for an unknown email", () => {
   assert.equal(parseMagicLinkIntent({}), "login");
@@ -25,4 +25,10 @@ test("existing mh_v2_customers email sends a link and does not look like signup"
 test("signup with an unknown email is the only path that creates a row", () => {
   assert.deepEqual(planMagicLink("signup", null), { action: "create_and_send" });
   assert.deepEqual(planMagicLink("login", { id: "" }), { action: "no_account" });
+});
+
+test("magic-link tokens last 24 hours, not 15 minutes", () => {
+  assert.equal(MAGIC_LINK_TTL_HOURS, 24);
+  assert.equal(MAGIC_LINK_TTL_MS, 24 * 60 * 60 * 1000);
+  assert.ok(MAGIC_LINK_TTL_MS > 15 * 60 * 1000);
 });

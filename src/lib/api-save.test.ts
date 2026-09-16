@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, test } from "node:test";
 import { meCache } from "./meCache.ts";
-import { createOutboundTask, getChatSession, getChatSessions, listOutboundTasks, requestMagicLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
+import { createOutboundTask, getChatSession, getChatSessions, listOutboundTasks, provisionNumber, requestMagicLink, requestSignupLink, saveOnboardingKnowledge, saveVoiceNotifySms, updateProfile } from "./api.ts";
 
 const origFetch = globalThis.fetch;
 const origLocalStorage = (globalThis as { localStorage?: Storage }).localStorage;
@@ -174,6 +174,68 @@ test("requestMagicLink sends country so a US signup survives the email click", a
   await requestMagicLink("login@example.com");
   assert.equal("country" in (calls[2].body as object), false);
   assert.equal((calls[2].body as { intent: string }).intent, "login");
+});
+
+test("requestSignupLink posts the pre-auth draft and never calls provision", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage("");
+  const calls: { url: string; body: unknown }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    return new Response(JSON.stringify({ ok: true, isNew: true }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  await requestSignupLink({
+    email: "jammy@example.com",
+    business_name: "Jammy",
+    industry: "Retail",
+    website_url: "jammy.com",
+    country: "US",
+    notify_mobile: "+15551234567",
+    capabilities: ["take_messages", "transfer_to_me"],
+    knowledge: {
+      about: "We sell jam",
+      services: ["Jams"],
+      faqs: [],
+      hours: {},
+      tone: "friendly",
+    },
+    no_website: false,
+  });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/functions\/v1\/mh-v2-auth\/magic-link$/);
+  assert.equal(String(calls[0].url).includes("mh-provision-number"), false);
+  const body = calls[0].body as Record<string, unknown>;
+  assert.equal(body.intent, "signup");
+  assert.equal(body.country, "US");
+  assert.equal((body.knowledge as { about: string }).about, "We sell jam");
+  assert.deepEqual(body.capabilities, ["take_messages", "transfer_to_me"]);
+});
+
+test("provisionNumber posts customer_id and market after verify", async () => {
+  (globalThis as { localStorage: ReturnType<typeof mockStorage> }).localStorage = mockStorage();
+  const calls: { url: string; body: unknown }[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    calls.push({
+      url: String(input),
+      body: init?.body ? JSON.parse(String(init.body)) : null,
+    });
+    return new Response(JSON.stringify({ phone_number: "+15550001111" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  const data = await provisionNumber("cust-1", "US");
+  assert.match(calls[0].url, /\/functions\/v1\/mh-provision-number\/$/);
+  assert.deepEqual(calls[0].body, { customer_id: "cust-1", country: "US" });
+  assert.equal(data.phone_number, "+15550001111");
 });
 
 test("login requestMagicLink surfaces no_account without creating anything client-side", async () => {
