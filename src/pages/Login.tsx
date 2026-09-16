@@ -48,7 +48,7 @@ export default function Login() {
           <h2 className="text-2xl font-bold mb-3">Check your email</h2>
           <p className="text-white/50 mb-2">We sent a sign-in link to</p>
           <p className="text-yellow-400 font-semibold mb-6">{email}</p>
-          <p className="text-white/30 text-sm">Click the link in the email to sign in. It expires in 15 minutes.</p>
+          <p className="text-white/30 text-sm">Click the link in the email to sign in. It expires in 24 hours.</p>
           <button className="text-white/30 text-xs mt-8 hover:text-white/50 transition-colors" onClick={() => setSent(false)}>
             Wrong email? Go back
           </button>

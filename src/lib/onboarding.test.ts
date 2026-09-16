@@ -22,6 +22,8 @@ import {
   provisionedNumberPlaceholder,
   shouldDiscardOnboardingDraft,
   signupWebsitePlaceholder,
+  hoursRowsFromKnowledge,
+  knowledgeLooksFilled,
 } from "./onboarding.ts";
 
 test("normalizeHost ignores www, scheme, and trailing slash", () => {
@@ -240,6 +242,23 @@ test("resolveNotifySms prefers typed mobile, then customer owner phone, never tw
     notifyMobile: "",
     customer: { twilio_number: "+61485000000" },
   }), { notify_sms: null });
+});
+
+test("hoursRowsFromKnowledge maps weekday objects back onto the form rows", () => {
+  const rows = hoursRowsFromKnowledge({
+    monday: { open: "08:00", close: "16:00", closed: false },
+    sunday: { open: "", close: "", closed: true },
+  });
+  assert.equal(rows[0].day, "Monday");
+  assert.equal(rows[0].open, "08:00");
+  assert.equal(rows[6].closed, true);
+});
+
+test("knowledgeLooksFilled is true when about, services, or faqs exist", () => {
+  assert.equal(knowledgeLooksFilled(null), false);
+  assert.equal(knowledgeLooksFilled({ about: "", services: [], faqs: [] }), false);
+  assert.equal(knowledgeLooksFilled({ about: "We fly" }), true);
+  assert.equal(knowledgeLooksFilled({ services: ["Flights"] }), true);
 });
 
 test("knowledge payload maps hours by weekday", () => {

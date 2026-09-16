@@ -3,8 +3,10 @@ import {
   normalizeHomeState,
   type AuHomeState,
 } from "../../supabase/functions/_shared/au-home-state.ts";
+import { DEFAULT_HOURS, type HoursRow } from "./onboarding-templates.ts";
 
 export { AU_HOME_STATES, normalizeHomeState, type AuHomeState };
+export { DEFAULT_HOURS, type HoursRow };
 
 export const ONBOARDING_STORAGE_KEY = "mh_onboarding_state";
 
@@ -241,6 +243,30 @@ export function profileUpdatesFromForm(input: {
     updates.home_state = normalizeHomeState(input.homeState);
   }
   return updates;
+}
+
+export function hoursRowsFromKnowledge(hours: unknown): HoursRow[] {
+  const src = hours && typeof hours === "object" && !Array.isArray(hours)
+    ? hours as Record<string, { open?: unknown; close?: unknown; closed?: unknown }>
+    : {};
+  return DEFAULT_HOURS.map((row) => {
+    const scraped = src[row.day.toLowerCase()];
+    if (!scraped || typeof scraped !== "object") return { ...row };
+    return {
+      ...row,
+      open: typeof scraped.open === "string" ? scraped.open : row.open,
+      close: typeof scraped.close === "string" ? scraped.close : row.close,
+      closed: typeof scraped.closed === "boolean" ? scraped.closed : row.closed,
+    };
+  });
+}
+
+export function knowledgeLooksFilled(kb: { about?: unknown; services?: unknown; faqs?: unknown } | null | undefined): boolean {
+  if (!kb || typeof kb !== "object") return false;
+  if (typeof kb.about === "string" && kb.about.trim()) return true;
+  if (Array.isArray(kb.services) && kb.services.length > 0) return true;
+  if (Array.isArray(kb.faqs) && kb.faqs.length > 0) return true;
+  return false;
 }
 
 export function knowledgePayloadFromForm(input: {

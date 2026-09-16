@@ -26,13 +26,15 @@ type Store = {
   customers: Record<string, Record<string, unknown>>;
   tokens: Record<string, Record<string, unknown>>;
   knowledge: Record<string, Record<string, unknown>>;
+  voice: Record<string, Record<string, unknown>>;
   inserts: { table: string; row: Record<string, unknown> }[];
+  updates: { table: string; row: Record<string, unknown> }[];
 };
 
 function memoryAdmin(store: Store): AdminClient {
   return {
     from(table: string): QueryBuilder {
-      let mode: "select" | "update" | "insert" = "select";
+      let mode: "select" | "update" | "insert" | "upsert" = "select";
       let payload: Record<string, unknown> = {};
       const filters: { col: string; val: unknown }[] = [];
 
@@ -52,6 +54,7 @@ function memoryAdmin(store: Store): AdminClient {
           const existing = rows.find(match);
           if (mode === "update") {
             if (!existing) return { data: null, error: null };
+            store.updates.push({ table, row: { ...payload } });
             Object.assign(existing, payload);
             return { data: existing, error: null };
           }
@@ -76,14 +79,40 @@ function memoryAdmin(store: Store): AdminClient {
         }
 
         if (table === "mh_knowledge_base") {
-          if (mode === "insert") {
+          const cid = String(payload.customer_id || filters.find((f) => f.col === "customer_id")?.val || "");
+          if (mode === "insert" || mode === "upsert") {
             store.inserts.push({ table, row: { ...payload } });
-            const cid = String(payload.customer_id || "");
-            const row = { id: "kb-" + cid, customer_id: cid, ...payload };
+            const prev = store.knowledge[cid] || { id: "kb-" + cid, customer_id: cid };
+            const row = { ...prev, ...payload, customer_id: cid };
             store.knowledge[cid] = row;
             return { data: row, error: null };
           }
-          return { data: null, error: null };
+          if (mode === "update") {
+            const existingKb = store.knowledge[cid] || Object.values(store.knowledge).find(match);
+            if (!existingKb) return { data: null, error: null };
+            store.updates.push({ table, row: { ...payload } });
+            Object.assign(existingKb, payload);
+            return { data: existingKb, error: null };
+          }
+          return { data: store.knowledge[cid] || null, error: null };
+        }
+
+        if (table === "mh_voice_config") {
+          const cid = String(payload.customer_id || filters.find((f) => f.col === "customer_id")?.val || "");
+          if (mode === "insert") {
+            store.inserts.push({ table, row: { ...payload } });
+            const row = { id: "vc-" + cid, customer_id: cid, ...payload };
+            store.voice[cid] = row;
+            return { data: row, error: null };
+          }
+          if (mode === "update") {
+            const existingVoice = store.voice[cid];
+            if (!existingVoice) return { data: null, error: null };
+            store.updates.push({ table, row: { ...payload } });
+            Object.assign(existingVoice, payload);
+            return { data: existingVoice, error: null };
+          }
+          return { data: store.voice[cid] || null, error: null };
         }
 
         return { data: null, error: { message: `unknown table ${table}` } };
@@ -93,6 +122,7 @@ function memoryAdmin(store: Store): AdminClient {
         select() { return builder; },
         update(row) { mode = "update"; payload = row; return builder; },
         insert(row) { mode = "insert"; payload = row; return builder; },
+        upsert(row) { mode = "upsert"; payload = row; return builder; },
         eq(col, val) { filters.push({ col, val }); return builder; },
         maybeSingle() { return Promise.resolve(run()); },
       };
@@ -114,11 +144,13 @@ function seed(extra?: Partial<Store["customers"][string]>): Store {
     },
     tokens: {},
     knowledge: {},
+    voice: {},
     inserts: [],
+    updates: [],
   };
 }
 
-function envFor(store: Store, emails: { email: string; url: string; isNew: boolean }[] = []): AuthEnv {
+function envFor(store: Store, emails: { email: string; url: string; isSetup: boolean }[] = []): AuthEnv {
   return {
     jwtSecret: SECRET,
     appUrl: "https://app.manyhandz.ai",
@@ -126,8 +158,8 @@ function envFor(store: Store, emails: { email: string; url: string; isNew: boole
     adminSecrets: new Set([ADMIN_PIN]),
     now: () => new Date("2026-09-02T01:00:00.000Z"),
     randomToken: () => "magic-token-1",
-    sendMagicLinkEmail: async (email, url, isNew) => {
-      emails.push({ email, url, isNew });
+    sendMagicLinkEmail: async (email, url, isSetup) => {
+      emails.push({ email, url, isSetup });
     },
   };
 }
@@ -195,6 +227,9 @@ describe("service role env — no management API token", () => {
     assert.match(handler, /\.from\("mh_v2_customers"\)/);
     assert.match(handler, /\.from\("mh_magic_tokens"\)/);
     assert.match(handler, /admin-dashboard-pin/);
+    assert.match(handler, /MAGIC_LINK_TTL_MS/);
+    assert.match(index, /magicLinkEmailCopy/);
+    assert.doesNotMatch(index, /15 minutes/);
     const adminPage = readFileSync(join(HERE, "../../../src/pages/Admin.tsx"), "utf8");
     assert.match(adminPage, /admin-dashboard-pin/);
     assert.doesNotMatch(adminPage, /const ADMIN_PIN\s*=/);
@@ -204,7 +239,7 @@ describe("service role env — no management API token", () => {
 describe("magic-link", () => {
   it("login for an unknown email returns no_account 404 and never inserts a customer", async () => {
     const store = seed();
-    const emails: { email: string; url: string; isNew: boolean }[] = [];
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
     const res = await json(await handleRequest(
       post("magic-link", { email: "typo@example.com", intent: "login" }),
       envFor(store, emails),
@@ -229,7 +264,7 @@ describe("magic-link", () => {
 
   it("login for an existing email sends a link and does not insert a customer", async () => {
     const store = seed();
-    const emails: { email: string; url: string; isNew: boolean }[] = [];
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
     const res = await json(await handleRequest(
       post("magic-link", { email: "Nick@Glacier.net.au", intent: "login" }),
       envFor(store, emails),
@@ -239,14 +274,15 @@ describe("magic-link", () => {
     assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
     assert.equal(store.inserts.filter((i) => i.table === "mh_magic_tokens").length, 1);
     assert.equal(emails.length, 1);
-    assert.equal(emails[0].isNew, false);
+    assert.equal(emails[0].isSetup, false);
     assert.equal(emails[0].url, "https://app.manyhandz.ai/verify?token=magic-token-1");
     assert.equal(store.customers[CUST].last_login_at, "2026-09-02T01:00:00.000Z");
+    assert.equal(store.tokens["magic-token-1"].expires_at, "2026-09-03T01:00:00.000Z");
   });
 
   it("signup with an unknown email is the only path that creates a customer", async () => {
     const store = seed();
-    const emails: { email: string; url: string; isNew: boolean }[] = [];
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
     const res = await json(await handleRequest(
       post("magic-link", {
         email: "new@example.com",
@@ -269,18 +305,100 @@ describe("magic-link", () => {
     const token = store.inserts.find((i) => i.table === "mh_magic_tokens");
     assert.ok(token);
     assert.equal((token.row.signup_data as { country: string }).country, "US");
-    assert.equal(emails[0].isNew, true);
+    assert.equal(emails[0].isSetup, true);
+    assert.equal(token.row.expires_at, "2026-09-03T01:00:00.000Z");
   });
 
-  it("signup with an existing email sends a link and does not create a second row", async () => {
+  it("signup with an existing complete account sends a login link and does not overwrite the draft", async () => {
     const store = seed();
+    store.knowledge[CUST] = { customer_id: CUST, about: "Keep me" };
     const res = await json(await handleRequest(
-      post("magic-link", { email: "nick@glacier.net.au", intent: "signup", business_name: "Other" }),
+      post("magic-link", {
+        email: "nick@glacier.net.au",
+        intent: "signup",
+        business_name: "Other",
+        knowledge: { about: "Overwrite", services: [], faqs: [], hours: {}, tone: "friendly" },
+      }),
       envFor(store),
     ));
     assert.equal(res.status, 200);
     assert.equal(res.body.isNew, false);
     assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
+    assert.equal(store.knowledge[CUST].about, "Keep me");
+    assert.equal(store.customers[CUST].business_name, undefined);
+  });
+
+  it("signup persists KB, notify, and 24h token for a new email", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "draft@example.com",
+        intent: "signup",
+        business_name: "Smith Plumbing",
+        industry: "Trade / Construction",
+        website_url: "smithplumbing.com.au",
+        country: "AU",
+        notify_mobile: "0412 345 678",
+        capabilities: ["take_messages", "transfer_to_me", "not-a-cap"],
+        knowledge: {
+          about: "Local plumber",
+          services: ["Blocked drains"],
+          faqs: [{ q: "Hours?", a: "9-5" }],
+          hours: { monday: { open: "09:00", close: "17:00", closed: false } },
+          tone: "friendly",
+        },
+      }),
+      envFor(store, emails),
+    ));
+    assert.equal(res.status, 200);
+    const created = store.inserts.find((i) => i.table === "mh_v2_customers");
+    assert.ok(created);
+    const cid = Object.keys(store.customers).find((id) => id !== CUST) || "";
+    assert.equal(store.knowledge[cid].about, "Local plumber");
+    assert.deepEqual(store.knowledge[cid].services, ["Blocked drains"]);
+    assert.equal(store.voice[cid].notify_sms, "+61412345678");
+    assert.equal(store.voice[cid].cap_send_sms, true);
+    assert.equal(store.voice[cid].cap_transfer_calls, true);
+    assert.equal(emails[0].isSetup, true);
+    assert.equal(store.tokens["magic-token-1"].expires_at, "2026-09-03T01:00:00.000Z");
+  });
+
+  it("signup for an incomplete existing account updates the draft and sends a setup email", async () => {
+    const store = seed({ onboarding_complete: false, business_name: "Old Name" });
+    store.knowledge[CUST] = { id: "kb-old", customer_id: CUST, about: "" };
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "nick@glacier.net.au",
+        intent: "signup",
+        business_name: "Jammy Co",
+        knowledge: { about: "We fix stuff", services: ["Repairs"], faqs: [], hours: {}, tone: "casual" },
+        notify_mobile: "0412 000 111",
+      }),
+      envFor(store, emails),
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isNew, false);
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
+    assert.equal(store.customers[CUST].business_name, "Jammy Co");
+    assert.equal(store.knowledge[CUST].about, "We fix stuff");
+    assert.equal(store.voice[CUST].notify_sms, "+61412000111");
+    assert.equal(emails[0].isSetup, true);
+  });
+
+  it("login never persists a draft even if the body includes knowledge", async () => {
+    const store = seed();
+    store.knowledge[CUST] = { customer_id: CUST, about: "Live KB" };
+    await json(await handleRequest(
+      post("magic-link", {
+        email: "nick@glacier.net.au",
+        intent: "login",
+        knowledge: { about: "Should not write", services: [], faqs: [], hours: {}, tone: "friendly" },
+      }),
+      envFor(store),
+    ));
+    assert.equal(store.knowledge[CUST].about, "Live KB");
   });
 
   it("missing email is 400", async () => {

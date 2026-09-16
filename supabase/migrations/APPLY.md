@@ -2,6 +2,19 @@
 
 Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
+## This branch (pre-auth onboarding)
+
+No new SQL. Drafts persist on existing `mh_v2_customers` + `mh_knowledge_base` (+ optional `mh_voice_config.notify_sms` / opted-in caps) via `mh-v2-auth` before the user clicks the magic link. Completed accounts are not overwritten.
+
+**Must redeploy** `mh-v2-auth` (`verify_jwt` false). Magic-link tokens now expire in **24 hours**. Signup email copy is “setup ready / get your number”. Do **not** provision Twilio/EL until post-verify `mh-provision-number`.
+
+### Success check
+
+- `/signup` can scrape and preview KB without verifying email.
+- Submitting email creates/updates an incomplete customer + KB and sends a 24h setup link.
+- Verify with incomplete onboarding lands on slim `/onboarding` (confirm KB + notify → provision).
+- Login for completed customers is unchanged aside from 24h expiry.
+
 ## This branch (Admin Outreach Start / Stop Dialler)
 
 `20260907000000_mh_outreach_dialler.sql` + `20260907010000_mh_outreach_dialler_default_on.sql` — one-row `public.mh_outreach_dialler` (`id=1`, `enabled` default **true**). Queue Calls starts the dialler. Service role only.

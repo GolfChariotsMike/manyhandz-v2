@@ -1,6 +1,8 @@
 /** Login must never INSERT mh_v2_customers. Signup is a deliberate create. */
 
 export const NO_ACCOUNT_CODE = "no_account";
+export const MAGIC_LINK_TTL_MS = 24 * 60 * 60 * 1000;
+export const MAGIC_LINK_TTL_HOURS = 24;
 
 export type MagicLinkIntent = "login" | "signup";
 
