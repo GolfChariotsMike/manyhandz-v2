@@ -35,8 +35,14 @@ const scrapeMessages = [
 ];
 
 export default function Signup() {
-  const [params] = useSearchParams();
-  const [country, setCountry] = useState<Market>(() => parseSignupCountry(params.get("country")));
+  const [params, setParams] = useSearchParams();
+  const country = parseSignupCountry(params.get("country"));
+
+  function selectCountry(market: Market) {
+    const next = new URLSearchParams(params);
+    next.set("country", market);
+    setParams(next, { replace: true });
+  }
   const [email, setEmail] = useState(() => parseSignupEmail(params.get("email")));
   const [businessName, setBusinessName] = useState("");
   const [industry, setIndustry] = useState("");
@@ -200,7 +206,7 @@ export default function Signup() {
                   <button
                     key={market}
                     type="button"
-                    onClick={() => setCountry(market)}
+                    onClick={() => selectCountry(market)}
                     className={`aurora-card p-3 text-sm font-semibold transition-all ${
                       country === market ? "border-yellow-500 bg-yellow-500/10 text-yellow-400" : "text-white/60 hover:bg-white/5"
                     }`}
@@ -356,7 +362,7 @@ export default function Signup() {
           <button type="button" className="btn-secondary w-full mt-3 text-sm text-white/50" onClick={() => setStep("details")}>
             Back
           </button>
-          <p className="text-white/30 text-xs text-center mt-4">We’ll email a {MAGIC_LINK_EXPIRY_COPY} link. Your number is provisioned after you confirm.</p>
+          <p className="text-white/30 text-xs text-center mt-4">We’ll email a link that expires in {MAGIC_LINK_EXPIRY_COPY}. Your number is provisioned after you confirm.</p>
         </form>
       )}
     </div>
