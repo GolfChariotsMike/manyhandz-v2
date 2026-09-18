@@ -2,10 +2,12 @@
  * ManyHandz customer warm transfer — Twilio conference + press-1 screen.
  * Routes: /transfer, /transfer-screen, /transfer-accept, /transfer-status.
  *
- * Parks the inbound EL call into a hold-music conference as soon as /transfer
- * starts. Staff joins that conference on 1. On no-answer / reject / timeout
- * the inbound CallSid is reconnected to ElevenLabs (same register-call as
- * press-9) so Charlie can keep talking — not Polly-Say + Hangup.
+ * Same-conversation warm transfer: do NOT park the inbound CallSid at
+ * /transfer start — leave the caller on live ElevenLabs so decline /
+ * no-answer / fail can continue the SAME transcript (accepted:false).
+ * Park happens only on Digits=1 accept, then staff joins that conference.
+ * Never register-call reconnect on a failed transfer. Press-9 / staff
+ * hangup reconnect is only AFTER a successful accept (caller was parked).
  *
  * Uses mh_staff (active) when the caller names a person or role.
  * Generic "the technician" looks up the last SimPRO job (not leads) and
@@ -394,7 +396,6 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     const callSid = sidRow?.call_sid || null;
     const callerName = await resolveWhisperCallerName(env, customerId, callerPhone, providedName);
     const transferId = Date.now().toString(36);
-    const confName = conferenceName(CONF_PREFIX, transferId);
 
     await dbPost(env, TRANSFERS_TABLE, {
       id: transferId,
@@ -407,7 +408,12 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       created_at: new Date().toISOString(),
     });
 
-    await parkInbound(env, callSid, confName);
+    // Leave caller on live EL — park only on Digits=1 in /transfer-accept.
+    const toolCopy = {
+      accepted: "Transferring you now, please hold.",
+      failed: "The owner is unavailable right now. Would you like to leave a message and they'll call you back?",
+      pending: "Staff is still being reached. Keep the caller on hold.",
+    };
 
     const screenUrl = `${baseUrl}/transfer-screen?id=${transferId}&customer_id=${customerId}`;
     const statusUrl = `${baseUrl}/transfer-status?id=${transferId}&customer_id=${customerId}`;
@@ -416,30 +422,23 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       const result = await twilioMakeCall(env, dest.staffNumber, fromNumber, screenUrl, statusUrl);
       if (!result.sid) {
         console.error(`[transfer] ${transferId} — Twilio error:`, result);
-        await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
-        return jsonResponse({ success: false, error: "Could not reach staff" });
+        await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { status: "failed" });
+        return jsonResponse(transferToolResponse({ action: "fail", status: "failed" }, toolCopy));
       }
 
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { outbound_sid: result.sid });
-      console.log(`[transfer] ${transferId} — outbound SID: ${result.sid} parked=${Boolean(callSid)}`);
+      console.log(`[transfer] ${transferId} — outbound SID: ${result.sid} (no park-at-start)`);
 
       const decision = await waitForResult(async () => {
         const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${transferId}&select=status`);
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action === "fail") {
-        await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
-      }
-
-      return jsonResponse(transferToolResponse(decision, {
-        accepted: "Transferring you now, please hold.",
-        failed: "The owner is unavailable right now. Would you like to leave a message and they'll call you back?",
-        pending: "Staff is still being reached. Keep the caller on hold.",
-      }));
+      return jsonResponse(transferToolResponse(decision, toolCopy));
     } catch (e) {
-      await returnCallerToAi(env, { id: transferId, customerId, mode: "failed-transfer" });
-      return jsonResponse({ success: false, error: String(e) });
+      console.error(`[transfer] ${transferId} —`, e);
+      await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { status: "failed" });
+      return jsonResponse(transferToolResponse({ action: "fail", status: "failed" }, toolCopy));
     }
   }
 
@@ -471,6 +470,15 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     if (digit === "1") {
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: ACCEPTED });
       const confName = conferenceName(CONF_PREFIX, id);
+      const callerSid = String(transfer.call_sid || "").trim();
+      try {
+        const parked = await parkInbound(env, callerSid || null, confName);
+        console.log(
+          `[transfer-accept] ${id} Digits=1 — park caller ${callerSid || "(none)"} → ${confName} ${parked ? "ok" : "skip"}`,
+        );
+      } catch (e) {
+        console.error(`[transfer-accept] ${id} park error`, e);
+      }
       return twimlResponse(staffJoinTwiml(confName, "Connecting now.", {
         returnAfterStar: {
           dialActionUrl: `${baseUrl}/staff-left?id=${id}&customer_id=${customerId}`,
@@ -480,8 +488,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
     }
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
-    // Reconnect the parked inbound NOW — do not wait for outbound completed.
-    await returnCallerToAi(env, { id, customerId, mode: "failed-transfer" });
+    console.log(`[transfer-accept] ${id} — DECLINED (caller still on EL, no reconnect)`);
     return twimlResponse(staffScreenHangupTwiml());
   }
 
@@ -517,7 +524,7 @@ export async function handleCustomerTransfer(req: Request, env: CustomerTransfer
       const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=status`);
       const status = firstRow<{ status?: string }>(rows)?.status;
       const kind = reconnectKindForStatus(status);
-      // Failed transfer: Stream the parked inbound NOW, before conference teardown.
+      // Staff hangup after accept — caller was parked. Failed transfers stay on EL.
       if (kind) await returnCallerToAi(env, { id, customerId, mode: kind });
     }
     return noContent();

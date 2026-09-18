@@ -121,18 +121,18 @@ test("failed-transfer wrap uses EL stream with no Polly hangup; dead TwiML falls
   assert.match(dead, new RegExp(FAILED_TRANSFER_FALLBACK_SAY.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 });
 
-test("canReconnectFailedTransfer allows no-answer but not an accepted conference", () => {
-  assert.equal(canReconnectFailedTransfer("no-answer"), true);
-  assert.equal(canReconnectFailedTransfer("declined"), true);
-  assert.equal(canReconnectFailedTransfer("ringing"), true);
+test("canReconnectFailedTransfer is always false — failed transfers stay on live EL", () => {
+  assert.equal(canReconnectFailedTransfer("no-answer"), false);
+  assert.equal(canReconnectFailedTransfer("declined"), false);
+  assert.equal(canReconnectFailedTransfer("ringing"), false);
   assert.equal(canReconnectFailedTransfer("accepted"), false);
   assert.equal(canReconnectFailedTransfer("returned"), false);
 });
 
-test("reconnectKindForStatus reconnects failed transfers immediately, not after teardown", () => {
-  assert.equal(reconnectKindForStatus("ringing"), "failed-transfer");
-  assert.equal(reconnectKindForStatus("no-answer"), "failed-transfer");
-  assert.equal(reconnectKindForStatus("declined"), "failed-transfer");
+test("reconnectKindForStatus only reconnects after a successful accept", () => {
+  assert.equal(reconnectKindForStatus("ringing"), null);
+  assert.equal(reconnectKindForStatus("no-answer"), null);
+  assert.equal(reconnectKindForStatus("declined"), null);
   assert.equal(reconnectKindForStatus("accepted"), "staff-return");
   assert.equal(reconnectKindForStatus("returned"), null);
 });

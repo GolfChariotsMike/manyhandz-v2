@@ -168,8 +168,8 @@ test("GET / is healthy", async () => {
   assert.match(await res.text(), /MH Customer Transfer OK/);
 });
 
-test("/transfer parks inbound with hold music then waits past 25s of ringing without accepted:false", async () => {
-  const { env, parkTwiml, dropTwiml, returnTwiml, twilioBodies } = makeEnv({
+test("/transfer does not park inbound, rings staff, waits past 25s of ringing without accepted:false", async () => {
+  const { env, parkTwiml, dropTwiml, returnTwiml, registerBodies, twilioBodies } = makeEnv({
     statusAt: () => RINGING,
   });
   const res = await handleCustomerTransfer(
@@ -182,18 +182,17 @@ test("/transfer parks inbound with hold music then waits past 25s of ringing wit
   assert.equal(json.pending, true);
   assert.equal(JSON.stringify(json).includes('"accepted":false'), false);
   assert.match(json.message, /accepted:false/);
-  assert.match(parkTwiml[0] || "", /startConferenceOnEnter="false"/);
-  assert.ok((parkTwiml[0] || "").includes(HOLD_MUSIC_URL));
-  assert.match(parkTwiml[0] || "", /mh-transfer-/);
+  assert.equal(parkTwiml.length, 0);
   assert.equal(dropTwiml.length, 0);
   assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
   assert.match(twilioBodies[0] || "", /Timeout=20/);
   assert.match(twilioBodies[0] || "", /MachineDetection=Enable/);
   assert.equal(JSON.stringify(json).includes("secret-token"), false);
 });
 
 test("/transfer returns accepted:true when staff presses 1 after 30s", async () => {
-  const { env, dropTwiml } = makeEnv({
+  const { env, dropTwiml, parkTwiml, registerBodies } = makeEnv({
     statusAt: (elapsed) => (elapsed >= 30_000 ? "accepted" : RINGING),
   });
   const res = await handleCustomerTransfer(
@@ -203,10 +202,12 @@ test("/transfer returns accepted:true when staff presses 1 after 30s", async () 
   const json = await res.json() as { accepted?: boolean };
   assert.equal(json.accepted, true);
   assert.equal(dropTwiml.length, 0);
+  assert.equal(parkTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
 });
 
-test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only", async () => {
-  const { env, dropTwiml, returnTwiml, registerBodies, transfers } = makeEnv({
+test("/transfer no-answer returns accepted:false without register-call reconnect", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies, parkTwiml, transfers } = makeEnv({
     staffRows: GLACIER_STAFF,
     statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
   });
@@ -219,26 +220,18 @@ test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only"
     }),
     env,
   );
-  const json = await res.json() as { accepted?: boolean };
+  const json = await res.json() as { accepted?: boolean; message: string };
   assert.equal(json.accepted, false);
+  assert.match(json.message, /unavailable|leave a message/i);
   assert.equal(dropTwiml.length, 0);
-  assert.equal(returnTwiml.length, 1);
-  assert.match(returnTwiml[0] || "", /<Stream /);
-  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
-  assert.doesNotMatch(returnTwiml[0] || "", /Someone will call you back/);
-  assert.equal(registerBodies.length, 1);
-  const init = registerBodies[0].conversation_initiation_client_data as {
-    dynamic_variables: Record<string, string>;
-    conversation_config_override: { agent: { first_message: string } };
-  };
-  assert.equal(init.dynamic_variables.return_from_staff, "true");
-  assert.match(init.dynamic_variables.return_instruction, /Sorry, Jason isn't available/);
-  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Jason isn't available/);
-  assert.equal([...transfers.values()][0]?.status, RETURNED);
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
+  assert.equal([...transfers.values()][0]?.status, "no-answer");
 });
 
-test("/transfer no-answer uses a short say only when EL reconnect fails", async () => {
-  const { env, dropTwiml, returnTwiml, registerBodies } = makeEnv({
+test("/transfer no-answer never drops inbound even without EL key", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies, parkTwiml } = makeEnv({
     staffRows: GLACIER_STAFF,
     statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
   });
@@ -256,10 +249,8 @@ test("/transfer no-answer uses a short say only when EL reconnect fails", async 
   assert.equal(json.accepted, false);
   assert.equal(registerBodies.length, 0);
   assert.equal(returnTwiml.length, 0);
-  assert.ok(dropTwiml.length >= 1);
-  assert.match(dropTwiml[0], /Hangup/);
-  assert.match(dropTwiml[0], /not available right now/);
-  assert.doesNotMatch(dropTwiml[0], /Someone will call you back/);
+  assert.equal(dropTwiml.length, 0);
+  assert.equal(parkTwiml.length, 0);
 });
 
 test("/transfer-status completed never marks accepted as no-answer (hangup sends caller back)", async () => {
@@ -285,7 +276,7 @@ test("/transfer-status completed never marks accepted as no-answer (hangup sends
 });
 
 test("/transfer-status completed can mark a still-ringing row no-answer", async () => {
-  const { env, transfers } = makeEnv();
+  const { env, transfers, returnTwiml, registerBodies } = makeEnv();
   transfers.set("abc", { id: "abc", status: RINGING });
   const res = await handleCustomerTransfer(
     new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-status?id=abc", {
@@ -296,6 +287,8 @@ test("/transfer-status completed can mark a still-ringing row no-answer", async 
   );
   assert.equal(res.status, 204);
   assert.equal(transfers.get("abc")?.status, "no-answer");
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
 });
 
 test("/transfer-screen is press-1 TwiML with a 10s gather", async () => {
@@ -392,8 +385,8 @@ test("/transfer still transfers on a lookup miss and whispers a caller", async (
   assert.equal(twilioBodies.length, 1);
 });
 
-test("/transfer-status no-answer reconnects parked inbound to Stream, not Hangup", async () => {
-  const { env, transfers, returnTwiml, dropTwiml, registerBodies } = makeEnv({
+test("/transfer-status ringing completed marks no-answer and does not register-call", async () => {
+  const { env, transfers, returnTwiml, dropTwiml, registerBodies, parkTwiml } = makeEnv({
     staffRows: GLACIER_STAFF,
   });
   transfers.set("mtl5hhqu", {
@@ -413,21 +406,15 @@ test("/transfer-status no-answer reconnects parked inbound to Stream, not Hangup
     env,
   );
   assert.equal(res.status, 204);
-  assert.equal(transfers.get("mtl5hhqu")?.status, RETURNED);
-  assert.equal(returnTwiml.length, 1);
-  assert.match(returnTwiml[0] || "", /<Stream /);
-  assert.match(returnTwiml[0] || "", /<Connect>/);
-  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
-  assert.doesNotMatch(returnTwiml[0] || "", /putting you back through/);
+  assert.equal(transfers.get("mtl5hhqu")?.status, "no-answer");
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
   assert.equal(dropTwiml.length, 0);
-  const init = registerBodies[0].conversation_initiation_client_data as {
-    conversation_config_override: { agent: { first_message: string } };
-  };
-  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Tony isn't available/);
+  assert.equal(parkTwiml.length, 0);
 });
 
-test("/transfer-accept timeout or hangup reconnects Stream; digit 2 is not a join", async () => {
-  const { env, transfers, returnTwiml } = makeEnv({ staffRows: GLACIER_STAFF });
+test("/transfer-accept timeout or hangup marks declined, no reconnect", async () => {
+  const { env, transfers, returnTwiml, registerBodies, parkTwiml } = makeEnv({ staffRows: GLACIER_STAFF });
   transfers.set("xyz", {
     id: "xyz",
     status: RINGING,
@@ -445,14 +432,14 @@ test("/transfer-accept timeout or hangup reconnects Stream; digit 2 is not a joi
   const xml = await res.text();
   assert.match(xml, /<Hangup\/>/);
   assert.doesNotMatch(xml, /Conference/);
-  assert.equal(transfers.get("xyz")?.status, RETURNED);
-  assert.equal(returnTwiml.length, 1);
-  assert.match(returnTwiml[0] || "", /<Stream /);
-  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.equal(transfers.get("xyz")?.status, "declined");
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
 });
 
-test("/transfer-accept 1 joins the parked conference with hold music", async () => {
-  const { env, transfers } = makeEnv();
+test("/transfer-accept 1 parks inbound then staff joins the conference", async () => {
+  const { env, transfers, parkTwiml, returnTwiml, registerBodies } = makeEnv();
   transfers.set("xyz", { id: "xyz", status: RINGING, call_sid: "CAinbound" });
   const res = await handleCustomerTransfer(
     new Request("https://example.supabase.co/functions/v1/mh-customer-transfer/transfer-accept?id=xyz", {
@@ -464,12 +451,18 @@ test("/transfer-accept 1 joins the parked conference with hold music", async () 
   );
   const xml = await res.text();
   assert.equal(transfers.get("xyz")?.status, "accepted");
+  assert.equal(parkTwiml.length, 1);
+  assert.match(parkTwiml[0] || "", /mh-transfer-xyz/);
+  assert.match(parkTwiml[0] || "", /startConferenceOnEnter="false"/);
+  assert.ok((parkTwiml[0] || "").includes(HOLD_MUSIC_URL));
   assert.match(xml, /mh-transfer-xyz/);
   assert.match(xml, /startConferenceOnEnter="true"/);
   assert.match(xml, /endConferenceOnExit="false"/);
   assert.match(xml, /hangupOnStar="true"/);
   assert.match(xml, /staff-left\?id=xyz/);
   assert.ok(xml.includes(HOLD_MUSIC_URL));
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
 });
 
 function postedTo(body: string): string {

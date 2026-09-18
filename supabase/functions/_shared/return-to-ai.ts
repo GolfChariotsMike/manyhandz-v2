@@ -1,17 +1,17 @@
 /**
- * Press-9 / hangup send-back-to-AI after a staff transfer, and
- * no-answer / reject / timeout reconnect after a failed warm transfer.
+ * Press-9 / hangup send-back-to-AI AFTER a successful staff accept
+ * (caller was parked into conference on Digits=1).
  *
  * Twilio cannot Gather DTMF while a participant is inside <Conference>.
  * Real DTMF path: Dial hangupOnStar (*) exits staff from the conference,
  * then Gather digit 9. Staff hanging up the phone is the fallback and
  * also reconnects the *caller* CallSid — never the outbound staff leg.
  *
- * Failed transfer uses the same register-call on the inbound CallSid,
- * with a spoken Charlie line (not Polly-Say + Hangup). Hangup only if
- * reconnect itself fails.
+ * Failed warm transfer (decline / no-answer / timeout while ringing) must
+ * NOT register-call reconnect — the inbound CallSid stays on the live
+ * ElevenLabs stream so the same tool turn can apologise in-transcript.
  *
- * Reconnect is a new ElevenLabs pickup (register-call), not the old stream.
+ * Reconnect (staff-return only) is a new ElevenLabs pickup (register-call).
  */
 
 import { padCallOpening } from "./voice-greeting.ts";
@@ -95,24 +95,19 @@ export function shouldReturnToAi(digits: string, fallback = false): boolean {
   return d === "" || d === "9";
 }
 
-/** Press-9 hangup fallback is accepted-only. Failed transfer may reconnect from ringing / no-answer / declined. */
-export function canReconnectFailedTransfer(status?: string | null): boolean {
-  const s = String(status || "").trim();
-  if (s === RETURNED || s === "accepted") return false;
-  return true;
+/** Failed transfers stay on live EL — never register-call reconnect. */
+export function canReconnectFailedTransfer(_status?: string | null): boolean {
+  return false;
 }
 
 /**
- * Outbound completed / screen timeout: reconnect immediately while the
- * inbound CallSid is still parked. Do not wait for waitForResult.
- * accepted → staff hung up after a live conference (press-9 fallback).
- * ringing / no-answer / declined → failed warm transfer.
+ * Outbound completed: reconnect only after a successful accept (staff hung
+ * up — press-9 fallback). ringing / no-answer / declined stay on live EL.
  */
 export function reconnectKindForStatus(status?: string | null): ReturnReconnectKind | null {
   const s = String(status || "").trim();
-  if (s === RETURNED) return null;
   if (s === "accepted") return "staff-return";
-  return "failed-transfer";
+  return null;
 }
 
 export function returnRegisterCallBody(opts: {
