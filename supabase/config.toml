@@ -119,3 +119,7 @@ verify_jwt = false
 
 [functions.mhv2-admin]
 verify_jwt = false
+
+# Daily cron (01:00 UTC). Same as live mh-trial-warnings — service-role JWT.
+[functions.mh-incomplete-onboarding]
+verify_jwt = true

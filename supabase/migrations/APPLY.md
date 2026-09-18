@@ -2,6 +2,49 @@
 
 Project: `kouembkldbpdbhzeaoth` (ManyHandz live / DraftPilot).
 
+## This branch (incomplete-onboarding drip)
+
+`20260918010000_mh_incomplete_onboarding_email_log.sql` — `public.mh_incomplete_onboarding_email_log` (`customer_id`, `email_type` in `day_1` / `day_3` / `day_7`, `sent_at`) with unique `(customer_id, email_type)`. RLS on; anon/authenticated revoked; service role only. Dedicated table so trial warning types on `mh_trial_email_log` never collide.
+
+`mh-incomplete-onboarding` — **Must deploy** with `verify_jwt = true` (same as live `mh-trial-warnings`). Daily scan of `mh_v2_customers` where `onboarding_complete` is not true. Sends at 24h / 72h / 168h after `created_at`. One email per customer per run (earliest due type not yet logged). Fresh 24h `mh_magic_tokens` CTA to `https://app.manyhandz.ai/verify?token=…`; falls back to `/login` if mint fails. Resend from `ManyHandz <noreply@manyhandz.ai>`. Does **not** provision Twilio/EL or overwrite completed accounts. Do **not** reuse `mh_onboarding_schedule` / `mh-onboarding-send`.
+
+### Cron (cannot apply a service-role secret from this repo)
+
+Live `mh-trial-warnings-daily` is already `0 1 * * *` (01:00 UTC / 9:00 AM AWST) and POSTs with `Authorization: Bearer <service_role JWT>`. After this function is deployed, schedule the same way — copy that job’s Authorization header, do **not** commit the key:
+
+```sql
+SELECT cron.schedule(
+  'mh-incomplete-onboarding-daily',
+  '0 1 * * *',
+  $cmd$
+  SELECT net.http_post(
+    url := 'https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-incomplete-onboarding',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || '<SERVICE_ROLE_KEY>'
+    ),
+    body := '{}'::jsonb
+  ) AS request_id;
+  $cmd$
+);
+```
+
+Commented copy: `supabase/migrations/mh_incomplete_onboarding_cron.sql`.
+
+### Deploy
+
+1. Apply `20260918010000_mh_incomplete_onboarding_email_log.sql`
+2. Deploy `mh-incomplete-onboarding` (`verify_jwt` true)
+3. Schedule `mh-incomplete-onboarding-daily` as above
+4. Confirm `RESEND_API_KEY` is already on the project (same as `mh-v2-auth` / `mh-trial-warnings`)
+
+### Success check
+
+- Incomplete customer ≥ 24h after `created_at` gets one `day_1` row in `mh_incomplete_onboarding_email_log` and a Resend from ManyHandz.
+- Completing onboarding stops further sends (re-checked before each email).
+- Re-running the function does not insert a second row for the same type.
+- First catch-up for a week-old account sends `day_1` only (not all three).
+
 ## This branch (pre-auth onboarding)
 
 No new SQL. Drafts persist on existing `mh_v2_customers` + `mh_knowledge_base` (+ optional `mh_voice_config.notify_sms` / opted-in caps) via `mh-v2-auth` before the user clicks the magic link. Completed accounts are not overwritten.
