@@ -1,0 +1,23 @@
+-- Cron for mh-incomplete-onboarding. NOT applied by supabase db push.
+-- Run in the SQL editor AFTER the function is deployed.
+--
+-- Match live mh-trial-warnings-daily: 0 1 * * * (01:00 UTC / 9:00 AM AWST)
+-- and the same Authorization: Bearer <service_role JWT> header.
+-- Do not paste a service-role secret into git. Copy the header from
+-- cron.job where jobname = 'mh-trial-warnings-daily', or use vault /
+-- current_setting if that project already stores the key that way.
+
+-- SELECT cron.schedule(
+--   'mh-incomplete-onboarding-daily',
+--   '0 1 * * *',
+--   $cmd$
+--   SELECT net.http_post(
+--     url := 'https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-incomplete-onboarding',
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'Authorization', 'Bearer ' || '<SERVICE_ROLE_KEY>'
+--     ),
+--     body := '{}'::jsonb
+--   ) AS request_id;
+--   $cmd$
+-- );
