@@ -132,8 +132,10 @@ test("Ossie From and staff map match live (Gavin / Mike / Adam)", () => {
   assert.equal(ossieIsAfterHours(OPEN_MONDAY), false);
 });
 
-test("/transfer parks inbound, dials from Ossie From, and does not fail while ringing", async () => {
-  const { env, parkTwiml, twilioBodies, dropTwiml, returnTwiml } = makeEnv({ statusAt: () => RINGING });
+test("/transfer does not park inbound, dials from Ossie From, and does not fail while ringing", async () => {
+  const { env, parkTwiml, twilioBodies, dropTwiml, returnTwiml, registerBodies } = makeEnv({
+    statusAt: () => RINGING,
+  });
   const res = await handleOssieTools(
     post("/transfer", { caller_name: "Sam", caller_need: "court hire", transfer_to: "mike" }),
     env,
@@ -143,17 +145,17 @@ test("/transfer parks inbound, dials from Ossie From, and does not fail while ri
   assert.equal(json.pending, true);
   assert.equal(JSON.stringify(json).includes('"accepted":false'), false);
   assert.match(json.message, /accepted:false/);
-  assert.match(parkTwiml[0] || "", /ossie-transfer-/);
-  assert.ok((parkTwiml[0] || "").includes(HOLD_MUSIC_URL));
+  assert.equal(parkTwiml.length, 0);
   assert.match(twilioBodies[0] || "", /From=%2B61440134550/);
   assert.match(twilioBodies[0] || "", /To=%2B61433121933/);
   assert.match(twilioBodies[0] || "", /Timeout=20/);
   assert.equal(dropTwiml.length, 0);
   assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
 });
 
-test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only", async () => {
-  const { env, dropTwiml, returnTwiml, registerBodies } = makeEnv({
+test("/transfer no-answer returns accepted:false without register-call reconnect", async () => {
+  const { env, dropTwiml, returnTwiml, registerBodies, parkTwiml } = makeEnv({
     statusAt: (elapsed) => (elapsed >= 20_000 ? "no-answer" : RINGING),
   });
   const res = await handleOssieTools(
@@ -163,20 +165,13 @@ test("/transfer no-answer reconnects the inbound CallSid to EL, not Hangup-only"
   const json = await res.json() as { accepted?: boolean };
   assert.equal(json.accepted, false);
   assert.equal(dropTwiml.length, 0);
-  assert.equal(returnTwiml.length, 1);
-  assert.match(returnTwiml[0] || "", /<Stream /);
-  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
-  assert.equal(registerBodies.length, 1);
-  const init = registerBodies[0].conversation_initiation_client_data as {
-    dynamic_variables: Record<string, string>;
-    conversation_config_override: { agent: { first_message: string } };
-  };
-  assert.match(init.dynamic_variables.return_instruction, /Sorry, Mike isn't available/);
-  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Mike isn't available/);
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
 });
 
 test("/transfer accepted:true after a late press 1 does not drop the conference", async () => {
-  const { env, dropTwiml } = makeEnv({
+  const { env, dropTwiml, parkTwiml, registerBodies } = makeEnv({
     statusAt: (elapsed) => (elapsed >= 30_000 ? "accepted" : RINGING),
   });
   const res = await handleOssieTools(
@@ -187,10 +182,12 @@ test("/transfer accepted:true after a late press 1 does not drop the conference"
   assert.equal(json.accepted, true);
   assert.match(json.message, /Gavin/);
   assert.equal(dropTwiml.length, 0);
+  assert.equal(parkTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
 });
 
-test("/transfer-status ringing completed reconnects Stream while parked", async () => {
-  const { env, transfers, returnTwiml, dropTwiml, registerBodies } = makeEnv();
+test("/transfer-status ringing completed marks no-answer and does not register-call", async () => {
+  const { env, transfers, returnTwiml, dropTwiml, registerBodies, parkTwiml } = makeEnv();
   transfers.set("abc", {
     id: "abc",
     status: RINGING,
@@ -205,15 +202,11 @@ test("/transfer-status ringing completed reconnects Stream while parked", async 
     env,
   );
   assert.equal(res.status, 204);
-  assert.equal(transfers.get("abc")?.status, "returned");
-  assert.equal(returnTwiml.length, 1);
-  assert.match(returnTwiml[0] || "", /<Stream /);
-  assert.doesNotMatch(returnTwiml[0] || "", /Hangup/);
+  assert.equal(transfers.get("abc")?.status, "no-answer");
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
   assert.equal(dropTwiml.length, 0);
-  const init = registerBodies[0].conversation_initiation_client_data as {
-    conversation_config_override: { agent: { first_message: string } };
-  };
-  assert.match(init.conversation_config_override.agent.first_message, /Sorry, Mike isn't available/);
+  assert.equal(parkTwiml.length, 0);
 });
 
 test("/transfer-status never overwrites accepted", async () => {
@@ -230,8 +223,29 @@ test("/transfer-status never overwrites accepted", async () => {
   assert.equal(transfers.get("abc")?.status, "accepted");
 });
 
+test("/transfer-status accepted completed reconnects parked caller (staff hangup)", async () => {
+  const { env, transfers, returnTwiml, registerBodies } = makeEnv();
+  transfers.set("abc", {
+    id: "abc",
+    status: "accepted",
+    call_sid: "CAinbound",
+    staff_name: "Mike",
+  });
+  const res = await handleOssieTools(
+    new Request("https://example.supabase.co/functions/v1/mh-ossie-tools/transfer-status?id=abc", {
+      method: "POST",
+      body: "CallStatus=completed",
+    }),
+    env,
+  );
+  assert.equal(res.status, 204);
+  assert.equal(transfers.get("abc")?.status, "returned");
+  assert.equal(returnTwiml.length, 1);
+  assert.equal(registerBodies.length, 1);
+});
+
 test("/transfer-screen and /transfer-accept keep press-1 TwiML", async () => {
-  const { env, transfers } = makeEnv();
+  const { env, transfers, parkTwiml, returnTwiml, registerBodies } = makeEnv();
   transfers.set("xyz", {
     id: "xyz",
     status: RINGING,
@@ -259,11 +273,42 @@ test("/transfer-screen and /transfer-accept keep press-1 TwiML", async () => {
   );
   const xml = await accept.text();
   assert.equal(transfers.get("xyz")?.status, "accepted");
+  assert.equal(parkTwiml.length, 1);
+  assert.match(parkTwiml[0] || "", /ossie-transfer-xyz/);
+  assert.match(parkTwiml[0] || "", /startConferenceOnEnter="false"/);
+  assert.ok((parkTwiml[0] || "").includes(HOLD_MUSIC_URL));
   assert.match(xml, /ossie-transfer-xyz/);
   assert.match(xml, /startConferenceOnEnter="true"/);
   assert.match(xml, /endConferenceOnExit="false"/);
   assert.match(xml, /hangupOnStar="true"/);
   assert.ok(xml.includes(HOLD_MUSIC_URL));
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
+});
+
+test("/transfer-accept decline marks declined and does not register-call", async () => {
+  const { env, transfers, returnTwiml, registerBodies, parkTwiml } = makeEnv();
+  transfers.set("xyz", {
+    id: "xyz",
+    status: RINGING,
+    call_sid: "CAinbound",
+    staff_name: "Mike",
+  });
+  const res = await handleOssieTools(
+    new Request("https://example.supabase.co/functions/v1/mh-ossie-tools/transfer-accept?id=xyz", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "Digits=",
+    }),
+    env,
+  );
+  const xml = await res.text();
+  assert.match(xml, /<Hangup\/>/);
+  assert.doesNotMatch(xml, /Conference/);
+  assert.equal(transfers.get("xyz")?.status, "declined");
+  assert.equal(returnTwiml.length, 0);
+  assert.equal(registerBodies.length, 0);
+  assert.equal(parkTwiml.length, 0);
 });
 
 test("/return-to-ai press 9 reconnects the Ossie caller, not staff", async () => {

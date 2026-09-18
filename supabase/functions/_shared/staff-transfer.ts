@@ -13,9 +13,13 @@
  * - Never treat ringing as a fail. Only fail on declined / no-answer /
  *   completed-without-accept.
  * - Status callbacks PATCH only rows still status=ringing — never overwrite accepted.
- * - Park the inbound CallSid into a conference with hold music as soon as
- *   transfer starts; staff joins that conference on 1. On a real fail,
- *   reconnect the parked inbound to EL Stream while it is still in conference.
+ * - Do NOT park the inbound CallSid at /transfer start — leave the caller on
+ *   live ElevenLabs so decline / no-answer / fail can continue the SAME
+ *   conversation (accepted:false via transferToolResponse, no register-call).
+ * - Park only on Digits=1 accept, then staff joins that conference. That is
+ *   the only moment EL ends for a successful handoff.
+ * - Staff-return / press-9 register-call is only AFTER a successful accept
+ *   (caller was parked then).
  */
 
 export const WAIT_FOR_RESULT_MS = 90_000;
@@ -73,6 +77,7 @@ export function conferenceName(prefix: string, id: string): string {
   return `${prefix}-${id}`;
 }
 
+/** Hold-music conference TwiML — use only on Digits=1 accept, never at /transfer start. */
 export function inboundParkTwiml(confName: string): string {
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
@@ -139,7 +144,7 @@ export function screenGatherTwiml(opts: {
 </Response>`;
 }
 
-/** Staff-leg hangup after a failed screen — inbound stays parked until we Stream it. */
+/** Staff-leg hangup after a failed screen — inbound stays on live EL (no reconnect). */
 export function staffScreenHangupTwiml(): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>`;
 }

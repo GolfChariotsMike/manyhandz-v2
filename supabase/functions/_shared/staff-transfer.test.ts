@@ -121,7 +121,7 @@ test("status callback filter only matches ringing so it cannot overwrite accepte
   assert.doesNotMatch(filter, /accepted/);
 });
 
-test("inbound park TwiML has hold music and does not start the conference", () => {
+test("inbound park TwiML (accept-only) has hold music and does not start the conference", () => {
   const xml = inboundParkTwiml(conferenceName("mh-transfer", "xyz"));
   assert.match(xml, /mh-transfer-xyz/);
   assert.match(xml, /waitUrl="/);
@@ -178,7 +178,7 @@ test("outbound dial is 20s with AMD Enable", () => {
   assert.equal(body.get("StatusCallbackEvent"), "completed");
 });
 
-test("staff screen hangup is Hangup-only so inbound can be Streamed while parked", () => {
+test("staff screen hangup is Hangup-only — inbound stays on live EL", () => {
   const xml = staffScreenHangupTwiml();
   assert.match(xml, /<Hangup\/>/);
   assert.doesNotMatch(xml, /Say/);

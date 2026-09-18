@@ -5,10 +5,12 @@
  * Same conference + press-1 screen as mh-customer-transfer. Ossie From is
  * +61440134550; staff map is Gavin / Mike / Adam.
  *
- * Parks the inbound call into a hold-music conference as soon as /transfer
- * starts. Staff joins on 1. On no-answer / reject / timeout the inbound
- * CallSid is reconnected to ElevenLabs (same register-call as press-9) —
- * not Polly-Say + Hangup.
+ * Same-conversation warm transfer: do NOT park the inbound CallSid at
+ * /transfer start — leave the caller on live ElevenLabs so decline /
+ * no-answer / fail can continue the SAME transcript (accepted:false).
+ * Park happens only on Digits=1 accept, then staff joins that conference.
+ * Never register-call reconnect on a failed transfer. Press-9 / staff
+ * hangup reconnect is only AFTER a successful accept (caller was parked).
  */
 import {
   CALLER_RETURN_SAY,
@@ -286,7 +288,6 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     const latestRows = await dbGet(env, CALL_SIDS_TABLE, "number=eq.ossie-latest&select=call_sid");
     const callSid = bodySid || firstRow<{ call_sid?: string }>(latestRows)?.call_sid || null;
     const transferId = Date.now().toString(36);
-    const confName = conferenceName(CONF_PREFIX, transferId);
 
     await dbPost(env, TRANSFERS_TABLE, {
       id: transferId,
@@ -299,7 +300,12 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
       created_at: new Date().toISOString(),
     });
 
-    await parkInbound(env, callSid, confName);
+    // Leave caller on live EL — park only on Digits=1 in /transfer-accept.
+    const toolCopy = {
+      accepted: `${staff.name} accepted the call. Connecting now.`,
+      failed: `${staff.name} didn't answer. Would you like to try someone else or leave a message?`,
+      pending: `${staff.name} is still being reached. Keep the caller on hold.`,
+    };
 
     const screenUrl = `${baseUrl}/transfer-screen?id=${transferId}`;
     const statusUrl = `${baseUrl}/transfer-status?id=${transferId}`;
@@ -308,30 +314,23 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
       const result = await twilioMakeCall(env, staff.number, OSSIE_FROM, screenUrl, statusUrl);
       if (!result.sid) {
         console.error(`[transfer] ${transferId} — failed to create call:`, result);
-        await returnOssieCallerToAi(env, transferId, "failed-transfer");
-        return jsonResponse({ success: false, error: "Could not reach staff member" });
+        await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { status: "failed" });
+        return jsonResponse(transferToolResponse({ action: "fail", status: "failed" }, toolCopy));
       }
 
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { outbound_sid: result.sid });
-      console.log(`[transfer] ${transferId} — outbound SID: ${result.sid} parked=${Boolean(callSid)}`);
+      console.log(`[transfer] ${transferId} — outbound SID: ${result.sid} (no park-at-start)`);
 
       const decision = await waitForResult(async () => {
         const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${transferId}&select=status`);
         return firstRow<{ status?: string }>(rows)?.status;
       }, { timeoutMs: WAIT_FOR_RESULT_MS, ...env.clock });
 
-      if (decision.action === "fail") {
-        await returnOssieCallerToAi(env, transferId, "failed-transfer");
-      }
-
-      return jsonResponse(transferToolResponse(decision, {
-        accepted: `${staff.name} accepted the call. Connecting now.`,
-        failed: `${staff.name} didn't answer. Would you like to try someone else or leave a message?`,
-        pending: `${staff.name} is still being reached. Keep the caller on hold.`,
-      }));
+      return jsonResponse(transferToolResponse(decision, toolCopy));
     } catch (e) {
-      await returnOssieCallerToAi(env, transferId, "failed-transfer");
-      return jsonResponse({ success: false, error: String(e) });
+      console.error(`[transfer] ${transferId} —`, e);
+      await dbPatch(env, TRANSFERS_TABLE, `id=eq.${transferId}`, { status: "failed" });
+      return jsonResponse(transferToolResponse({ action: "fail", status: "failed" }, toolCopy));
     }
   }
 
@@ -362,8 +361,18 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
 
     if (digit === "1") {
       await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: ACCEPTED });
+      const confName = conferenceName(CONF_PREFIX, id);
+      const callerSid = String(transfer.call_sid || "").trim();
+      try {
+        const parked = await parkInbound(env, callerSid || null, confName);
+        console.log(
+          `[transfer-accept] ${id} Digits=1 — park caller ${callerSid || "(none)"} → ${confName} ${parked ? "ok" : "skip"}`,
+        );
+      } catch (e) {
+        console.error(`[transfer-accept] ${id} park error`, e);
+      }
       console.log(`[transfer-accept] ${id} — ${transfer.staff_name} ACCEPTED`);
-      return twimlResponse(staffJoinTwiml(conferenceName(CONF_PREFIX, id), "Connecting you now.", {
+      return twimlResponse(staffJoinTwiml(confName, "Connecting you now.", {
         returnAfterStar: {
           dialActionUrl: `${baseUrl}/staff-left?id=${id}`,
           gatherActionUrl: `${baseUrl}/return-to-ai?id=${id}`,
@@ -372,8 +381,7 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     }
 
     await dbPatch(env, TRANSFERS_TABLE, `id=eq.${id}`, { status: DECLINED });
-    console.log(`[transfer-accept] ${id} — DECLINED`);
-    await returnOssieCallerToAi(env, id, "failed-transfer");
+    console.log(`[transfer-accept] ${id} — DECLINED (caller still on EL, no reconnect)`);
     return twimlResponse(staffScreenHangupTwiml());
   }
 
@@ -407,6 +415,7 @@ export async function handleOssieTools(req: Request, env: OssieToolsEnv): Promis
     if (callStatus === "completed" && id) {
       const rows = await dbGet(env, TRANSFERS_TABLE, `id=eq.${encodeURIComponent(id)}&select=status`);
       const kind = reconnectKindForStatus(firstRow<{ status?: string }>(rows)?.status);
+      // Staff hangup after accept — caller was parked. Failed transfers stay on EL.
       if (kind) await returnOssieCallerToAi(env, id, kind);
     }
     return noContent();
