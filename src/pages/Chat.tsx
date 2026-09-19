@@ -3,7 +3,15 @@ import { getMe, getChatConfig, saveChatConfig, getChatSession, getChatSessions }
 import { chatPageView } from "../lib/chat-page";
 import { type ChatSessionDetail, type ChatSessionListItem } from "../lib/chat-sessions";
 import { ChatSessionsList } from "../components/ChatSessionsList";
+import { SuggestedPromptsEditor, SuggestedPromptsSummary } from "../components/SuggestedPromptsEditor";
 import { chatWidgetEmbedSnippet, mountChatWidgetPreview, unmountChatWidgetPreview } from "../lib/chat-widget-preview";
+import {
+  DEFAULT_SUGGESTED_PROMPTS,
+  DEFAULT_WIDGET_GREETING,
+  chatWidgetFormFromConfig,
+  chatWidgetSettingsPatch,
+  type ChatWidgetFormData,
+} from "../lib/suggested-prompts";
 import { MessageSquare, Copy, Check, Settings, Eye, Loader2 } from "lucide-react";
 
 export default function Chat() {
@@ -19,7 +27,7 @@ export default function Chat() {
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
-  const [formData, setFormData] = useState({ widget_name: "", widget_color: "#6366f1", greeting: "", fallback_message: "" });
+  const [formData, setFormData] = useState<ChatWidgetFormData>(chatWidgetFormFromConfig(null));
 
   useEffect(() => { loadData(); }, []);
 
@@ -53,7 +61,7 @@ export default function Chat() {
       const cfgRows = Array.isArray(cfg) ? cfg : [];
       if (cfgRows.length) {
         setConfig(cfgRows[0]);
-        setFormData({ widget_name: cfgRows[0].widget_name || "", widget_color: cfgRows[0].widget_color || "#6366f1", greeting: cfgRows[0].greeting || "", fallback_message: cfgRows[0].fallback_message || "" });
+        setFormData(chatWidgetFormFromConfig(cfgRows[0]));
       }
     } catch {
       setSessionsError("Could not load conversations");
@@ -65,9 +73,16 @@ export default function Chat() {
 
   async function handleSave() {
     if (!customer || !config) return;
-    await saveChatConfig(config.id, formData);
-    setConfig({ ...config, ...formData });
+    const patch = chatWidgetSettingsPatch(formData);
+    await saveChatConfig(config.id, patch);
+    setFormData({ ...formData, ...patch });
+    setConfig({ ...config, ...patch });
     setEditing(false);
+  }
+
+  function startEditing() {
+    setFormData(chatWidgetFormFromConfig(config));
+    setEditing(true);
   }
 
   async function openSession(session: ChatSessionListItem) {
@@ -142,6 +157,7 @@ export default function Chat() {
                     body: JSON.stringify({
                       customer_id: customer.id,
                       widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
+                      suggested_prompts: DEFAULT_SUGGESTED_PROMPTS,
                     }),
                   }
                 );
@@ -163,7 +179,7 @@ export default function Chat() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold flex items-center gap-2"><Settings size={18} /> Widget Settings</h2>
               {!editing && (
-                <button onClick={() => setEditing(true)} className="text-xs text-yellow-400 hover:text-yellow-400">Edit</button>
+                <button onClick={startEditing} className="text-xs text-yellow-400 hover:text-yellow-400">Edit</button>
               )}
             </div>
 
@@ -181,24 +197,34 @@ export default function Chat() {
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Greeting</label>
-                  <input value={formData.greeting} onChange={e => setFormData({ ...formData, greeting: e.target.value })}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
+                  <input
+                    value={formData.greeting}
+                    onChange={e => setFormData({ ...formData, greeting: e.target.value })}
+                    placeholder={DEFAULT_WIDGET_GREETING}
+                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm"
+                  />
+                  <p className="text-xs text-white/25 mt-1">Leave blank to use “{DEFAULT_WIDGET_GREETING}”.</p>
                 </div>
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">Fallback Message</label>
                   <input value={formData.fallback_message} onChange={e => setFormData({ ...formData, fallback_message: e.target.value })}
                     className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm" />
                 </div>
+                <SuggestedPromptsEditor
+                  prompts={formData.suggested_prompts}
+                  onChange={(suggested_prompts) => setFormData({ ...formData, suggested_prompts })}
+                />
                 <div className="flex gap-2">
                   <button onClick={handleSave} className="px-4 py-2 rounded-lg bg-yellow-500/20 text-yellow-400 text-sm font-medium hover:bg-yellow-500/30">Save</button>
-                  <button onClick={() => setEditing(false)} className="px-4 py-2 rounded-lg bg-white/5 text-white/50 text-sm hover:text-white/70">Cancel</button>
+                  <button onClick={() => { setFormData(chatWidgetFormFromConfig(config)); setEditing(false); }} className="px-4 py-2 rounded-lg bg-white/5 text-white/50 text-sm hover:text-white/70">Cancel</button>
                 </div>
               </div>
             ) : (
               <div className="space-y-3 text-sm">
                 <div className="flex justify-between"><span className="text-white/40">Name</span><span>{config.widget_name}</span></div>
                 <div className="flex justify-between items-center"><span className="text-white/40">Color</span><div className="w-6 h-6 rounded" style={{ backgroundColor: config.widget_color }} /></div>
-                <div className="flex justify-between"><span className="text-white/40">Greeting</span><span className="text-right max-w-[200px] truncate">{config.greeting}</span></div>
+                <div className="flex justify-between"><span className="text-white/40">Greeting</span><span className="text-right max-w-[200px] truncate">{config.greeting || DEFAULT_WIDGET_GREETING}</span></div>
+                <SuggestedPromptsSummary prompts={config.suggested_prompts} />
                 <div className="flex justify-between"><span className="text-white/40">Status</span><span className={config.is_active ? "text-green-400" : "text-red-400"}>{config.is_active ? "Active" : "Inactive"}</span></div>
               </div>
             )}
