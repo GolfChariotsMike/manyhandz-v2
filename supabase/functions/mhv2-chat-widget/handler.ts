@@ -54,8 +54,29 @@ export type ChatConfigRow = {
   widget_color?: string | null;
   greeting?: string | null;
   fallback_message?: string | null;
+  suggested_prompts?: unknown;
   is_active?: boolean | null;
 };
+
+export const MAX_SUGGESTED_PROMPTS = 6;
+export const MAX_SUGGESTED_PROMPT_LENGTH = 80;
+
+/** Public widget chips: 0–6 unique trimmed strings. */
+export function suggestedPromptsFromConfig(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (out.length >= MAX_SUGGESTED_PROMPTS) break;
+    const text = typeof item === "string" ? item.trim().slice(0, MAX_SUGGESTED_PROMPT_LENGTH) : "";
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+  }
+  return out;
+}
 
 export type KbRow = {
   about?: string | null;
@@ -313,6 +334,7 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       widget_color: data.widget_color,
       greeting: data.greeting,
       fallback_message: data.fallback_message,
+      suggested_prompts: suggestedPromptsFromConfig(data.suggested_prompts),
     });
   }
 

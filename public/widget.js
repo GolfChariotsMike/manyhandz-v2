@@ -6,6 +6,9 @@
   var API = 'https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-chat-widget';
   var FALLBACK_COLOR = '#ca8a04';
   var DEFAULT_HINT = 'Need help?';
+  var DEFAULT_GREETING = 'How can I help you?';
+  var MAX_SUGGESTED_PROMPTS = 6;
+  var MAX_SUGGESTED_PROMPT_LENGTH = 80;
   var sessionKey = localStorage.getItem('mhz_session_' + embedKey) || 'sess_' + Math.random().toString(36).slice(2) + Date.now();
   localStorage.setItem('mhz_session_' + embedKey, sessionKey);
 
@@ -16,12 +19,14 @@
   var config = {
     widget_name: 'Chat with us',
     widget_color: dataColor || FALLBACK_COLOR,
-    greeting: 'Hi! How can we help?',
-    launcher_hint: DEFAULT_HINT
+    greeting: DEFAULT_GREETING,
+    launcher_hint: DEFAULT_HINT,
+    suggested_prompts: []
   };
   var messages = [];
   var open = false;
   var loading = false;
+  var conversationStarted = false;
   var launcherReady = false;
   var dismissKey = 'mhz_teaser_dismissed_' + embedKey;
   var teaserDismissed = false;
@@ -120,6 +125,19 @@
     #mhz-send svg { width: 18px; height: 18px; }
     #mhz-branding { text-align: center; padding: 6px; font-size: 11px; color: rgba(255,255,255,0.2); }
     #mhz-branding a { color: rgba(255,255,255,0.3); text-decoration: none; }
+    #mhz-suggestions {
+      display: flex; flex-wrap: wrap; gap: 8px; padding: 2px 0 4px;
+    }
+    .mhz-chip {
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.06);
+      color: rgba(255,255,255,0.92);
+      border-radius: 999px; padding: 8px 12px;
+      font-size: 13px; line-height: 1.3; cursor: pointer;
+      max-width: 100%; text-align: left;
+    }
+    .mhz-chip:hover { background: rgba(255,255,255,0.12); }
+    .mhz-chip:disabled { opacity: 0.45; cursor: default; }
   `;
   document.head.appendChild(style);
 
@@ -196,6 +214,56 @@
     var text = (typeof hint === 'string' && hint.trim()) ? hint.trim() : DEFAULT_HINT;
     config.launcher_hint = text;
     teaserText.textContent = text;
+  }
+
+  function widgetGreeting(greeting) {
+    return (typeof greeting === 'string' && greeting.trim()) ? greeting.trim() : DEFAULT_GREETING;
+  }
+
+  function normalizeSuggestedPrompts(raw) {
+    if (!Array.isArray(raw)) return [];
+    var out = [];
+    var seen = {};
+    for (var i = 0; i < raw.length && out.length < MAX_SUGGESTED_PROMPTS; i++) {
+      var text = typeof raw[i] === 'string' ? raw[i].trim() : '';
+      if (!text) continue;
+      if (text.length > MAX_SUGGESTED_PROMPT_LENGTH) text = text.slice(0, MAX_SUGGESTED_PROMPT_LENGTH);
+      var key = text.toLowerCase();
+      if (seen[key]) continue;
+      seen[key] = true;
+      out.push(text);
+    }
+    return out;
+  }
+
+  function hideSuggestions() {
+    var el = document.getElementById('mhz-suggestions');
+    if (el) el.remove();
+  }
+
+  function renderSuggestions() {
+    hideSuggestions();
+    if (conversationStarted) return;
+    var prompts = normalizeSuggestedPrompts(config.suggested_prompts);
+    if (!prompts.length) return;
+    var msgs = document.getElementById('mhz-messages');
+    if (!msgs) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'mhz-suggestions';
+    wrap.setAttribute('role', 'group');
+    wrap.setAttribute('aria-label', 'Suggested messages');
+    for (var i = 0; i < prompts.length; i++) {
+      (function (text) {
+        var chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'mhz-chip';
+        chip.textContent = text;
+        chip.addEventListener('click', function () { sendMessage(text); });
+        wrap.appendChild(chip);
+      })(prompts[i]);
+    }
+    msgs.appendChild(wrap);
+    msgs.scrollTop = msgs.scrollHeight;
   }
 
   function setChatIcon(isOpen) {
@@ -302,6 +370,8 @@
   function sendMessage(text) {
     if (!text.trim() || loading) return;
     loading = true;
+    conversationStarted = true;
+    hideSuggestions();
     addMessage('user', text);
     showTyping();
     document.getElementById('mhz-send').disabled = true;
@@ -331,8 +401,12 @@
     panel.classList.toggle('open', open);
     setChatIcon(open);
     syncTeaser();
-    if (open && messages.length === 0 && config.greeting) {
-      setTimeout(function () { addMessage('bot', config.greeting); }, 300);
+    if (open && messages.length === 0) {
+      setTimeout(function () {
+        if (conversationStarted) return;
+        if (messages.length === 0) addMessage('bot', widgetGreeting(config.greeting));
+        renderSuggestions();
+      }, 300);
     }
     if (open) setTimeout(function () { document.getElementById('mhz-input').focus(); }, 250);
   }
@@ -376,8 +450,9 @@
       return r.json();
     })
     .then(function (d) {
-      if (d && (d.widget_name || d.widget_color)) {
+      if (d && (d.widget_name || d.widget_color || d.greeting || (d.suggested_prompts && d.suggested_prompts.length))) {
         config = Object.assign(config, d);
+        config.suggested_prompts = normalizeSuggestedPrompts(d.suggested_prompts);
         document.getElementById('mhz-header-name').textContent = config.widget_name || 'Chat with us';
         applyColor(config.widget_color || FALLBACK_COLOR);
         setLauncherHint(config.launcher_hint);
@@ -385,6 +460,7 @@
         applyColor(config.widget_color || FALLBACK_COLOR);
       }
       revealLauncher();
+      if (open && !conversationStarted) renderSuggestions();
     })
     .catch(function () {
       applyColor(config.widget_color || FALLBACK_COLOR);

@@ -26,6 +26,7 @@ type StoreData = {
     widget_color?: string;
     greeting?: string;
     fallback_message?: string;
+    suggested_prompts?: unknown;
   } | null;
   session?: { id: string; messages: unknown } | null;
   kb?: {
@@ -155,6 +156,29 @@ test("GET config returns public widget fields for an embed key", async () => {
   assert.equal(status, 200);
   assert.equal(body.widget_name, "Acme Chat");
   assert.equal(body.greeting, "Hi");
+  assert.deepEqual(body.suggested_prompts, []);
+  assert.equal(body.customer_id, undefined);
+});
+
+test("GET config returns sanitized suggested prompts and never customer_id", async () => {
+  const { env } = envFor({
+    data: defaultData({
+      config: {
+        customer_id: CUST,
+        widget_name: "Glacier Chat",
+        greeting: "Hi! How can we help?",
+        suggested_prompts: ["Book a job", "  Get a quote", "", "book a job", "Check a booking", 12],
+      },
+    }),
+  });
+  const res = await handleRequest(
+    new Request(`https://x.supabase.co/functions/v1/mhv2-chat-widget?action=config&embed_key=${EMBED}`),
+    env,
+  );
+  const { status, body } = await jsonOf(res);
+  assert.equal(status, 200);
+  assert.equal(body.greeting, "Hi! How can we help?");
+  assert.deepEqual(body.suggested_prompts, ["Book a job", "Get a quote", "Check a booking"]);
   assert.equal(body.customer_id, undefined);
 });
 
