@@ -1,3 +1,9 @@
+import {
+  outreachKeyMissingError,
+  outreachServiceRoleKeyFromEnv,
+  outreachUrlFromEnv,
+} from "../_shared/outreach-env.ts";
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const ADMIN_TOKEN = "mh_admin_mikek";
@@ -5,9 +11,9 @@ const DEMO_AGENT_ID = "agent_4701kzv3pb8sfkwrdbja7s22rk75";
 const OUTBOUND_AGENT_ID = "agent_0301m07zpn6eebwvy5p25j7kzeqh";
 const EL_API_KEY = Deno.env.get("ELEVENLABS_API_KEY") || Deno.env.get("EL_API_KEY") || "";
 
-const OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
-const OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
+const getEnv = (key: string) => Deno.env.get(key);
+const OUTREACH_SRK = outreachServiceRoleKeyFromEnv(getEnv);
+const OUTREACH_URL = outreachUrlFromEnv(getEnv);
 
 const TWILIO_ACCOUNTS = [
   {
@@ -28,8 +34,16 @@ const cors = {
     "authorization, x-client-info, apikey, content-type, x-admin-token",
 };
 
-function outreachHeaders(): Record<string, string> {
+function outreachHeaders(): Record<string, string> | null {
+  if (!OUTREACH_SRK) return null;
   return { Authorization: `Bearer ${OUTREACH_SRK}`, apikey: OUTREACH_SRK };
+}
+
+function outreachUnavailable(): Response {
+  return new Response(JSON.stringify(outreachKeyMissingError()), {
+    status: 503,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
@@ -47,12 +61,33 @@ Deno.serve(async (req) => {
 
   // Queue action — POST /mhv2-admin/queue
   if (req.method === "POST" && url.pathname.endsWith("/queue")) {
+    const headers = outreachHeaders();
+    if (!headers) return outreachUnavailable();
     const body = await req.json().catch(() => ({}));
-    const { category, status = "new", limit = 50, clear } = body;
+    const { category, status = "new", limit = 50, clear, contact } = body;
+    if (contact && typeof contact === "object") {
+      const row = {
+        contact_id: contact.id,
+        name: contact.name,
+        phone: contact.phone,
+        business: contact.business,
+        category: contact.category,
+        status: "pending",
+        position: 999,
+      };
+      await fetch(`${OUTREACH_URL}/rest/v1/outreach_call_queue`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify(row),
+      });
+      return new Response(JSON.stringify({ queued: 1 }), {
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
+    }
     if (clear) {
       await fetch(
         `${OUTREACH_URL}/rest/v1/outreach_call_queue?id=neq.00000000-0000-0000-0000-000000000000`,
-        { method: "DELETE", headers: outreachHeaders() },
+        { method: "DELETE", headers },
       );
       return new Response(JSON.stringify({ cleared: true }), {
         headers: { ...cors, "Content-Type": "application/json" },
@@ -61,7 +96,7 @@ Deno.serve(async (req) => {
     let qurl =
       `${OUTREACH_URL}/rest/v1/outreach_contacts?select=id,name,phone,business,category&status=eq.${status}&limit=${limit}&order=created_at.asc`;
     if (category && category !== "all") qurl += `&category=eq.${category}`;
-    const cRes = await fetch(qurl, { headers: outreachHeaders() });
+    const cRes = await fetch(qurl, { headers });
     const contacts = await cRes.json();
     if (!Array.isArray(contacts) || !contacts.length) {
       return new Response(
@@ -71,7 +106,7 @@ Deno.serve(async (req) => {
     }
     await fetch(
       `${OUTREACH_URL}/rest/v1/outreach_call_queue?id=neq.00000000-0000-0000-0000-000000000000`,
-      { method: "DELETE", headers: outreachHeaders() },
+      { method: "DELETE", headers },
     );
     const rows = contacts.map((c, i) => ({
       contact_id: c.id,
@@ -85,7 +120,7 @@ Deno.serve(async (req) => {
     await fetch(`${OUTREACH_URL}/rest/v1/outreach_call_queue`, {
       method: "POST",
       headers: {
-        ...outreachHeaders(),
+        ...headers,
         "Content-Type": "application/json",
         Prefer: "return=minimal",
       },
@@ -145,9 +180,11 @@ Deno.serve(async (req) => {
 
   // Queue status — GET /mhv2-admin/queue
   if (req.method === "GET" && url.pathname.endsWith("/queue")) {
+    const headers = outreachHeaders();
+    if (!headers) return outreachUnavailable();
     const qRes = await fetch(
       `${OUTREACH_URL}/rest/v1/outreach_call_queue?select=*&order=position.asc&limit=500`,
-      { headers: outreachHeaders() },
+      { headers },
     );
     const queue = await qRes.json();
     const list = Array.isArray(queue) ? queue : [];
@@ -221,42 +258,47 @@ Deno.serve(async (req) => {
 
     let outreachContacts = [];
     let outreachStats = { total: 0, new: 0, contacted: 0, not_interested: 0 };
-    try {
-      const ocRes = await fetch(
-        `${OUTREACH_URL}/rest/v1/outreach_contacts?select=id,name,phone,business,city,category,rating,reviews,status,sms_sent&order=created_at.desc&limit=2000`,
-        {
-          headers: {
-            ...outreachHeaders(),
-            Range: "0-1999",
-            Prefer: "count=none",
+    const outreachAuth = outreachHeaders();
+    if (outreachAuth) {
+      try {
+        const ocRes = await fetch(
+          `${OUTREACH_URL}/rest/v1/outreach_contacts?select=id,name,phone,business,city,category,rating,reviews,status,sms_sent&order=created_at.desc&limit=2000`,
+          {
+            headers: {
+              ...outreachAuth,
+              Range: "0-1999",
+              Prefer: "count=none",
+            },
           },
-        },
-      );
-      outreachContacts = await ocRes.json();
-      if (Array.isArray(outreachContacts)) {
-        outreachStats.total = outreachContacts.length;
-        outreachStats.new = outreachContacts.filter((c) => c.status === "new").length;
-        outreachStats.contacted = outreachContacts.filter((c) =>
-          c.status === "contacted"
-        ).length;
-        outreachStats.not_interested = outreachContacts.filter((c) =>
-          c.status === "not_interested"
-        ).length;
+        );
+        outreachContacts = await ocRes.json();
+        if (Array.isArray(outreachContacts)) {
+          outreachStats.total = outreachContacts.length;
+          outreachStats.new = outreachContacts.filter((c) => c.status === "new").length;
+          outreachStats.contacted = outreachContacts.filter((c) =>
+            c.status === "contacted"
+          ).length;
+          outreachStats.not_interested = outreachContacts.filter((c) =>
+            c.status === "not_interested"
+          ).length;
+        }
+      } catch (e) {
+        console.error("Outreach fetch failed:", e);
       }
-    } catch (e) {
-      console.error("Outreach fetch failed:", e);
     }
 
     let recentQueue = [];
-    try {
-      const rqRes = await fetch(
-        `${OUTREACH_URL}/rest/v1/outreach_call_queue?select=*&called_at=not.is.null&order=called_at.desc&limit=50`,
-        { headers: outreachHeaders() },
-      );
-      const rq = await rqRes.json();
-      recentQueue = Array.isArray(rq) ? rq : [];
-    } catch (e) {
-      console.error("Queue fetch failed:", e);
+    if (outreachAuth) {
+      try {
+        const rqRes = await fetch(
+          `${OUTREACH_URL}/rest/v1/outreach_call_queue?select=*&called_at=not.is.null&order=called_at.desc&limit=50`,
+          { headers: outreachAuth },
+        );
+        const rq = await rqRes.json();
+        recentQueue = Array.isArray(rq) ? rq : [];
+      } catch (e) {
+        console.error("Queue fetch failed:", e);
+      }
     }
 
     let outboundCalls = [];

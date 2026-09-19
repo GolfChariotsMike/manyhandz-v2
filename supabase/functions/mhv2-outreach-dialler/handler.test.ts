@@ -170,6 +170,23 @@ describe("handleRequest", () => {
     assert.equal(outreachCalls.length, 0);
   });
 
+  it("tick fails closed when OUTREACH_SERVICE_ROLE_KEY is missing", async () => {
+    const outreachCalls: Array<{ url: string; method: string }> = [];
+    const { env } = envFor({ enabled: true, inBusinessHours: true, outreachCalls });
+    env.outreachKey = "";
+    const out = await json(await handleRequest(req("POST", { body: {} }), env));
+    assert.equal(out.status, 503);
+    assert.deepEqual(out.body, { error: "OUTREACH_SERVICE_ROLE_KEY is not set" });
+    assert.equal(outreachCalls.length, 0);
+  });
+
+  it("start/stop still work when outreach key is missing", async () => {
+    const { env } = envFor({ enabled: false });
+    env.outreachKey = "";
+    const started = await json(await handleRequest(req("POST", { body: { action: "start" } }), env));
+    assert.deepEqual(started, { status: 200, body: { enabled: true, running: true } });
+  });
+
   it("tick while stopped returns skipped and does not touch outreach_call_queue", async () => {
     const outreachCalls: Array<{ url: string; method: string }> = [];
     const { env, rest } = envFor({ enabled: false, inBusinessHours: true, outreachCalls });
