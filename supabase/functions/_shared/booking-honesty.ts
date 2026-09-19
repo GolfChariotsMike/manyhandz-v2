@@ -33,7 +33,7 @@ export function siteContactRule(): string {
 }
 
 export function siteSpeakRule(): string {
-  return `- SITE PICK: Callers do not know SimPRO site IDs. Ask using streets and suburbs (e.g. "37 Derictoe or 67 Mars?"). Never read site IDs or a numbered list of 1–20. If one site, confirm that street — do not ask for an ID. If many sites, ask which street or suburb and match. After they pick a street, pass that site's site_id to create_simpro_job internally.`;
+  return `- SITE PICK: Callers do not know SimPRO site IDs. Offer known streets once as optional shortcuts (e.g. "37 Derictoe or 67 Mars — or a different address?"). Never read site IDs or a numbered list of 1–20. If one site, confirm that street — do not ask for an ID. If they name a street that is not on the known list, or say "new address" / "different address", ACCEPT it — confirm once, pass site_address for a new extra site on that same customer, and do not re-ask with only the known list. After they pick a known street, pass that site's site_id to create_simpro_job internally; for a new/different street pass site_address instead.`;
 }
 
 export function bookingPathOnlyRule(): string {
@@ -68,20 +68,53 @@ export function simproLeadsBookingRule(channel: "chat" | "voice", businessName: 
   const phoneNow = channel === "voice"
     ? " On the phone, SAME TURN call create_simpro_job as soon as they confirm — do not say you will book it then wait. If preferred time of day is still missing, ask once first; once they answer (or already said it), call the tool in that same turn. If you speak first (\"I'll get that booked\" / \"just a moment\" / \"one moment\"), you MUST call the tool in that same turn. Never ask \"are you still there?\" after announcing a lookup or book. After ok:true, speak the outcome — do not ask if they are still there. Do not re-ask confirmation after they already said yes."
     : "";
-  return `- SIMPRO LEADS: ${greeting} Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. ${contact} It never creates anyone. HIT: they are existing — NEVER create a new customer and never ask name or address. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If several sites, ask which street — e.g. 37 Derictoe or 67 Mars — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. After they pick a street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs). If they already said the fault or work they need, pass that as description and do not ask again. Only ask for a short description if it is still missing. If they have not already said a preferred time of day, ask once (morning or afternoon) — then call create_simpro_job with simpro_customer_id, site_id, and preferred_time. MISS: ask exactly "${question}" If yes, ask for their name or business name and call lookup_simpro_customer again with that name; HIT → same as above. If they say no, or lookup still misses, THEN collect name, email, site address (ask name and email once — do not read them back or spell the email; say you will text to confirm; skip any already given). If they already said the fault or work (e.g. a technician to look at a Fujitsu, F-A95 fault), that IS the description — pass it to create_simpro_job and do not ask for a short description of the service needed or ask them to confirm the service description. Only ask if description is still missing. If preferred time of day is still missing, ask once. Do not collect or confirm email this way for existing customers. Then call create_simpro_job with preferred_time — the function creates customer + site + site contact + Open lead together. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies only on ok:true. Collecting details without invoking the tool is a failure. If the tool returns ok:true, confirm success — the team will be in touch. Do not tell them the lead number. If the tool fails or says SimPRO is not connected, do not pretend a lead was created and do not call save_message to text the office — say we have not notified the team yet and retry create_simpro_job. Office email/SMS alerts only fire when create_simpro_job returns ok:true. Never look up, list, or read out other customers' leads or jobs.${phoneNow}\n${simproHonestyAddon(channel)}`;
+  return `- SIMPRO LEADS: ${greeting} Quotes, job-status questions, transfers, and general FAQs must not call lookup_simpro_customer or create_simpro_job. ${contact} It never creates anyone. HIT: they are existing — NEVER create a new customer and never ask name or address. If one site, confirm the street — do not ask for a site ID (or accept a different street as a new extra site on that same customer). If several sites, offer known streets once as optional shortcuts — e.g. 37 Derictoe or 67 Mars, or a different / new address — never site IDs. If many sites, ask for the street or suburb and match; do not read a numbered ID list. If they name a street that is not on the known list, or say "new address" / "different address", ACCEPT it — confirm once, pass site_address (new extra site on that same customer), and never re-ask with only the known list. After they pick a known street, pass that site's site_id to create_simpro_job internally (callers do not know site IDs); for a new/different street pass site_address instead. If they already said the fault or work they need, pass that as description and do not ask again. Only ask for a short description if it is still missing. Prefer time of day next — if they have not already said a preferred time of day, ask once (morning or afternoon) — then call create_simpro_job with simpro_customer_id, site_id or site_address, and preferred_time. Do not block on address thrashing once they clearly stated a site. MISS: ask exactly "${question}" If yes, ask for their name or business name and call lookup_simpro_customer again with that name; HIT → same as above. If they say no, or lookup still misses, THEN collect name, email, site address (ask name and email once — do not read them back or spell the email; say you will text to confirm; skip any already given). If they already said the fault or work (e.g. a technician to look at a Fujitsu, F-A95 fault), that IS the description — pass it to create_simpro_job and do not ask for a short description of the service needed or ask them to confirm the service description. Only ask if description is still missing. If preferred time of day is still missing, ask once. Do not collect or confirm email this way for existing customers. Then call create_simpro_job with preferred_time — the function creates customer + site + site contact + Open lead together. Once you have those details you MUST call create_simpro_job in the same turn — do not just promise to pass it on, and do not use send_sms to notify the office; the function notifies only on ok:true. Collecting details without invoking the tool is a failure. If the tool returns ok:true, confirm success — the team will be in touch. Do not tell them the lead number. If the tool fails or says SimPRO is not connected, do not pretend a lead was created and do not call save_message to text the office — say we have not notified the team yet and retry create_simpro_job. Office email/SMS alerts only fire when create_simpro_job returns ok:true. Never look up, list, or read out other customers' leads or jobs.${phoneNow}\n${simproHonestyAddon(channel)}`;
 }
 
-export function lookupHitSpokenReply(name: string, streets: string[], hasDescription = false): string {
+/** Short street label for spoken shortcuts (drop state/postcode noise). */
+function spokenStreetLabel(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/,\s*[A-Za-z]{2,3},\s*\d{4}$/i, "")
+    .trim();
+}
+
+function formatSpokenStreetChoices(labels: string[]): string {
+  if (labels.length === 0) return "";
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, or ${labels[labels.length - 1]}`;
+}
+
+/**
+ * Forced spoken reply after lookup. Offer known streets once as shortcuts.
+ * If the visitor already named a site (including a new/different address),
+ * confirm that — do not re-ask with only the known list.
+ */
+export function lookupHitSpokenReply(
+  name: string,
+  streets: string[],
+  hasDescription = false,
+  collectedSite?: string,
+): string {
   const who = String(name || "").trim() || "you";
-  const labels = streets.map((s) => String(s || "").trim()).filter(Boolean);
+  const labels = streets.map(spokenStreetLabel).filter(Boolean);
+  const stated = spokenStreetLabel(String(collectedSite || ""));
+  if (stated) {
+    return hasDescription
+      ? `Thanks — I have you as ${who}. Got it — ${stated}.`
+      : `Thanks — I have you as ${who}. Got it — ${stated}. What work do you need done there?`;
+  }
   if (labels.length === 1) {
     return hasDescription
       ? `Thanks — I have you as ${who} at ${labels[0]}.`
       : `Thanks — I have you as ${who} at ${labels[0]}. What work do you need done there?`;
   }
   if (labels.length > 1) {
-    const pair = labels.slice(0, 2).join(" or ");
-    return `Thanks — I have you as ${who}. Which street is this for — ${pair}?`;
+    // Offer up to 4 shortcuts; always leave room for a different / new address.
+    const offer = labels.slice(0, 4);
+    const choices = formatSpokenStreetChoices(offer);
+    return `Thanks — I have you as ${who}. Which street is this for — ${choices}, or a different address?`;
   }
   return hasDescription
     ? `Thanks — I have you as ${who}.`
