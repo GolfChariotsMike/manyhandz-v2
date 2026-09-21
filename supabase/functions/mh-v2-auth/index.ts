@@ -2,6 +2,7 @@
  * mh-v2-auth — dashboard magic-link auth.
  * verify_jwt is false — we issue/verify mh_token ourselves (HMAC MH_JWT_SECRET).
  * Reads customers via supabase-js service role (SUPABASE_SERVICE_ROLE_KEY / MH_SERVICE_KEY).
+ * Signup Turnstile uses TURNSTILE_SECRET_KEY (unset = allow for local/dev).
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { magicLinkEmailCopy } from "./draft.ts";
@@ -13,12 +14,14 @@ import {
   serviceKeyFromEnv,
   type AdminClient,
 } from "./handler.ts";
+import { turnstileSecretFromEnv } from "./turnstile.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const serviceKey = serviceKeyFromEnv((k) => Deno.env.get(k));
 const jwtSecret = jwtSecretFromEnv((k) => Deno.env.get(k));
 const appUrl = Deno.env.get("MHV2_APP_URL") || DEFAULT_APP_URL;
 const resendKey = Deno.env.get("RESEND_API_KEY") || "";
+const turnstileSecret = turnstileSecretFromEnv((k) => Deno.env.get(k));
 
 const admin = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
@@ -63,5 +66,7 @@ Deno.serve((req) =>
     now: () => new Date(),
     randomToken: () => crypto.randomUUID() + crypto.randomUUID(),
     sendMagicLinkEmail,
+    turnstileSecret,
+    log: (msg) => console.log(msg),
   }),
 );

@@ -98,3 +98,22 @@ select option {
   background: #1e1e3a;
   color: #e2e8f0;
 }
+
+/* Visually hidden honeypot — fillable by bots, not shown to people. */
+.mh-hp {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+.mh-hp input {
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+}

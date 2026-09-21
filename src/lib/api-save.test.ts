@@ -206,6 +206,8 @@ test("requestSignupLink posts the pre-auth draft and never calls provision", asy
       tone: "friendly",
     },
     no_website: false,
+    turnstileToken: "cf-token",
+    company_fax: "",
   });
 
   assert.equal(calls.length, 1);
@@ -216,6 +218,8 @@ test("requestSignupLink posts the pre-auth draft and never calls provision", asy
   assert.equal(body.country, "US");
   assert.equal((body.knowledge as { about: string }).about, "We sell jam");
   assert.deepEqual(body.capabilities, ["take_messages", "transfer_to_me"]);
+  assert.equal(body.turnstileToken, "cf-token");
+  assert.equal(body.company_fax, "");
 });
 
 test("provisionNumber posts customer_id and market after verify", async () => {

@@ -9,6 +9,12 @@
  */
 
 import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
+import {
+  assessSignupWebsite,
+  fetchSignupWebsitePage,
+  isHoneypotTripped,
+  type FetchedSignupPage,
+} from "../_shared/signup-protection.ts";
 import { newCustomerRow, normalizeMarket } from "./country.ts";
 import {
   customerPatchFromDraft,
@@ -20,6 +26,7 @@ import {
   voicePatchFromDraft,
 } from "./draft.ts";
 import { MAGIC_LINK_TTL_MS, NO_ACCOUNT_CODE, parseMagicLinkIntent, planMagicLink } from "./magic-link.ts";
+import { turnstileTokenFromBody, verifyTurnstileToken, type TurnstileCheck } from "./turnstile.ts";
 
 export { NO_ACCOUNT_CODE, MAGIC_LINK_TTL_MS };
 
@@ -54,6 +61,11 @@ export type AuthEnv = {
   now: () => Date;
   randomToken: () => string;
   sendMagicLinkEmail: (email: string, magicUrl: string, isSetup: boolean) => Promise<void>;
+  /** Empty/unset allows signup (local/dev). When set, Turnstile fails closed. */
+  turnstileSecret?: string;
+  verifyTurnstile?: (token: string, remoteip?: string) => Promise<TurnstileCheck>;
+  fetchSignupWebsite?: (url: string) => Promise<FetchedSignupPage | null>;
+  log?: (msg: string) => void;
 };
 
 export function serviceKeyFromEnv(getEnv: (key: string) => string | undefined): string {
@@ -245,13 +257,44 @@ async function handleAdminAssume(body: Record<string, unknown>, req: Request, en
   return jsonResponse({ token: jwt, customer });
 }
 
-async function handleMagicLink(body: Record<string, unknown>, env: AuthEnv): Promise<Response> {
+function clientIp(req: Request): string | undefined {
+  const cf = req.headers.get("cf-connecting-ip")?.trim();
+  if (cf) return cf;
+  const forwarded = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || undefined;
+}
+
+async function checkSignupTurnstile(body: Record<string, unknown>, req: Request, env: AuthEnv): Promise<TurnstileCheck> {
+  const token = turnstileTokenFromBody(body);
+  const ip = clientIp(req);
+  if (env.verifyTurnstile) return env.verifyTurnstile(token, ip);
+  return verifyTurnstileToken({
+    secret: env.turnstileSecret || "",
+    token,
+    remoteip: ip,
+    log: env.log,
+  });
+}
+
+async function handleMagicLink(body: Record<string, unknown>, req: Request, env: AuthEnv): Promise<Response> {
   const email = body.email;
   if (!email || typeof email !== "string") throw new Error("Email is required");
   const cleanEmail = email.toLowerCase().trim();
   if (!cleanEmail) throw new Error("Email is required");
   const market = normalizeMarket(body.country);
   const intent = parseMagicLinkIntent(body);
+
+  if (intent === "signup" && isHoneypotTripped(body)) {
+    env.log?.("signup honeypot tripped — silent reject");
+    return jsonResponse({ ok: true, isNew: false });
+  }
+
+  if (intent === "signup") {
+    const turnstile = await checkSignupTurnstile(body, req, env);
+    if (!turnstile.ok) {
+      return jsonResponse({ error: turnstile.error || "Verification failed. Please try again." }, 400);
+    }
+  }
 
   const existing = await findCustomerByEmail(env.admin, cleanEmail);
   const plan = planMagicLink(intent, existing);
@@ -265,6 +308,13 @@ async function handleMagicLink(body: Record<string, unknown>, env: AuthEnv): Pro
 
   const draft = parseSignupDraft(body);
   if (isNew) {
+    const website = await assessSignupWebsite(
+      { no_website: draft.no_website, website_url: draft.website_url },
+      env.fetchSignupWebsite || fetchSignupWebsitePage,
+    );
+    if (!website.ok) {
+      return jsonResponse({ error: website.message }, 400);
+    }
     const row = newCustomerRow({
       email: cleanEmail,
       business_name: draft.business_name,
@@ -378,7 +428,7 @@ export async function handleRequest(req: Request, env: AuthEnv): Promise<Respons
       return await handleAdminAssume(body, req, env);
     }
     if (path === "magic-link" && req.method === "POST") {
-      return await handleMagicLink(body, env);
+      return await handleMagicLink(body, req, env);
     }
     if (path === "verify" && req.method === "POST") {
       return await handleVerify(body, env);

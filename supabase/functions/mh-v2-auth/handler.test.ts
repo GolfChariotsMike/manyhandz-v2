@@ -161,6 +161,9 @@ function envFor(store: Store, emails: { email: string; url: string; isSetup: boo
     sendMagicLinkEmail: async (email, url, isSetup) => {
       emails.push({ email, url, isSetup });
     },
+    turnstileSecret: "",
+    fetchSignupWebsite: async () => null,
+    log: () => {},
   };
 }
 
@@ -229,6 +232,7 @@ describe("service role env — no management API token", () => {
     assert.match(handler, /admin-dashboard-pin/);
     assert.match(handler, /MAGIC_LINK_TTL_MS/);
     assert.match(index, /magicLinkEmailCopy/);
+    assert.match(index, /TURNSTILE_SECRET_KEY|turnstileSecret/);
     assert.doesNotMatch(index, /15 minutes/);
     const adminPage = readFileSync(join(HERE, "../../../src/pages/Admin.tsx"), "utf8");
     assert.match(adminPage, /admin-dashboard-pin/);
@@ -405,6 +409,138 @@ describe("magic-link", () => {
     const res = await json(await handleRequest(post("magic-link", {}), envFor(seed())));
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "Email is required");
+  });
+
+  it("honeypot signup returns success without creating or emailing", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "bot@example.com",
+        intent: "signup",
+        business_name: "smantha",
+        website_url: "ksjs.com",
+        company_fax: "http://spam.test",
+      }),
+      envFor(store, emails),
+    ));
+    assert.equal(res.status, 200);
+    assert.deepEqual(res.body, { ok: true, isNew: false });
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
+    assert.equal(emails.length, 0);
+  });
+
+  it("signup fails closed when Turnstile secret is set and the token is missing", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const env = envFor(store, emails);
+    env.turnstileSecret = "turnstile-secret";
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "new@example.com",
+        intent: "signup",
+        business_name: "Acme",
+        website_url: "acme.com",
+      }),
+      env,
+    ));
+    assert.equal(res.status, 400);
+    assert.equal(res.body.error, "Verification failed. Please try again.");
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
+    assert.equal(emails.length, 0);
+  });
+
+  it("signup with a valid Turnstile token still creates the customer", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const env = envFor(store, emails);
+    env.turnstileSecret = "turnstile-secret";
+    env.verifyTurnstile = async (token) => (
+      token === "ok-token" ? { ok: true, skipped: false } : { ok: false, skipped: false, error: "Verification failed. Please try again." }
+    );
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "safe@example.com",
+        intent: "signup",
+        business_name: "Acme",
+        website_url: "acme.com",
+        turnstileToken: "ok-token",
+      }),
+      env,
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isNew, true);
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 1);
+    assert.equal(emails.length, 1);
+  });
+
+  it("login does not require Turnstile even when the secret is set", async () => {
+    const store = seed();
+    const env = envFor(store);
+    env.turnstileSecret = "turnstile-secret";
+    const res = await json(await handleRequest(
+      post("magic-link", { email: "nick@glacier.net.au", intent: "login" }),
+      env,
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.ok, true);
+  });
+
+  it("new signup rejects parked or placeholder websites and does not create a row", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const parkedEnv = envFor(store, emails);
+    parkedEnv.fetchSignupWebsite = async () => ({
+      html: "<p>This domain is for sale. Buy this domain.</p>",
+      finalUrl: "https://ksjs.com/",
+    });
+    const parked = await json(await handleRequest(
+      post("magic-link", {
+        email: "smantha@example.com",
+        intent: "signup",
+        business_name: "smantha",
+        website_url: "ksjs.com",
+      }),
+      parkedEnv,
+    ));
+    assert.equal(parked.status, 400);
+    assert.match(parked.body.error, /parked or for-sale/);
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 0);
+
+    const placeholder = await json(await handleRequest(
+      post("magic-link", {
+        email: "empty@example.com",
+        intent: "signup",
+        business_name: "Nope",
+        website_url: "yoursite.com",
+      }),
+      envFor(store, emails),
+    ));
+    assert.equal(placeholder.status, 400);
+    assert.match(placeholder.body.error, /real website/);
+    assert.equal(emails.length, 0);
+  });
+
+  it("no-website signup is not blocked by website checks", async () => {
+    const store = seed();
+    const emails: { email: string; url: string; isSetup: boolean }[] = [];
+    const env = envFor(store, emails);
+    env.fetchSignupWebsite = async () => {
+      throw new Error("should not fetch");
+    };
+    const res = await json(await handleRequest(
+      post("magic-link", {
+        email: "nosite@example.com",
+        intent: "signup",
+        business_name: "Van Only",
+        no_website: true,
+      }),
+      env,
+    ));
+    assert.equal(res.status, 200);
+    assert.equal(res.body.isNew, true);
+    assert.equal(store.inserts.filter((i) => i.table === "mh_v2_customers").length, 1);
+    assert.equal(emails.length, 1);
   });
 });
 
