@@ -1,3 +1,4 @@
+import { HONEYPOT_FIELD } from "../../supabase/functions/_shared/signup-protection.ts";
 import type { OnboardingKnowledge } from "./api.ts";
 import type { Market } from "./onboarding.ts";
 import { knowledgePayloadFromForm, normalizeNotifyMobile } from "./onboarding.ts";
@@ -15,6 +16,8 @@ export type SignupLinkPayload = {
   capabilities?: SignupCapabilityId[];
   knowledge?: OnboardingKnowledge;
   no_website?: boolean;
+  turnstileToken?: string;
+  company_fax?: string;
 };
 
 export function toggleSignupCapability(
@@ -45,7 +48,11 @@ export function buildSignupLinkPayload(input: {
   hours: HoursRow[];
   tone: string;
   noWebsite: boolean;
+  turnstileToken?: string;
+  companyFax?: string;
 }): SignupLinkPayload {
+  const fax = (input.companyFax || "").trim();
+  const token = (input.turnstileToken || "").trim();
   return {
     email: input.email.trim(),
     business_name: input.businessName.trim(),
@@ -63,7 +70,13 @@ export function buildSignupLinkPayload(input: {
       tone: input.tone,
     }),
     no_website: input.noWebsite,
+    ...(token ? { turnstileToken: token } : {}),
+    ...(fax ? { [HONEYPOT_FIELD]: fax } : {}),
   };
 }
 
 export const MAGIC_LINK_EXPIRY_COPY = "24 hours";
+
+export function turnstileSiteKey(): string {
+  return (import.meta.env?.VITE_TURNSTILE_SITE_KEY || "").trim();
+}

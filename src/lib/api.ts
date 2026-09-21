@@ -81,6 +81,8 @@ export type SignupLinkPayload = {
   capabilities?: string[];
   knowledge?: OnboardingKnowledge;
   no_website?: boolean;
+  turnstileToken?: string;
+  company_fax?: string;
 };
 
 /** Pre-auth signup: create/update the draft and email a 24h setup link. */

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
+import { HONEYPOT_FIELD, assessSignupWebsiteUrl } from "../../supabase/functions/_shared/signup-protection.ts";
 import { requestSignupLink, scrapeWebsite } from "../lib/api";
 import {
   canApplyScrapedKb,
@@ -21,8 +22,9 @@ import {
   type HoursRow,
   type SignupCapabilityId,
 } from "../lib/onboarding-templates";
-import { MAGIC_LINK_EXPIRY_COPY, buildSignupLinkPayload, toggleSignupCapability } from "../lib/signup-draft";
+import { MAGIC_LINK_EXPIRY_COPY, buildSignupLinkPayload, toggleSignupCapability, turnstileSiteKey } from "../lib/signup-draft";
 import KnowledgeEditor from "../components/KnowledgeEditor";
+import TurnstileField from "../components/TurnstileField";
 import { ChevronRight, Loader2, Mail } from "lucide-react";
 
 type Step = "details" | "scan" | "preview" | "sent";
@@ -63,6 +65,8 @@ export default function Signup() {
   const [step, setStep] = useState<Step>("details");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [companyFax, setCompanyFax] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
 
   function applyTemplateIfEmpty(nextIndustry = industry) {
     const template = applyIndustryTemplate(nextIndustry);
@@ -74,9 +78,12 @@ export default function Signup() {
 
   async function handleDetailsNext() {
     setError("");
-    if (!noWebsite && !website.trim()) {
-      setError("Add your website, or choose “I don’t have a website”.");
-      return;
+    if (!noWebsite) {
+      const websiteCheck = assessSignupWebsiteUrl(website);
+      if (!websiteCheck.ok) {
+        setError(websiteCheck.message);
+        return;
+      }
     }
     if (noWebsite) {
       applyTemplateIfEmpty();
@@ -141,6 +148,10 @@ export default function Signup() {
       setError("Add your business name so we can set up your AI.");
       return;
     }
+    if (!companyFax.trim() && turnstileSiteKey() && !turnstileToken.trim()) {
+      setError("Please wait a moment and try again.");
+      return;
+    }
     setLoading(true);
     try {
       await requestSignupLink(buildSignupLinkPayload({
@@ -158,6 +169,8 @@ export default function Signup() {
         hours,
         tone,
         noWebsite,
+        turnstileToken,
+        companyFax,
       }));
       setStep("sent");
     } catch (err: unknown) {
@@ -194,7 +207,7 @@ export default function Signup() {
       <p className="text-white/50 mb-8 text-sm text-center">Build your AI first. We’ll email a setup link when you’re ready.</p>
 
       {step === "details" && (
-        <div className="aurora-card aurora-glow p-8 w-full max-w-xl animate-fade-in">
+        <div className="aurora-card aurora-glow p-8 w-full max-w-xl animate-fade-in relative">
           <h2 className="text-2xl font-bold mb-1">Tell us about your business</h2>
           <p className="text-white/50 mb-6 text-sm">No login yet — we’ll scan your site and preview your AI first.</p>
 
@@ -238,6 +251,20 @@ export default function Signup() {
                   style={{ width: "16px", height: "16px" }}
                 />
                 <span className="text-xs text-white/50">I don’t have a website</span>
+              </label>
+            </div>
+
+            <div className="mh-hp" aria-hidden="true">
+              <label>
+                Company fax
+                <input
+                  type="text"
+                  name={HONEYPOT_FIELD}
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={companyFax}
+                  onChange={(e) => setCompanyFax(e.target.value)}
+                />
               </label>
             </div>
 
@@ -311,7 +338,7 @@ export default function Signup() {
       )}
 
       {step === "preview" && (
-        <form onSubmit={handleSendLink} className="aurora-card aurora-glow p-8 w-full max-w-2xl animate-fade-in">
+        <form onSubmit={handleSendLink} className="aurora-card aurora-glow p-8 w-full max-w-2xl animate-fade-in relative">
           <h2 className="text-2xl font-bold mb-1">Review your knowledge base</h2>
           <p className="text-white/50 mb-6 text-sm">Edit anything that’s wrong. Then we’ll email your setup link — no number is purchased yet.</p>
 
@@ -352,6 +379,22 @@ export default function Signup() {
             <label className="text-sm text-white/60 mb-1 block">Email me my setup link</label>
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="you@yourbusiness.com" />
           </div>
+
+          <div className="mh-hp" aria-hidden="true">
+            <label>
+              Company fax
+              <input
+                type="text"
+                name={HONEYPOT_FIELD}
+                tabIndex={-1}
+                autoComplete="off"
+                value={companyFax}
+                onChange={(e) => setCompanyFax(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <TurnstileField onToken={setTurnstileToken} />
 
           {error && <p className="text-red-400 text-sm mt-4">{error}</p>}
 
