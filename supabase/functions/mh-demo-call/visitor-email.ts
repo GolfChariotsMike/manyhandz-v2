@@ -8,8 +8,8 @@ import {
   SMALL_BUSINESS_INCLUDED_MINUTES,
 } from "../_shared/plan-minutes.ts";
 import {
-  BIG_BUSINESS_MONTHLY_LABEL,
-  SMALL_BUSINESS_MONTHLY_LABEL,
+  BIG_BUSINESS_MONTHLY_AUD,
+  SMALL_BUSINESS_MONTHLY_AUD,
 } from "../_shared/plan-pricing.ts";
 
 export const VISITOR_FROM = "ManyHandz <info@manyhandz.ai>";
@@ -20,10 +20,10 @@ export const TRY_URL = "https://manyhandz.ai/try";
 export const PRIVACY_URL = "https://manyhandz.ai/privacy";
 
 export const VISITOR_PRICING_TEXT =
-  `Start with a 14-day free trial. Then Small Business is ${SMALL_BUSINESS_MONTHLY_LABEL}/mo AUD with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is ${BIG_BUSINESS_MONTHLY_LABEL}/mo AUD with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes — dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Enterprise is custom — reply to this email.`;
+  `Start with a 14-day free trial — no setup fee, cancel anytime, no lock-in. Then Small Business is A$${SMALL_BUSINESS_MONTHLY_AUD}/month with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is A$${BIG_BUSINESS_MONTHLY_AUD}/month with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes. All plans include AI phone answering, a dedicated AU phone number, and website chat. Enterprise is custom — reply to this email.`;
 
 export const VISITOR_PRICING_HTML =
-  `Start with a <strong>14-day free trial</strong>. Then Small Business is <strong>${SMALL_BUSINESS_MONTHLY_LABEL}/mo AUD</strong> with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is <strong>${BIG_BUSINESS_MONTHLY_LABEL}/mo AUD</strong> with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes — dedicated AU number, SMS notifications, staff transfers, and cancel anytime. Enterprise is custom — reply to this email.`;
+  `Start with a <strong>14-day free trial</strong> — no setup fee, cancel anytime, no lock-in. Then Small Business is <strong>A$${SMALL_BUSINESS_MONTHLY_AUD}/month</strong> with ${SMALL_BUSINESS_INCLUDED_MINUTES} minutes, or Big Business is <strong>A$${BIG_BUSINESS_MONTHLY_AUD}/month</strong> with ${BIG_BUSINESS_INCLUDED_MINUTES.toLocaleString("en-US")} minutes. All plans include AI phone answering, a dedicated AU phone number, and website chat. Enterprise is custom — reply to this email.`;
 
 export function visitorFirstName(name: string): string {
   const first = (name || "").trim().split(/\s+/)[0];
