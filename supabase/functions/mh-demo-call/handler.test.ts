@@ -1,5 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   ALLOWED_ORIGINS,
   DEMO_AGENT_ID,
@@ -499,13 +502,9 @@ describe("handleRequest", () => {
     assert.equal(visitor.reply_to, "info@manyhandz.ai");
     assert.match(visitor.html || "", /https:\/\/app\.manyhandz\.ai\/signup/);
     assert.match(visitor.html || "", /Hey Alex,/);
-    assert.match(visitor.html || "", /\$499/);
-    assert.match(visitor.html || "", /\$999/);
-    assert.equal((visitor.html || "").includes("$199"), false);
-    assert.match(visitor.html || "", /600/);
-    assert.match(visitor.html || "", /14-day free trial/);
+    assertLiveAuPricing(visitor.html || "");
+    assertLiveAuPricing(visitor.text || "");
     assert.match(visitor.text || "", /Start your 14-day free trial/);
-    assert.match(visitor.text || "", /14-day free trial/);
   });
 
   it("sends both emails when the Twilio call fails", async () => {
@@ -599,25 +598,52 @@ describe("visitor email helpers", () => {
     const html = visitorEmailHtml("Alex");
     assert.match(html, /https:\/\/app\.manyhandz\.ai\/signup/);
     assert.match(html, /app\.manyhandz\.ai\/signup/);
-    assert.match(html, /\$499/);
-    assert.match(html, /\$999/);
-    assert.match(html, /600 mins|600 minutes/);
-    assert.match(html, /2,000 minutes|2000 minutes/);
+    assertLiveAuPricing(html);
     assert.match(html, /Hey Alex,/);
-    assert.match(html, /14-day free trial/);
     assert.match(html, /Start your 14-day free trial →/);
     assert.equal(html.includes("DraftPilot"), false);
     assert.equal(html.includes("Tradify"), false);
     assert.equal(html.includes("SimPRO"), false);
-    assert.equal(html.includes("$199"), false);
     const escaped = visitorEmailHtml("A&B");
     assert.match(escaped, /Hey A&amp;B,/);
     const text = visitorEmailText("Alex");
     assert.match(text, new RegExp(SIGNUP_URL.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     assert.match(text, /Hey Alex,/);
-    assert.match(text, /\$499/);
-    assert.match(text, /\$999/);
-    assert.match(text, /14-day free trial/);
+    assertLiveAuPricing(text);
     assert.match(text, /Start your 14-day free trial \(about 5 minutes\)/);
   });
+
+  it("quotes live AU plans and not retired $199 or $349 stickers", () => {
+    const here = dirname(fileURLToPath(import.meta.url));
+    for (const file of ["visitor-email.ts", "handler.ts", "index.ts"]) {
+      const src = readFileSync(join(here, file), "utf8");
+      assert.doesNotMatch(src, /\$199|\$349|199\/mo|349\/mo/);
+    }
+    const text = visitorEmailText("Alex");
+    const html = visitorEmailHtml("Alex");
+    assert.match(text, /Small Business is A\$499\/month with 600 minutes/);
+    assert.match(text, /Big Business is A\$999\/month with 2,000 minutes/);
+    assert.match(html, /Small Business is <strong>A\$499\/month<\/strong> with 600 minutes/);
+    assert.match(html, /Big Business is <strong>A\$999\/month<\/strong> with 2,000 minutes/);
+    assert.equal(text.includes("SMS notifications"), false);
+    assert.equal(html.includes("SMS notifications"), false);
+  });
 });
+
+function assertLiveAuPricing(body: string) {
+  assert.match(body, /A\$499\/month/);
+  assert.match(body, /A\$999\/month/);
+  assert.match(body, /600 minutes/);
+  assert.match(body, /2,000 minutes/);
+  assert.match(body, /Big Business/);
+  assert.match(body, /Enterprise is custom/);
+  assert.match(body, /14-day free trial/);
+  assert.match(body, /no setup fee/);
+  assert.match(body, /cancel anytime/);
+  assert.match(body, /no lock-in/);
+  assert.match(body, /AI phone answering/);
+  assert.match(body, /dedicated AU phone number/);
+  assert.match(body, /website chat/);
+  assert.equal(body.includes("$199"), false);
+  assert.equal(body.includes("$349"), false);
+}
