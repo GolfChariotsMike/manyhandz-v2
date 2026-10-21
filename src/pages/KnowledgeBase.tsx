@@ -4,6 +4,7 @@ import {
   getMe,
   getKnowledgeBase,
   updateKnowledgeBase,
+  updateVoiceConfig,
   getVoiceConfig,
   getPriceList,
   getActiveConnectionPlatforms,
@@ -133,11 +134,7 @@ export default function KnowledgeBase() {
         services, faqs: kb.faqs, hours,
         tone: kb.tone, about: kb.about, custom_instructions: kb.custom_instructions,
       }),
-      voiceConfig?.id ? fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${voiceConfig.id}`, {
-        method: "PATCH",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(voiceBody),
-      }) : Promise.resolve(),
+      voiceConfig?.id ? updateVoiceConfig(voiceBody) : Promise.resolve(),
       fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
         method: "POST",
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },

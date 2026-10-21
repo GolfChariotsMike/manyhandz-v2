@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { getMe, getVoiceCalls, getGrokbotKey } from "../lib/api";
+import { getMe, getVoiceCalls, getGrokbotKey, submitBugReport } from "../lib/api";
 import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { Phone, BookOpen, Zap, Check, ArrowRight, Bot, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
@@ -328,7 +328,7 @@ export default function Dashboard() {
   );
 }
 
-function ReportBug({ customer }: { customer: any }) {
+function ReportBug(_props: { customer: any }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
@@ -338,22 +338,10 @@ function ReportBug({ customer }: { customer: any }) {
     if (!message.trim()) return;
     setSending(true);
     try {
-      await fetch("https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_bug_reports", {
-        method: "POST",
-        headers: {
-          apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
-          Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
-          "Content-Type": "application/json",
-          Prefer: "return=minimal",
-        },
-        body: JSON.stringify({
-          customer_id: customer?.id || null,
-          email: customer?.email || null,
-          business_name: customer?.business_name || null,
-          message: message.trim(),
-          page: window.location.pathname,
-          user_agent: navigator.userAgent,
-        }),
+      await submitBugReport({
+        message: message.trim(),
+        page: window.location.pathname,
+        user_agent: navigator.userAgent,
       });
       setSent(true);
       setMessage("");

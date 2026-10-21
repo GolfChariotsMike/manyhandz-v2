@@ -36,11 +36,12 @@ test("capsSavePayload only writes known cap keys", () => {
   assert.equal(Object.keys(payload).length, AGENT_CAPABILITIES.length);
 });
 
-test("Capabilities page saves mh_voice_config and triggers mh-sync-agent", async () => {
+test("Capabilities page saves voice config via mh-v2-data and triggers mh-sync-agent", async () => {
   const src = await readFile(new URL("../pages/Capabilities.tsx", import.meta.url), "utf8");
   const lib = await readFile(new URL("./capabilities.ts", import.meta.url), "utf8");
   assert.match(src, /capsSavePayload/);
-  assert.match(src, /mh_voice_config/);
+  assert.match(src, /updateVoiceConfig\(payload\)/);
+  assert.doesNotMatch(src, /rest\/v1\/mh_voice_config/);
   assert.match(src, /mh-sync-agent/);
   assert.match(src, /AGENT_CAPABILITIES/);
   assert.match(lib, /cap_create_simpro_job/);

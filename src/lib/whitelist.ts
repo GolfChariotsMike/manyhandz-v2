@@ -84,20 +84,32 @@ type SaveVoiceWhitelistArgs = {
   customerId?: string;
   whitelist: string[];
   bridge: string;
+  /** Dashboard mh_token; defaults to localStorage. Verified by mh-v2-data. */
+  token?: string | null;
   fetchImpl?: typeof fetch;
 };
 
-/** PATCH mh_voice_config.whitelist using the list the caller already computed. */
+function storedToken(): string | null {
+  try {
+    return localStorage.getItem("mh_token");
+  } catch {
+    return null;
+  }
+}
+
+/** Save mh_voice_config.whitelist via mh-v2-data (RLS blocks the anon key). */
 export async function saveVoiceWhitelist(
   args: SaveVoiceWhitelistArgs,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const fetchImpl = args.fetchImpl ?? fetch;
   try {
-    const res = await fetchImpl(`${args.url}/rest/v1/mh_voice_config?id=eq.${args.configId}`, {
-      method: "PATCH",
+    const token = args.token ?? storedToken();
+    if (!token) return { ok: false, error: "Your session has expired. Please log in again." };
+    const res = await fetchImpl(`${args.url}/functions/v1/mh-v2-data/voice-config`, {
+      method: "POST",
       headers: {
         apikey: args.anon,
-        Authorization: `Bearer ${args.anon}`,
+        Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(whitelistDbPatch(args.whitelist, args.bridge)),

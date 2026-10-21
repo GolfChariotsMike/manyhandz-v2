@@ -1,13 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, GripVertical, Save, Loader2, Crown } from "lucide-react";
-import { getMe } from "../lib/api";
+import { getMe, getStaff, saveStaff } from "../lib/api";
 
-const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
-
-function authHeaders() {
-  return { "Content-Type": "application/json", Authorization: `Bearer ${ANON_KEY}`, apikey: ANON_KEY };
-}
 
 interface StaffMember {
   id?: string;
@@ -22,7 +16,6 @@ interface StaffMember {
 }
 
 export default function Team() {
-  const [customerId, setCustomerId] = useState<string>("");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -35,13 +28,8 @@ export default function Team() {
       try {
         const { customer } = await getMe();
         if (!customer?.id) { setLoading(false); return; }
-        setCustomerId(customer.id);
 
-        const sr = await fetch(
-          `${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${customer.id}&order=sort_order.asc&select=id,name,phone,role,notes,is_owner,active,sort_order`,
-          { headers: authHeaders() }
-        );
-        const staffData = await sr.json();
+        const staffData = await getStaff();
         if (Array.isArray(staffData)) {
           setStaff(staffData.map((m: any) => ({ ...m, notes: m.notes || "", is_owner: m.is_owner || false })));
         }
@@ -106,27 +94,15 @@ export default function Team() {
 
     setSaving(true);
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/mh_staff?customer_id=eq.${customerId}`, {
-        method: "DELETE",
-        headers: authHeaders(),
-      });
-
-      if (valid.length > 0) {
-        await fetch(`${SUPABASE_URL}/rest/v1/mh_staff`, {
-          method: "POST",
-          headers: { ...authHeaders(), Prefer: "return=minimal" },
-          body: JSON.stringify(valid.map((m, i) => ({
-            customer_id: customerId,
-            name: m.name,
-            phone: m.phone,
-            role: m.role || "Staff",
-            notes: m.notes || null,
-            is_owner: m.is_owner,
-            active: m.active,
-            sort_order: i,
-          }))),
-        });
-      }
+      await saveStaff(valid.map((m, i) => ({
+        name: m.name,
+        phone: m.phone,
+        role: m.role || "Staff",
+        notes: m.notes || null,
+        is_owner: m.is_owner,
+        active: m.active,
+        sort_order: i,
+      })));
 
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);

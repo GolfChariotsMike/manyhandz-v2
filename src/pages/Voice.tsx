@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { getMe, getVoiceCalls, getVoiceConfig } from "../lib/api";
+import { getMe, getVoiceCalls, getVoiceConfig, updateVoiceConfig } from "../lib/api";
 import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
@@ -560,11 +560,7 @@ export default function Voice() {
     if (!payload || !config?.id || !customer?.id) return;
     setSavingAiName(true);
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-        method: "PATCH",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      await updateVoiceConfig(payload);
       await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
         method: "POST",
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
@@ -595,11 +591,7 @@ export default function Voice() {
         })),
       });
       if (config?.id) {
-        await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-          method: "PATCH",
-          headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify(dbPatch),
-        });
+        await updateVoiceConfig(dbPatch);
       }
       if (customer?.id) {
         await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
@@ -622,11 +614,7 @@ export default function Voice() {
     const payload = returnToAiPromptDbPatch(returnToAiPrompt);
     setSavingReturnToAi(true);
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-        method: "PATCH",
-        headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      await updateVoiceConfig(payload);
       await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
         method: "POST",
         headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
@@ -656,11 +644,7 @@ export default function Voice() {
       });
       if (!elRes.ok) throw new Error("Could not update the live agent");
       if (config?.id) {
-        await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${config.id}`, {
-          method: "PATCH",
-          headers: { "apikey": SUPABASE_ANON_KEY, "Authorization": `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify(voiceConfigDbPatch(activeVoiceId, controls)),
-        });
+        await updateVoiceConfig(voiceConfigDbPatch(activeVoiceId, controls));
       }
       setVoiceSaved(true);
       setTimeout(() => setVoiceSaved(false), 2500);
