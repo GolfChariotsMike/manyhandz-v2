@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Loader, Sparkles } from "lucide-react";
-import { getMe, getVoiceConfig } from "../lib/api";
+import { getMe, getVoiceConfig, updateVoiceConfig } from "../lib/api";
 import { AGENT_CAPABILITIES, capsFromConfig, capsSavePayload } from "../lib/capabilities";
 
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -39,11 +39,7 @@ export default function Capabilities() {
     setSaving(true);
     try {
       const payload = capsSavePayload(caps);
-      await fetch(`${SUPABASE_URL}/rest/v1/mh_voice_config?id=eq.${id}`, {
-        method: "PATCH",
-        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      await updateVoiceConfig(payload);
       await fetch(`${SUPABASE_URL}/functions/v1/mh-sync-agent`, {
         method: "POST",
         headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, "Content-Type": "application/json" },

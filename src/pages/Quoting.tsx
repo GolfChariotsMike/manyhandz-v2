@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Loader2, Plus, Trash2, DollarSign, Clock, Save } from "lucide-react";
-import { getMe } from "../lib/api";
+import { deletePriceListItem, getMe, getPriceList, savePriceListItems } from "../lib/api";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
@@ -55,9 +55,8 @@ export default function Quoting() {
       const cid = me?.id;
       if (!cid) { setLoading(false); return; }
       setCustomerId(cid);
-      const r = await fetch(`${SUPABASE_URL}/rest/v1/mh_price_list?customer_id=eq.${cid}&order=sort_order.asc`, { headers: authHeaders() });
-      const rows = await r.json();
-      setItems(Array.isArray(rows) ? rows : []);
+      const rows = await getPriceList();
+      setItems(rows);
       setLoading(false);
     })();
   }, []);
@@ -73,7 +72,7 @@ export default function Quoting() {
   function removeRow(idx: number) {
     const item = items[idx];
     if (item.id) {
-      fetch(`${SUPABASE_URL}/rest/v1/mh_price_list?id=eq.${item.id}`, { method: "DELETE", headers: authHeaders() });
+      deletePriceListItem(item.id).catch((e) => console.error("Delete price item:", e));
     }
     setItems(prev => prev.filter((_, i) => i !== idx));
   }
@@ -85,35 +84,23 @@ export default function Quoting() {
   async function save() {
     setSaving(true);
     try {
-      for (const item of items.filter(i => i.isDirty)) {
-        const payload = {
-          customer_id: customerId,
-          job_name: item.job_name,
-          price_type: item.price_type,
-          price_min: item.price_min,
-          price_max: item.price_max,
-          duration_hours_min: item.duration_hours_min,
-          duration_hours_max: item.duration_hours_max,
-          notes: item.notes,
-          sort_order: item.sort_order,
-        };
-        if (item.id) {
-          await fetch(`${SUPABASE_URL}/rest/v1/mh_price_list?id=eq.${item.id}`, {
-            method: "PATCH", headers: { ...authHeaders(), Prefer: "return=representation" },
-            body: JSON.stringify(payload),
-          });
-        } else {
-          const r = await fetch(`${SUPABASE_URL}/rest/v1/mh_price_list`, {
-            method: "POST", headers: { ...authHeaders(), Prefer: "return=representation" },
-            body: JSON.stringify(payload),
-          });
-          const created = await r.json();
-          if (Array.isArray(created) && created[0]?.id) {
-            setItems(prev => prev.map(i => i === item ? { ...i, id: created[0].id, isNew: false, isDirty: false } : i));
-          }
-        }
-      }
-      setItems(prev => prev.map(i => ({ ...i, isDirty: false, isNew: false })));
+      const dirty = items.filter(i => i.isDirty);
+      const savedRows = await savePriceListItems(dirty.map(item => ({
+        id: item.id,
+        job_name: item.job_name,
+        price_type: item.price_type,
+        price_min: item.price_min,
+        price_max: item.price_max,
+        duration_hours_min: item.duration_hours_min,
+        duration_hours_max: item.duration_hours_max,
+        notes: item.notes,
+        sort_order: item.sort_order,
+      })));
+      const savedByItem = new Map(dirty.map((item, idx) => [item, savedRows[idx]]));
+      setItems(prev => prev.map(i => {
+        const row = savedByItem.get(i);
+        return { ...i, ...(row?.id ? { id: String(row.id) } : {}), isDirty: false, isNew: false };
+      }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
 

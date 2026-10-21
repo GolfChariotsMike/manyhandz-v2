@@ -53,7 +53,7 @@ test("whitelistSaveError prefers the API message then a status fallback", () => 
   assert.equal(whitelistSaveError(500, {}), "Could not save whitelist (500). Please try again.");
 });
 
-test("saveVoiceWhitelist PATCHes the next list and resyncs the agent", async () => {
+test("saveVoiceWhitelist POSTs the next list to mh-v2-data with mh_token and resyncs the agent", async () => {
   const calls: { url: string; init: RequestInit }[] = [];
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
     calls.push({ url: String(input), init: init || {} });
@@ -68,13 +68,16 @@ test("saveVoiceWhitelist PATCHes the next list and resyncs the agent", async () 
     customerId: "cust-1",
     whitelist: next,
     bridge: "+61411111111",
+    token: "mh-token",
     fetchImpl,
   });
 
   assert.equal(result.ok, true);
   assert.equal(calls.length, 2);
-  assert.match(calls[0].url, /mh_voice_config\?id=eq\.cfg-1/);
-  assert.equal(calls[0].init.method, "PATCH");
+  assert.match(calls[0].url, /\/functions\/v1\/mh-v2-data\/voice-config$/);
+  assert.doesNotMatch(calls[0].url, /rest\/v1/);
+  assert.equal(calls[0].init.method, "POST");
+  assert.equal((calls[0].init.headers as Record<string, string>).Authorization, "Bearer mh-token");
   assert.deepEqual(JSON.parse(String(calls[0].init.body)), {
     whitelist: ["+61400000000"],
     bridge_to_number: "+61411111111",
@@ -91,10 +94,27 @@ test("saveVoiceWhitelist returns a visible error when PATCH fails", async () => 
     configId: "cfg-1",
     whitelist: [],
     bridge: "",
+    token: "mh-token",
     fetchImpl,
   });
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error, "invalid input");
+});
+
+test("saveVoiceWhitelist refuses to fall back to the anon key without a session", async () => {
+  let called = false;
+  const fetchImpl = (async () => { called = true; return new Response(null, { status: 200 }); }) as typeof fetch;
+  const result = await saveVoiceWhitelist({
+    url: "https://example.supabase.co",
+    anon: "anon-key",
+    configId: "cfg-1",
+    whitelist: [],
+    bridge: "",
+    token: null,
+    fetchImpl,
+  });
+  assert.equal(result.ok, false);
+  assert.equal(called, false);
 });
 
 test("voiceConfigRow picks the first PostgREST row", () => {

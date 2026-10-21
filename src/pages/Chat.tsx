@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { getMe, getChatConfig, saveChatConfig, getChatSession, getChatSessions } from "../lib/api";
+import { getMe, getChatConfig, saveChatConfig, createChatConfig, getChatSession, getChatSessions } from "../lib/api";
 import { chatPageView } from "../lib/chat-page";
 import { type ChatSessionDetail, type ChatSessionListItem } from "../lib/chat-sessions";
 import { ChatSessionsList } from "../components/ChatSessionsList";
@@ -144,24 +144,11 @@ export default function Chat() {
             onClick={async () => {
               if (!customer?.id) return;
               try {
-                const res = await fetch(
-                  `https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_chat_config`,
-                  {
-                    method: "POST",
-                    headers: {
-                      apikey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw",
-                      Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw`,
-                      "Content-Type": "application/json",
-                      Prefer: "return=representation",
-                    },
-                    body: JSON.stringify({
-                      customer_id: customer.id,
-                      widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
-                      suggested_prompts: DEFAULT_SUGGESTED_PROMPTS,
-                    }),
-                  }
-                );
-                if (res.ok) {
+                const created = await createChatConfig({
+                  widget_name: customer.business_name ? `${customer.business_name} Chat` : "Chat Assistant",
+                  suggested_prompts: DEFAULT_SUGGESTED_PROMPTS,
+                });
+                if (created) {
                   setLoading(true);
                   await loadData();
                 }

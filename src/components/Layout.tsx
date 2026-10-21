@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Home, Brain, Phone, Sparkles, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle, PhoneOutgoing } from "lucide-react";
-import { clearToken, getMe } from "../lib/api";
+import { clearToken, getMe, submitBugReport } from "../lib/api";
 import { trialCountdown, trialCountdownHeadline } from "../lib/trialCountdown";
 
 function TrialBanner() {
@@ -94,11 +94,7 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
     try {
       let customer: any = null;
       try { customer = (await getMe())?.customer; } catch {}
-      await fetch("https://kouembkldbpdbhzeaoth.supabase.co/rest/v1/mh_bug_reports", {
-        method: "POST",
-        headers: { apikey: ANON_KEY, Authorization: `Bearer ${ANON_KEY}`, "Content-Type": "application/json", Prefer: "return=minimal" },
-        body: JSON.stringify({ customer_id: customer?.id || null, email: customer?.email || null, business_name: customer?.business_name || null, message: message.trim(), page: window.location.pathname, user_agent: navigator.userAgent }),
-      });
+      await submitBugReport({ message: message.trim(), page: window.location.pathname, user_agent: navigator.userAgent });
       // Notify via edge function (sends Telegram + email)
       const who = customer?.business_name || customer?.email || "Unknown user";
       fetch("https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mh-bug-notify", {

@@ -7,7 +7,11 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const FN_URL = `${SUPABASE_URL}/functions/v1`;
 
 function getToken(): string | null {
-  return localStorage.getItem("mh_token");
+  try {
+    return localStorage.getItem("mh_token");
+  } catch {
+    return null;
+  }
 }
 
 export function setToken(token: string) {
@@ -163,93 +167,103 @@ export async function scrapeWebsite(url: string) {
   return callFn("mh-v2-scrape", "", "POST", { url });
 }
 
-// Direct Supabase REST calls for dashboard data
-// Always use anon key for Authorization — custom JWT is not signed by Supabase and will 401
+// The custom mh_token is not a Supabase JWT, so PostgREST sees the browser as anon and
+// RLS hides every customer row. Never read customer tables with the anon key.
 export function asRows(data: unknown): any[] {
   return Array.isArray(data) ? data : [];
 }
 
-async function supabaseRest(table: string, params: string = "") {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?${params}`, {
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-  });
-  let data: unknown;
+
+// RLS-locked customer tables go through mh-v2-data (mh_token verified server-side,
+// service role scoped to jwt.sub). The customerId arguments are kept for call-site
+// compatibility only; the server never trusts them.
+async function dataGet(resource: string): Promise<any> {
+  return callFn("mh-v2-data", resource, "GET");
+}
+
+async function dataPost(resource: string, body: unknown): Promise<any> {
+  return callFn("mh-v2-data", resource, "POST", body);
+}
+
+async function dataRows(resource: string, key: string, asList: boolean): Promise<any[]> {
   try {
-    data = await res.json();
-  } catch {
+    const data = await dataGet(resource);
+    const value = data?.[key];
+    if (asList) return asRows(value);
+    return value && typeof value === "object" ? [value] : [];
+  } catch (e) {
+    console.error(`mh-v2-data ${resource}:`, e instanceof Error ? e.message : e);
     return [];
   }
-  // PostgREST 4xx/5xx bodies are {code, message, details} objects, not row arrays.
-  if (!res.ok) return [];
-  return asRows(data);
 }
 
-export async function getKnowledgeBase(customerId: string) {
-  return supabaseRest("mh_knowledge_base", `customer_id=eq.${customerId}&select=*`);
+export async function getKnowledgeBase(_customerId?: string) {
+  return dataRows("knowledge", "knowledge", false);
 }
 
-export async function upsertKnowledgeBase(customerId: string, updates: Record<string, unknown>) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base`, {
-    method: "POST",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": "resolution=merge-duplicates,return=representation",
-    },
-    body: JSON.stringify({ customer_id: customerId, ...updates, updated_at: new Date().toISOString() }),
-  });
-  return res.json();
+/** Patch the signed-in customer's mh_knowledge_base row. */
+export async function updateKnowledgeBase(_id: string | undefined, updates: Record<string, unknown>) {
+  const data = await dataPost("knowledge", updates);
+  return data?.knowledge ?? null;
 }
 
-export async function updateKnowledgeBase(id: string, updates: Record<string, unknown>) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_knowledge_base?id=eq.${id}`, {
-    method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation",
-    },
-    body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
-  });
-  return res.json();
-}
-
-export async function getVoiceCalls(customerId: string) {
-  const rows = await supabaseRest(
-    "mh_call_log",
-    `customer_id=eq.${customerId}&select=*&order=started_at.desc&limit=100`,
-  );
+export async function getVoiceCalls(_customerId?: string) {
+  const rows = await dataRows("call-log", "calls", true);
   return mergeCallLogRows(rows).slice(0, 50);
 }
 
-export async function getVoiceConfig(customerId: string) {
-  return supabaseRest("mh_voice_config", `customer_id=eq.${customerId}&select=*`);
+export async function getVoiceConfig(_customerId?: string) {
+  return dataRows("voice-config", "voice_config", false);
 }
 
-export async function getPriceList(customerId: string) {
-  return supabaseRest("mh_price_list", `customer_id=eq.${customerId}&select=*&order=sort_order.asc`);
+/** Patch allowlisted mh_voice_config columns for the signed-in customer. */
+export async function updateVoiceConfig(patch: Record<string, unknown>) {
+  const data = await dataPost("voice-config", patch);
+  return data?.voice_config ?? null;
 }
 
-export async function getActiveConnectionPlatforms(customerId: string) {
-  const rows = await supabaseRest(
-    "mh_crm_connections",
-    `customer_id=eq.${customerId}&is_active=eq.true&select=platform`,
-  );
-  return rows.map((row) => String(row?.platform || "")).filter(Boolean);
+export async function getPriceList(_customerId?: string) {
+  return dataRows("price-list", "items", true);
 }
 
-export async function getVoiceNumbers(customerId: string) {
-  return supabaseRest("mh_voice_numbers", `customer_id=eq.${customerId}&select=*&status=eq.active`);
+/** Insert/update price list items; returns the saved rows in request order. */
+export async function savePriceListItems(items: Record<string, unknown>[]) {
+  const data = await dataPost("price-list", { items });
+  return asRows(data?.items);
 }
 
-export async function getUsage(customerId: string) {
-  return supabaseRest("mh_usage_v2", `customer_id=eq.${customerId}&select=*&order=period_start.desc`);
+export async function deletePriceListItem(id: string) {
+  const data = await dataPost("price-list/delete", { id });
+  return Number(data?.deleted || 0);
+}
+
+export async function getStaff() {
+  return dataRows("staff", "staff", true);
+}
+
+/** Replace the signed-in customer's staff list. */
+export async function saveStaff(staff: Record<string, unknown>[]) {
+  const data = await dataPost("staff", { staff });
+  return asRows(data?.staff);
+}
+
+export async function getUsageBalance() {
+  const rows = await dataRows("usage-balance", "balance", false);
+  return rows[0] || null;
+}
+
+export async function submitBugReport(report: { message: string; page?: string; user_agent?: string }) {
+  return dataPost("bug-report", report);
+}
+
+export async function getActiveConnectionPlatforms(_customerId?: string) {
+  try {
+    const data = await dataGet("connection-platforms");
+    return asRows(data?.platforms).map((p) => String(p || "")).filter(Boolean);
+  } catch (e) {
+    console.error("mh-v2-data connection-platforms:", e instanceof Error ? e.message : e);
+    return [];
+  }
 }
 
 export type OutboundTask = {
@@ -275,19 +289,6 @@ export async function createOutboundTask(input: {
   brief: string;
 }) {
   return callFn("mh-outbound-task", "create", "POST", input);
-}
-
-// Email APIs (legacy inbox endpoints; customer email now lives in Grok Bot)
-export async function getEmailAccounts(customerId: string) {
-  return supabaseRest("mh_email_accounts", `customer_id=eq.${customerId}&select=*&is_active=eq.true`);
-}
-
-export async function getEmails(customerId: string) {
-  return supabaseRest("mh_emails", `customer_id=eq.${customerId}&select=*&order=received_at.desc&limit=100`);
-}
-
-export async function getEmailDrafts(customerId: string) {
-  return supabaseRest("mh_email_drafts", `customer_id=eq.${customerId}&select=*&order=created_at.desc`);
 }
 
 export async function connectGmail(customerId: string) {
@@ -322,40 +323,25 @@ export async function connectEmail(
   });
 }
 
-export async function disconnectEmail(customerId: string, accountId: string) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_email_accounts?id=eq.${accountId}&customer_id=eq.${customerId}`, {
-    method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${getToken() || SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ is_active: false }),
-  });
-  return res.ok;
-}
-
 export async function generateDraft(emailId: string, customerId: string, tone?: string) {
   return callFn("mhv2-generate-draft", "", "POST", { email_id: emailId, customer_id: customerId, tone });
 }
 
 // Chat APIs
-export async function getChatConfig(customerId: string) {
-  return supabaseRest("mh_chat_config", `customer_id=eq.${customerId}&select=*`);
+export async function getChatConfig(_customerId?: string) {
+  return dataRows("chat-config", "chat_config", false);
 }
 
-export async function saveChatConfig(id: string, updates: Record<string, unknown>) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/mh_chat_config?id=eq.${id}`, {
-    method: "PATCH",
-    headers: {
-      "apikey": SUPABASE_ANON_KEY,
-      "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-      "Content-Type": "application/json",
-      "Prefer": "return=representation",
-    },
-    body: JSON.stringify({ ...updates, updated_at: new Date().toISOString() }),
-  });
-  return res.json();
+/** Patch the signed-in customer's chat widget settings. */
+export async function saveChatConfig(_id: string | undefined, updates: Record<string, unknown>) {
+  const data = await dataPost("chat-config", updates);
+  return data?.chat_config ?? null;
+}
+
+/** Create the chat widget row if missing (returns the existing row otherwise). */
+export async function createChatConfig(body: { widget_name?: string; suggested_prompts?: string[] }) {
+  const data = await dataPost("chat-config/create", body);
+  return data?.chat_config ?? null;
 }
 
 /** List the signed-in customer's mh_chat_sessions via mh-v2-save (JWT + service role). */
@@ -373,30 +359,6 @@ export async function getChatSession(id: string) {
 }
 
 
-export async function getEmailVoice(customerId: string) {
-  return supabaseRest("mh_email_voice", `customer_id=eq.${customerId}&select=*&limit=1`).then((r: any[]) => r?.[0] || null);
-}
-
-export async function saveEmailVoice(customerId: string, data: Record<string, unknown>) {
-  const SB_URL = import.meta.env.VITE_SUPABASE_URL;
-  const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const token = localStorage.getItem("mh_token") || SB_KEY;
-  await fetch(`${SB_URL}/rest/v1/mh_email_voice?customer_id=eq.${customerId}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
-    body: JSON.stringify(data),
-  });
-  // If no row exists yet, insert
-  const check = await getEmailVoice(customerId);
-  if (!check) {
-    await fetch(`${SB_URL}/rest/v1/mh_email_voice`, {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
-      body: JSON.stringify({ customer_id: customerId, ...data }),
-    });
-  }
-}
-
 export async function analyzeVoice(customerId: string) {
   return callFn("mhv2-analyze-voice", "", "POST", { customer_id: customerId });
 }
@@ -411,15 +373,4 @@ export async function generateGrokbotKey() {
 
 export async function revokeGrokbotKey() {
   return callFn("mhv2-grokbot", "keys/revoke", "POST");
-}
-
-export async function suppressDraft(emailId: string, customerId: string) {
-  const SB_URL = import.meta.env.VITE_SUPABASE_URL;
-  const SB_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const token = localStorage.getItem("mh_token") || SB_KEY;
-  await fetch(`${SB_URL}/rest/v1/mh_emails?id=eq.${emailId}&customer_id=eq.${customerId}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, apikey: SB_KEY!, "Content-Type": "application/json", Prefer: "return=minimal" },
-    body: JSON.stringify({ draft_suppressed: true, has_draft: true }),
-  });
 }
