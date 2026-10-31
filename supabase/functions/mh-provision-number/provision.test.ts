@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { withCurrentDateTimeSection } from "../_shared/el-agent-clock.ts";
 import { GLACIER_RETURN_TO_AI_PROMPT } from "../_shared/return-to-ai.ts";
 import { composeSystemPrompt } from "../mh-sync-agent/prompt.ts";
 import {
@@ -209,13 +210,16 @@ test("provision EL payload and voice_config defaults match the product notify sh
   const agent = el.agent as {
     first_message: string;
     disable_first_message_interruptions: boolean;
-    prompt: { prompt: string; tools: unknown[] };
+    prompt: { prompt: string; timezone?: string; tools: unknown[] };
   };
   const turn = el.turn as { transcribe_on_disabled_interruptions: boolean };
   assert.match(agent.first_message, /^\.\.\. \.\.\. /);
   assert.equal(agent.disable_first_message_interruptions, false);
   assert.equal(turn.transcribe_on_disabled_interruptions, true);
-  assert.equal(agent.prompt.prompt, systemPrompt);
+  assert.equal(agent.prompt.prompt, withCurrentDateTimeSection(systemPrompt));
+  assert.equal(agent.prompt.prompt.split("CURRENT DATE AND TIME:").length, 2);
+  assert.equal(agent.prompt.timezone, "Australia/Perth");
+  assert.equal(systemPrompt.includes("CURRENT DATE AND TIME:"), false);
   assert.equal(toolNames(agent.prompt.tools as unknown[]).includes("lookup_simpro_customer"), true);
 
   const insert = provisionVoiceConfigInsert({
@@ -251,6 +255,34 @@ test("provision EL payload and voice_config defaults match the product notify sh
   assert.doesNotMatch(JSON.stringify(el), new RegExp(GLACIER_ID));
   assert.doesNotMatch(JSON.stringify(el), /github\.com/);
   assert.doesNotMatch(JSON.stringify(el), /Tradify/);
+});
+
+test("provision EL timezone follows home_state and does not duplicate the date section", () => {
+  const systemPrompt = "You are Acme Plumbing AI.";
+  const qld = provisionElConversationConfig({
+    ...acmeInput,
+    customer: { ...acmeInput.customer, home_state: "QLD" },
+    systemPrompt,
+  });
+  const prompt = (qld.agent as { prompt: { prompt: string; timezone: string } }).prompt;
+  assert.equal(prompt.timezone, "Australia/Brisbane");
+  assert.equal(prompt.prompt, withCurrentDateTimeSection(systemPrompt));
+  const again = provisionElConversationConfig({
+    ...acmeInput,
+    customer: { home_state: "New South Wales" },
+    systemPrompt: prompt.prompt,
+  });
+  const second = (again.agent as { prompt: { prompt: string; timezone: string } }).prompt;
+  assert.equal(second.prompt, prompt.prompt);
+  assert.equal(second.timezone, "Australia/Sydney");
+  const stored = provisionVoiceConfigInsert({
+    ...acmeInput,
+    customer: { ...acmeInput.customer, home_state: "NT" },
+    systemPrompt,
+    elAgentId: "agent-acme",
+    elVoiceId: "voice-acme",
+  });
+  assert.equal(stored.system_prompt, systemPrompt);
 });
 
 test("generic customer provision allows greeting barge-in and transcribes speech during it", () => {
