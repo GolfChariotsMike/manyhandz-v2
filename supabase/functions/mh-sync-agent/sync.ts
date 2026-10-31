@@ -1,3 +1,4 @@
+import { timezoneForHomeState, withCurrentDateTimeSection } from "../_shared/el-agent-clock.ts";
 import { padCallOpening } from "../_shared/voice-greeting.ts";
 import {
   applyHangupRule,
@@ -166,9 +167,12 @@ export function hangupAgentPatch(input: {
   existingTools?: unknown;
   existingBuiltIn?: unknown;
   hangupEnabled: boolean;
+  /** Customer home_state. Missing or unknown stays on Australia/Perth. */
+  homeState?: unknown;
 }): Record<string, unknown> {
   const prompt: Record<string, unknown> = {
-    prompt: input.systemPrompt,
+    prompt: withCurrentDateTimeSection(input.systemPrompt),
+    timezone: timezoneForHomeState(input.homeState),
     tools: mergeToolCallTyping(mergeEndCallTools(input.existingTools, input.hangupEnabled)),
     built_in_tools: mergeEndCallBuiltIn(input.existingBuiltIn, input.hangupEnabled),
   };
@@ -268,7 +272,11 @@ export async function syncHangupOnly(
   return { ...after, agent_id: agentId };
 }
 
-type CustomerRow = { business_name?: string; el_agent_id?: string | null };
+type CustomerRow = {
+  business_name?: string;
+  el_agent_id?: string | null;
+  home_state?: string | null;
+};
 type VoiceRow = {
   ai_name?: string | null;
   greeting_script?: string | null;
@@ -311,7 +319,7 @@ export async function syncCustomerAgent(
   const [custRows, kbRows, vcRows, plRows, connRows] = await Promise.all([
     rest<CustomerRow[] | CustomerRow>(
       env,
-      `/rest/v1/mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=business_name,el_agent_id`,
+      `/rest/v1/mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=business_name,el_agent_id,home_state`,
     ),
     rest<KbRow[] | KbRow>(
       env,
@@ -423,6 +431,7 @@ export async function syncCustomerAgent(
       existingTools: toolsWithSms,
       existingBuiltIn: bag.builtIn,
       hangupEnabled,
+      homeState: customer?.home_state,
     }),
     // Existing Glacier/product agents were created without Security overrides.
     // Outbound task + return-to-ai register-call need first_message + prompt.

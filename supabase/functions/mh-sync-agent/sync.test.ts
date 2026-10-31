@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
+import { withCurrentDateTimeSection } from "../_shared/el-agent-clock.ts";
 import { END_CALL_BUILT_IN } from "../_shared/hangup-on-goodbye.ts";
 import { TOOL_CALL_TYPING } from "../_shared/tool-call-typing.ts";
 import {
@@ -161,7 +162,9 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
     }>;
     built_in_tools: { end_call: unknown };
   };
-  assert.equal(prompt.prompt, "prompt");
+  assert.equal(prompt.prompt, withCurrentDateTimeSection("prompt"));
+  assert.equal(prompt.prompt.split("CURRENT DATE AND TIME:").length, 2);
+  assert.equal(prompt.timezone, "Australia/Perth");
   assert.equal(prompt.tools[0].name, "save_message");
   assert.equal(prompt.tools[0].tool_call_sound, TOOL_CALL_TYPING.tool_call_sound);
   assert.equal(prompt.tools[0].tool_call_sound_behavior, TOOL_CALL_TYPING.tool_call_sound_behavior);
@@ -178,6 +181,31 @@ test("hangupAgentPatch attaches end_call as system tool and built_in_tools", () 
   assert.deepEqual(
     (patch.conversation_config as { turn: { transcribe_on_disabled_interruptions: boolean } }).turn,
     { transcribe_on_disabled_interruptions: true },
+  );
+});
+
+test("hangupAgentPatch sets timezone from home_state and does not duplicate the date section", () => {
+  const dated = withCurrentDateTimeSection("You are Jake.");
+  const patch = hangupAgentPatch({
+    systemPrompt: dated,
+    existingTools: [],
+    existingBuiltIn: {},
+    hangupEnabled: false,
+    homeState: "NSW",
+  });
+  const prompt = (patch.conversation_config as {
+    agent: { prompt: { prompt: string; timezone: string } };
+  }).agent.prompt;
+  assert.equal(prompt.prompt, dated);
+  assert.equal(prompt.prompt.split("CURRENT DATE AND TIME:").length, 2);
+  assert.equal(prompt.timezone, "Australia/Sydney");
+  assert.equal(
+    (hangupAgentPatch({
+      systemPrompt: "hello",
+      hangupEnabled: false,
+      homeState: "vic",
+    }).conversation_config as { agent: { prompt: { timezone: string } } }).agent.prompt.timezone,
+    "Australia/Melbourne",
   );
 });
 
@@ -666,8 +694,13 @@ test("empty system_prompt syncs the composed live prompt and persists it", async
   assert.doesNotMatch(prompt, /lookup_jobs/);
   const persisted = restPatches.find((p) => p.url.includes("/rest/v1/mh_voice_config"));
   assert.ok(persisted);
-  assert.equal(persisted.body.system_prompt, prompt);
+  assert.equal(prompt, withCurrentDateTimeSection(String(persisted.body.system_prompt)));
+  assert.equal(String(persisted.body.system_prompt).includes("CURRENT DATE AND TIME:"), false);
   assert.match(String(persisted.body.system_prompt), /SIMPRO LEADS/);
+  const promptObj = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { timezone?: string } } };
+  }).conversation_config.agent.prompt;
+  assert.equal(promptObj.timezone, "Australia/Perth");
 });
 
 test("saved system_prompt is what ElevenLabs gets and is not concatenated onto compose", async () => {
@@ -689,7 +722,10 @@ test("saved system_prompt is what ElevenLabs gets and is not concatenated onto c
   const prompt = (customerPatch.body as {
     conversation_config: { agent: { prompt: { prompt: string } } };
   }).conversation_config.agent.prompt.prompt;
-  assert.equal(prompt, override);
+  assert.equal(prompt, withCurrentDateTimeSection(override));
+  assert.match(prompt, /CURRENT DATE AND TIME:/);
+  assert.match(prompt, /\{\{system__time_date\}\}/);
+  assert.equal(prompt.split("CURRENT DATE AND TIME:").length, 2);
   assert.doesNotMatch(prompt, /You are Trinity/);
   assert.doesNotMatch(prompt, /SIMPRO LEADS/);
   const composed = composeSystemPrompt({
@@ -712,6 +748,53 @@ test("saved system_prompt is what ElevenLabs gets and is not concatenated onto c
   });
   assert.equal(prompt.includes(composed), false);
   assert.equal(restPatches.some((p) => p.url.includes("/rest/v1/mh_voice_config")), false);
+  const timezone = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { timezone: string } } };
+  }).conversation_config.agent.prompt.timezone;
+  assert.equal(timezone, "Australia/Perth");
+});
+
+test("customer sync writes prompt.timezone from home_state and prepends the date section once", async () => {
+  const src = await readFile(new URL("./sync.ts", import.meta.url), "utf8");
+  assert.match(src, /select=business_name,el_agent_id,home_state/);
+  const { env, patches } = makeEnv({
+    customers: [{ business_name: "Acme", el_agent_id: "agent-cust", home_state: "QLD" }],
+  });
+  const res = await handleSyncAgent(post({ customer_id: "cust-1" }), env);
+  assert.equal(res.status, 200);
+  const customerPatch = patches.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(customerPatch);
+  const prompt = (customerPatch.body as {
+    conversation_config: { agent: { prompt: { prompt: string; timezone: string } } };
+  }).conversation_config.agent.prompt;
+  assert.equal(prompt.timezone, "Australia/Brisbane");
+  assert.match(prompt.prompt, /^CURRENT DATE AND TIME:\n/);
+  assert.match(prompt.prompt, /\{\{system__time_date\}\}/);
+  assert.match(prompt.prompt, /\{\{system__time_hour\}\}/);
+  assert.match(prompt.prompt, /\{\{system__timezone\}\}/);
+  assert.match(prompt.prompt, /Never guess the day/);
+  assert.equal(prompt.prompt.split("CURRENT DATE AND TIME:").length, 2);
+
+  const already = withCurrentDateTimeSection("Always mention Malaga.");
+  const { env: env2, patches: patches2 } = makeEnv({
+    customers: [{ business_name: "Acme", el_agent_id: "agent-cust", home_state: "SA" }],
+    voice: [{
+      ai_name: "Trinity",
+      greeting_script: "Hi",
+      el_agent_id: "agent-cust",
+      cap_hangup_on_goodbye: true,
+      system_prompt: already,
+    }],
+  });
+  const res2 = await handleSyncAgent(post({ customer_id: "cust-1" }), env2);
+  assert.equal(res2.status, 200);
+  const second = patches2.find((p) => p.url.endsWith("/convai/agents/agent-cust"));
+  assert.ok(second);
+  const again = (second.body as {
+    conversation_config: { agent: { prompt: { prompt: string; timezone: string } } };
+  }).conversation_config.agent.prompt;
+  assert.equal(again.prompt, already);
+  assert.equal(again.timezone, "Australia/Adelaide");
 });
 
 test("generic customer sync allows greeting barge-in and transcribes disabled interruptions", async () => {

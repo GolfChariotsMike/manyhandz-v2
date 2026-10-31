@@ -4,6 +4,7 @@
  * emails, staff (Jason/Nick), booking whisper, or Grok Bot tools.
  * Staff names/numbers are dashboard, not signup.
  */
+import { timezoneForHomeState, withCurrentDateTimeSection } from "../_shared/el-agent-clock.ts";
 import { padCallOpening } from "../_shared/voice-greeting.ts";
 import {
   mergeEndCallBuiltIn,
@@ -164,7 +165,8 @@ export function provisionElConversationConfig(input: ProvisionAgentInput & { sys
       first_message: padCallOpening(greeting),
       disable_first_message_interruptions: false,
       prompt: {
-        prompt: input.systemPrompt,
+        prompt: withCurrentDateTimeSection(input.systemPrompt),
+        timezone: timezoneForHomeState(input.customer?.home_state),
         llm: "gpt-4o-mini",
         temperature: 0.7,
         tools: provisionAgentTools(input.supabaseUrl, input.customerId),
