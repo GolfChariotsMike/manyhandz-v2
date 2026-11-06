@@ -8,6 +8,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import { handleRequest, type ChatStore } from "./handler.ts";
 import type { CachedJobRow, SimproConnection } from "../mhv2-simpro-create-job/create.ts";
 import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
+import { fetchOssieKnowledge, isOssieChatCustomer } from "./ossie-kb.ts";
 
 function createServiceClient() {
   return createClient(
@@ -39,8 +40,9 @@ function supabaseStore(): ChatStore {
       return data;
     },
     async upsertSession(row) {
+      const last_message_at = new Date().toISOString();
       if (row.id) {
-        await supabase.from("mh_chat_sessions").update({ messages: row.messages }).eq("id", row.id);
+        await supabase.from("mh_chat_sessions").update({ messages: row.messages, last_message_at }).eq("id", row.id);
         return row.id;
       }
       const { data } = await supabase
@@ -50,6 +52,7 @@ function supabaseStore(): ChatStore {
           visitor_id: row.visitor_id,
           messages: row.messages,
           resolved: false,
+          last_message_at,
         })
         .select("id")
         .single();
@@ -64,6 +67,18 @@ function supabaseStore(): ChatStore {
         .select("about,services,faqs,hours,tone,custom_instructions")
         .eq("customer_id", customerId)
         .maybeSingle();
+      // Ossie chat: live-read phone KB from Ossie ai_voice_settings. Local row is fallback only.
+      if (isOssieChatCustomer(customerId)) {
+        try {
+          const live = await fetchOssieKnowledge(fetch);
+          if (live?.kb) {
+            console.log("[ossie-kb] live", live.updated_at || "ok");
+            return live.kb;
+          }
+        } catch (err) {
+          console.error("[ossie-kb] live fetch failed, using local fallback", err);
+        }
+      }
       return data;
     },
     async loadPriceList(customerId) {
@@ -140,7 +155,7 @@ Deno.serve((req) =>
     twilioAccountSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioAuthToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
     smsFallbackFrom: Deno.env.get("MANYHANDZ_SMS_FROM") || Deno.env.get("TWILIO_SMS_FROM") || "",
-    resendApiKey: Deno.env.get("RESEND_API_KEY") || "",
+    resendApiKey: (Deno.env.get("MH_RESEND_API_KEY") ?? Deno.env.get("RESEND_API_KEY")) || "",
     store: supabaseStore(),
   }),
 );

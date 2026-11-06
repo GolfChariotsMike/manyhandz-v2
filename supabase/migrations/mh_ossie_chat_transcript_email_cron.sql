@@ -1,0 +1,14 @@
+-- Cron for mhv2-ossie-chat-transcript-email. NOT applied by supabase db push.
+-- Every 2 minutes. Copy Authorization Bearer from mh-trial-warnings-daily — do not commit the key.
+--
+-- SELECT cron.schedule(
+--   'mhv2-ossie-chat-transcript-email',
+--   '*/2 * * * *',
+--   $$
+--   SELECT net.http_post(
+--     url := 'https://kouembkldbpdbhzeaoth.supabase.co/functions/v1/mhv2-ossie-chat-transcript-email',
+--     headers := '{"Content-Type": "application/json", "Authorization": "Bearer <SERVICE_ROLE_JWT>"}'::jsonb,
+--     body := '{}'::jsonb
+--   ) as request_id
+--   $$
+-- );

@@ -3,14 +3,14 @@
  * agent (mh-sync-agent/prompt.ts), minus transfer / hang-up / caller ID.
  * Never dump a SimPRO job board into this prompt.
  */
-import { simproLeadsBookingRule } from "../_shared/booking-honesty.ts";
-import { formatCollectedSlots, type CollectedSlots } from "../_shared/collected-slots.ts";
+import { simproLeadsBookingRule } from "./booking-honesty.ts";
+import { formatCollectedSlots, type CollectedSlots } from "./collected-slots.ts";
 import {
   formatHours,
   formatPriceList,
   operatorPromptOverride,
   type PriceItem,
-} from "../mh-sync-agent/prompt.ts";
+} from "https://raw.githubusercontent.com/GolfChariotsMike/manyhandz-v2/a2d927f54eb5de249ae7fa034ec460361f179adb/supabase/functions/mh-sync-agent/prompt.ts";
 
 export type { PriceItem };
 
