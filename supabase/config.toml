@@ -126,3 +126,6 @@ verify_jwt = false
 # Daily cron (01:00 UTC). Same as live mh-trial-warnings — service-role JWT.
 [functions.mh-incomplete-onboarding]
 verify_jwt = true
+
+[functions.mhv2-ossie-chat-transcript-email]
+verify_jwt = true
