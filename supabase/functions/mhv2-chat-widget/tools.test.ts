@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import {
   CREATE_SIMPRO_JOB_TOOL_NAME,
+  LOOKUP_OSSIE_FIXTURES_TOOL_NAME,
   LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
   SAVE_MESSAGE_TOOL_NAME,
   SEND_SMS_TOOL_NAME,
@@ -12,6 +13,7 @@ import {
   type ChatToolContext,
   type ChatToolExecutors,
 } from "./tools.ts";
+import { OSSIE_CHAT_CUSTOMER_ID } from "./ossie-kb.ts";
 import type { CreateJobEnv } from "../mhv2-simpro-create-job/create.ts";
 import type { SaveMessageEnv } from "../mh-save-message/save.ts";
 import type { SendSmsEnv } from "../mh-send-sms/send.ts";
@@ -65,7 +67,7 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.ok(lookup);
   assert.match(lookup.description, /BOOKING PATH ONLY/i);
   assert.match(lookup.description, /never creates/i);
-  assert.match(lookup.description, /which street/i);
+  assert.match(lookup.description, /confirm the street/i);
   assert.match(lookup.description, /37 Derictoe or 67 Mars/);
   const create = tools.find((t) => t.name === CREATE_SIMPRO_JOB_TOOL_NAME);
   assert.ok(create);
@@ -105,6 +107,22 @@ test("chat tools are save_message + lookup + create_simpro_job + send_sms when c
   assert.match(create.description, /not a confirmed booking slot/i);
   assert.match(lookup.description, /preferred time of day/);
   assert.match(lookup.description, /preferred_time/);
+});
+
+test("lookup_ossie_fixtures is offered only when the Ossie cap is on", () => {
+  const glacier = chatTools({ capCreateSimproJob: true, capSendSms: true });
+  assert.equal(chatToolNames(glacier).includes(LOOKUP_OSSIE_FIXTURES_TOOL_NAME), false);
+  const ossie = chatTools({ capCreateSimproJob: false, capSendSms: false, capOssieFixtures: true });
+  assert.deepEqual(chatToolNames(ossie), [
+    SAVE_MESSAGE_TOOL_NAME,
+    LOOKUP_OSSIE_FIXTURES_TOOL_NAME,
+  ]);
+  const tool = ossie.find((t) => t.name === LOOKUP_OSSIE_FIXTURES_TOOL_NAME);
+  assert.ok(tool);
+  assert.match(tool.description, /Never invent fixtures/);
+  assert.match(tool.description, /https:\/\/play\.ossieindoor\.com\.au/);
+  assert.doesNotMatch(tool.description, /—/);
+  assert.ok(tool.input_schema.required?.includes("team_name"));
 });
 
 test("caps strip send_sms and create_simpro_job; transfer and lookup never appear", () => {
@@ -357,6 +375,81 @@ test("executeChatTool save_message and send_sms use the phone handlers", async (
   }, ctx));
   assert.equal(sms.success, true);
   assert.equal((texts[0] as { to: string }).to, "+61412345678");
+});
+
+test("executeChatTool refuses lookup_ossie_fixtures for any other customer", async () => {
+  let called = false;
+  const ctx = stubCtx({
+    createSimproJob: async () => {
+      throw new Error("must not create");
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  ctx.fetch = (async () => {
+    called = true;
+    return Response.json({});
+  }) as typeof fetch;
+  const raw = await executeChatTool(LOOKUP_OSSIE_FIXTURES_TOOL_NAME, {
+    team_name: "Rorbendchadp",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, false);
+  assert.match(result.error, /Unknown tool/);
+  assert.equal(called, false);
+  assert.notEqual(ctx.customerId, OSSIE_CHAT_CUSTOMER_ID);
+});
+
+test("executeChatTool lookup_ossie_fixtures returns matched team, time, court, and opponent", async () => {
+  const seen: Array<{ url: string; body: unknown }> = [];
+  const ctx = stubCtx({
+    createSimproJob: async () => {
+      throw new Error("must not create");
+    },
+    handleSaveMessage: async () => ({ success: true, notified: true }),
+    handleSendSms: async () => ({ success: true, sid: "SM1" }),
+  });
+  ctx.customerId = OSSIE_CHAT_CUSTOMER_ID;
+  ctx.fetch = (async (input, init) => {
+    seen.push({ url: String(input), body: JSON.parse(String(init?.body || "{}")) });
+    return Response.json({
+      ok: true,
+      query: "Rorbendchadp",
+      status: "ok",
+      window: { start: "2026-11-09", end: "2026-11-16", timezone: "Australia/Perth" },
+      matched_team: "RORBENCHADP",
+      matched_teams: ["RORBENCHADP"],
+      fixtures: [{
+        date: "2026-11-09",
+        time: "19:45",
+        court: "Court 4",
+        division: "DIV 4",
+        opponent: "FIX IT",
+        home_or_away: "away",
+      }],
+    });
+  }) as typeof fetch;
+  const raw = await executeChatTool(LOOKUP_OSSIE_FIXTURES_TOOL_NAME, {
+    team_name: "  Rorbendchadp  ",
+    date: "2026-11-09",
+  }, ctx);
+  const result = JSON.parse(raw);
+  assert.equal(result.ok, true);
+  assert.equal(result.status, "ok");
+  assert.equal(result.matched_team, "RORBENCHADP");
+  assert.equal(result.fixtures[0].time, "19:45");
+  assert.equal(result.fixtures[0].court, "Court 4");
+  assert.equal(result.fixtures[0].opponent, "FIX IT");
+  assert.match(result.suggested_reply, /RORBENCHADP/);
+  assert.match(result.suggested_reply, /19:45 Perth/);
+  assert.match(result.suggested_reply, /Court 4/);
+  assert.match(result.suggested_reply, /FIX IT/);
+  assert.match(result.portal_url, /https:\/\/play\.ossieindoor\.com\.au/);
+  assert.doesNotMatch(result.suggested_reply, /—/);
+  assert.deepEqual(seen, [{
+    url: "https://obtbmywqrzotvspgmaiq.supabase.co/functions/v1/ossie-fixture-lookup",
+    body: { team_name: "Rorbendchadp", date: "2026-11-09" },
+  }]);
 });
 
 test("unknown tools and lookup_jobs do not invent success", async () => {

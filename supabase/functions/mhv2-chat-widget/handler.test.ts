@@ -13,6 +13,7 @@ import {
 } from "./handler.ts";
 import type { PriceItem } from "./prompt.ts";
 import type { ChatToolExecutors } from "./tools.ts";
+import { OSSIE_CHAT_CUSTOMER_ID } from "./ossie-kb.ts";
 import type { CreateJobResult } from "../mhv2-simpro-create-job/create.ts";
 
 const CUST = "cust-1";
@@ -206,6 +207,8 @@ test("chat turn injects KB + price list and phone tools, never a job dump or tra
     "create_simpro_job",
     "send_sms",
   ]);
+  assert.equal(tools.some((t) => t.name === "lookup_ossie_fixtures"), false);
+  assert.doesNotMatch(system, /OSSIE FIXTURE LOOKUP/);
 });
 
 test("chat turn uses saved system_prompt as the live source and stays without transfer", async () => {
@@ -988,4 +991,198 @@ test("handler and index never dump mh_crm_jobs into the prompt or attach transfe
   assert.match(index, /mh_price_list/);
   assert.match(index, /mh_knowledge_base/);
   assert.match(index, /cacheJob/);
+  assert.match(handler, /isOssieChatCustomer/);
+  assert.match(handler, /capOssieFixtures: ossieChat/);
+});
+
+test("Ossie chat exposes lookup_ossie_fixtures and states the tool fixtures", async () => {
+  const fixtureCalls: Record<string, unknown>[] = [];
+  const claudeBodies: Record<string, unknown>[] = [];
+  const replies = [
+    {
+      stop_reason: "tool_use",
+      content: [{
+        type: "tool_use",
+        id: "tu-fix",
+        name: "lookup_ossie_fixtures",
+        input: { team_name: "Rorbendchadp" },
+      }],
+    },
+    {
+      stop_reason: "end_turn",
+      content: [{
+        type: "text",
+        text: "RORBENCHADP plays 9 Nov 2026, 19:45 Perth, Court 4, vs FIX IT.",
+      }],
+    },
+  ];
+  const data = defaultData({
+    config: {
+      customer_id: OSSIE_CHAT_CUSTOMER_ID,
+      widget_name: "Ossie",
+      greeting: "Hi",
+      fallback_message: "Not sure.",
+    },
+    customer: { business_name: "Ossie Indoor", country: "AU" },
+    voice: {
+      ai_name: "Trinity",
+      system_prompt: "Always mention Osborne Park.",
+      cap_quote_prices: true,
+      cap_send_sms: true,
+      cap_create_simpro_job: true,
+    },
+  });
+  const env: ChatEnv = {
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.includes("ossie-fixture-lookup")) {
+        fixtureCalls.push(JSON.parse(String(init?.body || "{}")));
+        return Response.json({
+          ok: true,
+          query: "Rorbendchadp",
+          status: "ok",
+          window: { start: "2026-11-09", end: "2026-11-16", timezone: "Australia/Perth" },
+          matched_team: "RORBENCHADP",
+          matched_teams: ["RORBENCHADP"],
+          fixtures: [{
+            date: "2026-11-09",
+            time: "19:45",
+            court: "Court 4",
+            division: "DIV 4",
+            opponent: "FIX IT",
+            home_or_away: "away",
+          }],
+        });
+      }
+      claudeBodies.push(JSON.parse(String(init?.body || "{}")));
+      const next = replies.shift() || {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Done." }],
+      };
+      return Response.json(next);
+    }) as typeof fetch,
+    now: () => new Date("2026-11-09T10:00:00+08:00"),
+    anthropicKey: "sk-ant-test",
+    encryptionKey: "enc",
+    twilioAccountSid: "ACtest",
+    twilioAuthToken: "secret-token",
+    smsFallbackFrom: "+61485021312",
+    store: memoryStore(data),
+    executors: {
+      createSimproJob: async () => {
+        throw new Error("fixture question must not create a lead");
+      },
+      lookupSimproCustomer: async () => {
+        throw new Error("fixture question must not look up SimPRO");
+      },
+      handleSaveMessage: async () => ({ success: true, notified: true }),
+      handleSendSms: async () => ({ success: true, sid: "SM1" }),
+    },
+  };
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embed_key: EMBED,
+        session_key: SESSION,
+        message: "Is Rorbendchadp's game at 7:45pm tonight?",
+      }),
+    }),
+    env,
+  );
+  const { status, body } = await jsonOf(res);
+  assert.equal(status, 200);
+  assert.match(String(body.reply), /RORBENCHADP/);
+  assert.match(String(body.reply), /19:45 Perth/);
+  assert.match(String(body.reply), /Court 4/);
+  assert.match(String(body.reply), /FIX IT/);
+
+  const tools = claudeBodies[0].tools as Array<{ name: string }>;
+  assert.equal(tools.some((t) => t.name === "lookup_ossie_fixtures"), true);
+  const system = String(claudeBodies[0].system);
+  assert.match(system, /Always mention Osborne Park/);
+  assert.ok(system.indexOf("Always mention Osborne Park") < system.indexOf("OSSIE FIXTURE LOOKUP"));
+  assert.match(system, /OSSIE FIXTURE LOOKUP/);
+  assert.match(system, /https:\/\/play\.ossieindoor\.com\.au/);
+  assert.doesNotMatch(String(claudeBodies[0].system).slice(String(claudeBodies[0].system).indexOf("OSSIE FIXTURE LOOKUP")), /—/);
+
+  assert.deepEqual(fixtureCalls, [{ team_name: "Rorbendchadp" }]);
+  const followup = claudeBodies[1].messages as Array<{ role: string; content: unknown }>;
+  const toolResult = JSON.stringify(followup);
+  assert.match(toolResult, /RORBENCHADP/);
+  assert.match(toolResult, /19:45/);
+  assert.match(toolResult, /Court 4/);
+  assert.match(toolResult, /FIX IT/);
+  assert.match(toolResult, /play\.ossieindoor\.com\.au/);
+});
+
+test("a failed Ossie fixture lookup tells the model to give the portal link", async () => {
+  const claudeBodies: Record<string, unknown>[] = [];
+  const replies = [
+    {
+      stop_reason: "tool_use",
+      content: [{
+        type: "tool_use",
+        id: "tu-miss",
+        name: "lookup_ossie_fixtures",
+        input: { team_name: "zzzznotateamqqq" },
+      }],
+    },
+    {
+      stop_reason: "end_turn",
+      content: [{
+        type: "text",
+        text: "I couldn't find that team on this week's draw. Log in and find your team at https://play.ossieindoor.com.au",
+      }],
+    },
+  ];
+  const data = defaultData({
+    config: {
+      customer_id: OSSIE_CHAT_CUSTOMER_ID,
+      widget_name: "Ossie",
+      fallback_message: "Not sure.",
+    },
+    customer: { business_name: "Ossie Indoor", country: "AU" },
+  });
+  const env: ChatEnv = {
+    fetch: (async (input, init) => {
+      const url = String(input);
+      if (url.includes("ossie-fixture-lookup")) {
+        return new Response("nope", { status: 502 });
+      }
+      claudeBodies.push(JSON.parse(String(init?.body || "{}")));
+      const next = replies.shift() || {
+        stop_reason: "end_turn",
+        content: [{ type: "text", text: "Done." }],
+      };
+      return Response.json(next);
+    }) as typeof fetch,
+    now: () => new Date("2026-11-09T10:00:00+08:00"),
+    anthropicKey: "sk-ant-test",
+    encryptionKey: "enc",
+    twilioAccountSid: "ACtest",
+    twilioAuthToken: "secret-token",
+    smsFallbackFrom: "+61485021312",
+    store: memoryStore(data),
+  };
+  const res = await handleRequest(
+    new Request("https://x.supabase.co/functions/v1/mhv2-chat-widget", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        embed_key: EMBED,
+        session_key: SESSION,
+        message: "What time do the Zzz play?",
+      }),
+    }),
+    env,
+  );
+  const { status, body } = await jsonOf(res);
+  assert.equal(status, 200);
+  assert.match(String(body.reply), /https:\/\/play\.ossieindoor\.com\.au/);
+  const followup = JSON.stringify(claudeBodies[1].messages);
+  assert.match(followup, /Lookup failed/);
+  assert.match(followup, /https:\/\/play\.ossieindoor\.com\.au/);
+  assert.match(followup, /log in and find their team/i);
 });
