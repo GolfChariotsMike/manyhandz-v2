@@ -89,7 +89,7 @@ test("simpro create-lead rule is default-on, honest on failure, and asks for a m
   assert.match(on, /Are you already a Acme Plumbing customer\?/);
   assert.match(on, /collect a mobile first/i);
   assert.match(on, /FIRST action after you have a mobile is lookup_simpro_customer/);
-  assert.match(on, /which street/);
+  assert.match(on, /confirm the street/);
   assert.match(on, /37 Derictoe or 67 Mars/);
   assert.match(on, /callers do not know site IDs/i);
   assert.match(on, /BOOKING PATH ONLY/);

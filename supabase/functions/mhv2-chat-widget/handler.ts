@@ -19,6 +19,8 @@ import {
 } from "../_shared/collected-slots.ts";
 import { lookupHitSpokenReply, lookupMissSpokenReply } from "../_shared/booking-honesty.ts";
 import { buildChatSystemPrompt, type PriceItem } from "./prompt.ts";
+import { isOssieChatCustomer } from "./ossie-kb.ts";
+import { ossieFixtureSystemRule } from "./ossie-fixtures.ts";
 import {
   CREATE_SIMPRO_JOB_TOOL_NAME,
   LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME,
@@ -334,6 +336,7 @@ function toolContext(env: ChatEnv, customer: CustomerRow | null, customerId: str
     customerId,
     country: customer?.country,
     executors: env.executors || defaultChatToolExecutors,
+    fetch: env.fetch,
     simproEnv,
     saveMessageEnv,
     sendSmsEnv,
@@ -391,7 +394,8 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
     const bookingConfirm = looksLikeBookingConfirm(message);
     const preferCreate = capCreateSimproJob && canCreateLead(slots) && bookingConfirm;
 
-    const systemPrompt = buildChatSystemPrompt({
+    const ossieChat = isOssieChatCustomer(customerId);
+    const systemPrompt = `${buildChatSystemPrompt({
       aiName: voice?.ai_name?.trim() || "Your AI assistant",
       businessName: customer?.business_name || "this business",
       about: kb?.about || "",
@@ -408,9 +412,9 @@ export async function handleRequest(req: Request, env: ChatEnv): Promise<Respons
       capCreateSimproJob,
       collectedSlots: slots,
       systemPrompt: voice?.system_prompt,
-    });
+    })}${ossieChat ? `\n\n${ossieFixtureSystemRule()}` : ""}`;
 
-    const tools = chatTools({ capCreateSimproJob, capSendSms });
+    const tools = chatTools({ capCreateSimproJob, capSendSms, capOssieFixtures: ossieChat });
     const ctx = toolContext(env, customer, customerId);
 
     const loopMessages: Array<Record<string, unknown>> = [

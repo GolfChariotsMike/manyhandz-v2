@@ -4,6 +4,7 @@
  * lookup_simpro_customer (phone/name → customer + sites, never creates),
  * create_simpro_job (reuse lookup, or find-or-create only on a miss),
  * save_message, send_sms.
+ * Ossie chat only: lookup_ossie_fixtures (public read-only draw).
  */
 import {
   createSimproJob,
@@ -30,6 +31,14 @@ import {
   type SendSmsParsed,
 } from "../mh-send-sms/send.ts";
 import type { SmsSendResult } from "../_shared/sms-send.ts";
+import { isOssieChatCustomer } from "./ossie-kb.ts";
+import {
+  executeOssieFixtureLookup,
+  LOOKUP_OSSIE_FIXTURES_TOOL_NAME,
+  lookupOssieFixturesChatTool,
+} from "./ossie-fixtures.ts";
+
+export { LOOKUP_OSSIE_FIXTURES_TOOL_NAME };
 
 export const CREATE_SIMPRO_JOB_TOOL_NAME = "create_simpro_job";
 export const LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME = "lookup_simpro_customer";
@@ -49,6 +58,8 @@ export type AnthropicTool = {
 export type ChatToolCaps = {
   capCreateSimproJob: boolean;
   capSendSms: boolean;
+  /** Ossie website chat only. Other tenants must not see this tool. */
+  capOssieFixtures?: boolean;
 };
 
 export type ChatToolExecutors = {
@@ -149,6 +160,7 @@ export function chatTools(caps: ChatToolCaps): AnthropicTool[] {
     tools.push(createSimproJobChatTool());
   }
   if (caps.capSendSms) tools.push(sendSmsChatTool());
+  if (caps.capOssieFixtures) tools.push(lookupOssieFixturesChatTool());
   return tools;
 }
 
@@ -164,6 +176,8 @@ export type ChatBookingLeadState = {
 export type ChatToolContext = {
   customerId: string;
   country?: string | null;
+  /** Fixture lookup and any other direct HTTP from a tool. Defaults to global fetch. */
+  fetch?: typeof fetch;
   executors?: ChatToolExecutors;
   simproEnv: CreateJobEnv;
   saveMessageEnv: SaveMessageEnv;
@@ -179,6 +193,16 @@ export async function executeChatTool(
 ): Promise<string> {
   const exec = ctx.executors || defaultChatToolExecutors;
   try {
+    if (name === LOOKUP_OSSIE_FIXTURES_TOOL_NAME) {
+      if (!isOssieChatCustomer(ctx.customerId)) {
+        return JSON.stringify({
+          ok: false,
+          error: "Unknown tool. Do not claim the action succeeded.",
+        });
+      }
+      return executeOssieFixtureLookup(input, ctx.fetch || fetch);
+    }
+
     if (name === LOOKUP_SIMPRO_CUSTOMER_TOOL_NAME) {
       const parsed = parseLookupCustomerInput(input, ctx.customerId);
       if ("ok" in parsed && parsed.ok === false) return JSON.stringify(parsed);
