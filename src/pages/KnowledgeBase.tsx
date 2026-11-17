@@ -8,6 +8,7 @@ import {
   getVoiceConfig,
   getPriceList,
   getActiveConnectionPlatforms,
+  SUPABASE_ANON_KEY,
 } from "../lib/api";
 import {
   composedAiPromptFromRows,
@@ -19,7 +20,6 @@ import {
 } from "../lib/knowledge-prompt";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
 export default function KnowledgeBase() {
   const [kb, setKb] = useState<any>(null);

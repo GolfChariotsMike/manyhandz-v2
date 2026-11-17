@@ -1,5 +1,6 @@
 import { requireAdminUser } from "../_shared/admin-auth-live.ts";
-import { createJWT, jwtSecretFromEnv } from "../mh-v2-auth/handler.ts";
+import { JWT_SECRET_MISSING_LOG, jwtSecretFromEnv } from "../_shared/jwt-secret.ts";
+import { createJWT } from "../mh-v2-auth/handler.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
@@ -67,9 +68,14 @@ Deno.serve(async (req) => {
     const rows = await custRes.json().catch(() => null);
     const customer = Array.isArray(rows) ? rows[0] : null;
     if (!customer?.id) return json({ error: "Account not found" }, 404);
+    const jwtSecret = jwtSecretFromEnv((key) => Deno.env.get(key));
+    if (!jwtSecret) {
+      console.error(JWT_SECRET_MISSING_LOG);
+      return json({ error: "Server is not configured" }, 500);
+    }
     const token = await createJWT(
       { sub: customer.id, email: customer.email, assumed: true },
-      jwtSecretFromEnv((key) => Deno.env.get(key)),
+      jwtSecret,
     );
     return json({ token, customer });
   }

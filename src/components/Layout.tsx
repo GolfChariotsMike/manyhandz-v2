@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Outlet, NavLink, useNavigate } from "react-router-dom";
 import { Home, Brain, Phone, Sparkles, MessageSquare, BarChart3, LogOut, Users, CreditCard, DollarSign, BookOpen, Menu, X, Plug, Bug, Check, ShieldCheck, AlertTriangle, XCircle, PhoneOutgoing } from "lucide-react";
-import { clearToken, getMe, submitBugReport } from "../lib/api";
+import { SUPABASE_ANON_KEY, clearToken, getMe, submitBugReport } from "../lib/api";
 import { trialCountdown, trialCountdownHeadline } from "../lib/trialCountdown";
 
 function TrialBanner() {
@@ -86,7 +86,7 @@ function ReportBugButton({ onClose: _onClose }: { onClose: () => void }) {
   const [message, setMessage] = useState("");
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
-  const ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
+  const ANON_KEY = SUPABASE_ANON_KEY;
 
   async function handleSubmit() {
     if (!message.trim()) return;

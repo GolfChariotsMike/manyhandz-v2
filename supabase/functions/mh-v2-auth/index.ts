@@ -6,9 +6,9 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { magicLinkEmailCopy } from "./draft.ts";
+import { requireAdminUser } from "../_shared/admin-auth-live.ts";
 import {
   DEFAULT_APP_URL,
-  adminSecretsFromEnv,
   handleRequest,
   jwtSecretFromEnv,
   serviceKeyFromEnv,
@@ -62,7 +62,7 @@ Deno.serve((req) =>
     jwtSecret,
     appUrl,
     admin,
-    adminSecrets: adminSecretsFromEnv((k) => Deno.env.get(k)),
+    requireAdmin: (req) => requireAdminUser(req),
     now: () => new Date(),
     randomToken: () => crypto.randomUUID() + crypto.randomUUID(),
     sendMagicLinkEmail,

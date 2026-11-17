@@ -26,6 +26,7 @@
  *   POST /chat-config/create     create the widget row if missing
  *   POST /bug-report             insert mh_bug_reports for this customer
  */
+import { missingJwtSecretResponse } from "../_shared/jwt-secret.ts";
 import { bearerToken, verifyHs256Jwt } from "../mh-v2-save/handler.ts";
 
 export const corsHeaders = {
@@ -389,6 +390,7 @@ const POST_ROUTES: Record<string, Handler> = {
 
 export async function handleRequest(req: Request, env: DataEnv): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (!String(env.jwtSecret || "").trim()) return missingJwtSecretResponse(corsHeaders);
   const route = parseDataRoute(new URL(req.url));
   const table = req.method === "GET" ? GET_ROUTES : req.method === "POST" ? POST_ROUTES : null;
   if (!table) return jsonResponse({ error: "Method not allowed" }, 405);

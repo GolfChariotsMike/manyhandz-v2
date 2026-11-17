@@ -8,7 +8,8 @@
  * only create path. Unknown login emails return no_account 404.
  */
 
-import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
+import type { AdminDecision } from "../_shared/admin-auth.ts";
+import { jwtSecretFromEnv, missingJwtSecretResponse } from "../_shared/jwt-secret.ts";
 import {
   assessSignupWebsite,
   fetchSignupWebsitePage,
@@ -35,8 +36,8 @@ export const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-admin-token",
 };
 
-export const DEFAULT_JWT_SECRET = "mh-v2-secret-key-change-in-prod";
 export const DEFAULT_APP_URL = "https://app.manyhandz.ai";
+export { jwtSecretFromEnv };
 
 export type QueryResult = { data: unknown; error: { message: string } | null };
 
@@ -57,7 +58,8 @@ export type AuthEnv = {
   jwtSecret: string;
   appUrl: string;
   admin: AdminClient;
-  adminSecrets: Set<string>;
+  /** Same gate as mhv2-admin: Bearer token, Supabase Auth or dashboard JWT, ADMIN_EMAILS. */
+  requireAdmin: (req: Request) => Promise<AdminDecision>;
   now: () => Date;
   randomToken: () => string;
   sendMagicLinkEmail: (email: string, magicUrl: string, isSetup: boolean) => Promise<void>;
@@ -70,20 +72,6 @@ export type AuthEnv = {
 
 export function serviceKeyFromEnv(getEnv: (key: string) => string | undefined): string {
   return getEnv("SUPABASE_SERVICE_ROLE_KEY") || getEnv("MH_SERVICE_KEY") || "";
-}
-
-export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): string {
-  return getEnv("MH_JWT_SECRET") || DEFAULT_JWT_SECRET;
-}
-
-export function adminSecretsFromEnv(getEnv: (key: string) => string | undefined): Set<string> {
-  const s = new Set<string>();
-  for (const key of ["MH_ADMIN_SECRET", "MH_ADMIN_PIN", "MH_ADMIN_TOKEN"]) {
-    const v = getEnv(key);
-    if (v) s.add(v);
-  }
-  s.add(DASHBOARD_ADMIN_PIN);
-  return s;
 }
 
 export function routeAction(url: URL): string {
@@ -245,10 +233,8 @@ async function findCustomerById(admin: AdminClient, id: string): Promise<Custome
 }
 
 async function handleAdminAssume(body: Record<string, unknown>, req: Request, env: AuthEnv): Promise<Response> {
-  const offered = String(body.secret || req.headers.get("x-admin-token") || "");
-  if (!offered || !env.adminSecrets.has(offered)) {
-    return jsonResponse({ error: "Not found" }, 404);
-  }
+  const decision = await env.requireAdmin(req);
+  if (!decision.ok) return jsonResponse({ error: decision.error }, decision.status);
   const customerId = String(body.customer_id || "").trim();
   if (!customerId) throw new Error("customer_id required");
   const customer = await findCustomerById(env.admin, customerId);
@@ -409,6 +395,9 @@ async function handleMe(req: Request, env: AuthEnv): Promise<Response> {
 
 export async function handleRequest(req: Request, env: AuthEnv): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (!String(env.jwtSecret || "").trim()) {
+    return missingJwtSecretResponse(corsHeaders, env.log);
+  }
 
   const path = routeAction(new URL(req.url));
   let body: Record<string, unknown> = {};

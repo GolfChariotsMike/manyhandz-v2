@@ -4,7 +4,8 @@
  * dashboard session JWT if Auth does not recognise it.
  */
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { jwtSecretFromEnv, verifyJWT } from "../mh-v2-auth/handler.ts";
+import { jwtSecretFromEnv, JWT_SECRET_MISSING_LOG } from "./jwt-secret.ts";
+import { verifyJWT } from "../mh-v2-auth/handler.ts";
 import {
   adminEmailsFromEnv,
   bearerToken,
@@ -16,9 +17,14 @@ export async function requireAdminUser(req: Request): Promise<AdminDecision> {
   const url = Deno.env.get("SUPABASE_URL") || "";
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
   const getEnv = (name: string) => Deno.env.get(name);
+  const jwtSecret = jwtSecretFromEnv(getEnv);
+  if (!jwtSecret) {
+    console.error(JWT_SECRET_MISSING_LOG);
+    return { ok: false, status: 500, error: "Server is not configured" };
+  }
 
   return decideAdminAccess(bearerToken(req), adminEmailsFromEnv(getEnv), {
-    jwtSecret: jwtSecretFromEnv(getEnv),
+    jwtSecret,
     getAuthUser: async (jwt) => {
       if (!url || !key) return null;
       const supabase = createClient(url, key, {

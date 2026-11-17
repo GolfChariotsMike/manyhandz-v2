@@ -4,12 +4,12 @@
  * itself before using the service role scoped to jwt.sub.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { DEFAULT_JWT_SECRET } from "../mh-v2-save/handler.ts";
+import { jwtSecretFromEnv } from "../_shared/jwt-secret.ts";
 import { handleRequest, type DataDb, type Filters, type Row } from "./handler.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-const jwtSecret = Deno.env.get("MH_JWT_SECRET") || DEFAULT_JWT_SECRET;
+const jwtSecret = jwtSecretFromEnv((key) => Deno.env.get(key));
 
 const client = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
