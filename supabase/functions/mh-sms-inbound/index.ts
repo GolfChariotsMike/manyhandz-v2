@@ -2,6 +2,7 @@
  * mh-sms-inbound — Twilio SMS webhook for ManyHandz v2 numbers.
  * verify_jwt is false. Do not wire the legacy sms-webhook path here.
  */
+import { JWT_SECRET_MISSING_LOG, jwtSecretFromEnv } from "../_shared/jwt-secret.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import type { SmsConfirmPending } from "../_shared/sms-confirm.ts";
 import { parseRequestBody } from "../_shared/sms-send.ts";
@@ -94,6 +95,14 @@ async function completeWithLlm(
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  const jwtSecret = jwtSecretFromEnv((key) => Deno.env.get(key));
+  if (!jwtSecret) {
+    console.error(JWT_SECRET_MISSING_LOG);
+    return new Response(JSON.stringify({ error: "Server is not configured" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   try {
     const body = await parseRequestBody(req);
@@ -191,7 +200,7 @@ Deno.serve(async (req) => {
         const taskEnv: OutboundTaskEnv = {
           now: () => new Date(),
           fetch: globalThis.fetch.bind(globalThis),
-          jwtSecret: Deno.env.get("MH_JWT_SECRET") || "mh-v2-secret-key-change-in-prod",
+          jwtSecret,
           supabaseUrl,
           serviceKey,
           twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",

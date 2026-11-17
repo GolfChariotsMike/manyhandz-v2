@@ -19,7 +19,7 @@ export type AdminAuthDeps = {
 
 export type AdminDecision =
   | { ok: true; email: string }
-  | { ok: false; status: 401 | 403; error: string };
+  | { ok: false; status: 401 | 403 | 500; error: string };
 
 export function bearerToken(req: Request): string {
   const header = req.headers.get("authorization") || "";

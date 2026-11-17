@@ -2,7 +2,10 @@ import { mergeCallLogRows } from "./call-log.ts";
 import { meCache } from "./meCache.ts";
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
+/** Public anon key. Set VITE_SUPABASE_ANON_KEY. No JWT is baked into the bundle. */
+export const SUPABASE_ANON_KEY = typeof import.meta.env === "undefined"
+  ? ""
+  : String(import.meta.env.VITE_SUPABASE_ANON_KEY || "").trim();
 
 const FN_URL = `${SUPABASE_URL}/functions/v1`;
 

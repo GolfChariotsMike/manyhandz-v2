@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { DEFAULT_JWT_SECRET, signHs256Jwt } from "../mh-v2-save/handler.ts";
+import { signHs256Jwt } from "../mh-v2-save/handler.ts";
 import {
   handleRequest,
   parseDataRoute,
@@ -13,7 +13,7 @@ import {
 
 const A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-const SECRET = DEFAULT_JWT_SECRET;
+const SECRET = "test-jwt-secret";
 
 type Tables = Record<string, Row[]>;
 

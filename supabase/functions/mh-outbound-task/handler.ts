@@ -8,6 +8,7 @@
  *   SMS/phone — From / caller_id must match owner notify mobile or mh_staff
  *   Twilio/EL webhooks — task_id / customer_id on the query string
  */
+import { missingJwtSecretResponse } from "../_shared/jwt-secret.ts";
 import { handleCallStatus, type CallStatusEnv } from "../mh-call-status/status.ts";
 import { bearerToken, verifyHs256Jwt } from "../mh-v2-save/handler.ts";
 import {
@@ -600,6 +601,7 @@ export async function handleReport(
 
 export async function handleRequest(req: Request, env: OutboundTaskEnv): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { status: 200, headers: corsHeaders });
+  if (!String(env.jwtSecret || "").trim()) return missingJwtSecretResponse(corsHeaders);
   const url = new URL(req.url);
   const path = routePath(url);
 

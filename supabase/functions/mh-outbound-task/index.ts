@@ -5,6 +5,7 @@
  * Pin/redeploy this function after merge. Apply 20260904130000_mh_outbound_tasks.sql
  * on DraftPilot first.
  */
+import { jwtSecretFromEnv } from "../_shared/jwt-secret.ts";
 import { handleRequest, type OutboundTaskEnv } from "./handler.ts";
 
 function envFromDeno(): OutboundTaskEnv {
@@ -12,7 +13,7 @@ function envFromDeno(): OutboundTaskEnv {
   return {
     now: () => new Date(),
     fetch: globalThis.fetch.bind(globalThis),
-    jwtSecret: Deno.env.get("MH_JWT_SECRET") || "mh-v2-secret-key-change-in-prod",
+    jwtSecret: jwtSecretFromEnv((key) => Deno.env.get(key)),
     supabaseUrl,
     serviceKey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || Deno.env.get("MH_SERVICE_KEY") || "",
     twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",

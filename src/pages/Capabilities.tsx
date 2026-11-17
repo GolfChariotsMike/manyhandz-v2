@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { Check, Loader, Sparkles } from "lucide-react";
-import { getMe, getVoiceConfig, updateVoiceConfig } from "../lib/api";
+import { SUPABASE_ANON_KEY, getMe, getVoiceConfig, updateVoiceConfig } from "../lib/api";
 import { AGENT_CAPABILITIES, capsFromConfig, capsSavePayload } from "../lib/capabilities";
 
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 
 export default function Capabilities() {

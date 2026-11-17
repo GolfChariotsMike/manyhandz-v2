@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { Plug, CheckCircle, AlertCircle, RefreshCw, Trash2, Loader2, Bot, Copy, Check, KeyRound, ExternalLink } from "lucide-react";
-import { generateGrokbotKey, getGrokbotKey, getMe, getVoiceConfig, revokeGrokbotKey, saveVoiceNotifySms, updateProfile } from "../lib/api";
+import { SUPABASE_ANON_KEY, generateGrokbotKey, getGrokbotKey, getMe, getVoiceConfig, revokeGrokbotKey, saveVoiceNotifySms, updateProfile } from "../lib/api";
 import { AU_HOME_STATES, homeStatePayloadFromForm, normalizeMarket, notifyMobilePlaceholder } from "../lib/onboarding";
 import { notifyChannelOn, notifyEmailPayloadFromForm, notifySmsSettingsPayload } from "../lib/notify-settings";
 
@@ -71,7 +71,6 @@ function GrokBotSetupSteps({
 function getToken(): string | null { return localStorage.getItem("mh_token"); }
 
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const FN_URL = `${SUPABASE_URL}/functions/v1`;
 
 async function callFn(fn: string, body: unknown) {

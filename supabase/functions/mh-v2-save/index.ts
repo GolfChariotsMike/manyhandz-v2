@@ -5,15 +5,15 @@
  * message_count only; GET /chat-sessions/:id returns messages for jwt.sub.
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { jwtSecretFromEnv } from "../_shared/jwt-secret.ts";
 import {
-  DEFAULT_JWT_SECRET,
   handleRequest,
   type AdminClient,
 } from "./handler.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") || "";
 const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
-const jwtSecret = Deno.env.get("MH_JWT_SECRET") || DEFAULT_JWT_SECRET;
+const jwtSecret = jwtSecretFromEnv((key) => Deno.env.get(key));
 
 const admin = createClient(supabaseUrl, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },

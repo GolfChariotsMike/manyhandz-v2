@@ -6,14 +6,15 @@
  * JWT is HMAC-SHA256 with MH_JWT_SECRET; sub is the customer id.
  */
 import { normalizeHomeState } from "../_shared/au-home-state.ts";
+import { jwtSecretFromEnv, missingJwtSecretResponse } from "../_shared/jwt-secret.ts";
+
+export { jwtSecretFromEnv };
 
 export const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
-
-export const DEFAULT_JWT_SECRET = "mh-v2-secret-key-change-in-prod";
 
 export type QueryResult = { data: unknown; error: { message: string } | null };
 
@@ -148,10 +149,6 @@ export function projectChatSessions(data: unknown): ChatSessionRow[] {
     if (rows.length >= CHAT_SESSION_LIMIT) break;
   }
   return rows;
-}
-
-export function jwtSecretFromEnv(getEnv: (key: string) => string | undefined): string {
-  return getEnv("MH_JWT_SECRET") || DEFAULT_JWT_SECRET;
 }
 
 export function routeAction(url: URL): string {
@@ -438,6 +435,7 @@ async function customerIdFromRequest(req: Request, env: SaveEnv): Promise<string
 
 export async function handleRequest(req: Request, env: SaveEnv): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (!String(env.jwtSecret || "").trim()) return missingJwtSecretResponse(corsHeaders);
 
   const { action, id: sessionId } = parseSaveRoute(new URL(req.url));
   if (action === "chat-sessions") {

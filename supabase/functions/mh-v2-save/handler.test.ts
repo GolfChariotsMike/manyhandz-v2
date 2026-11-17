@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   CHAT_PREVIEW_MAX,
   CHAT_SESSION_LIMIT,
-  DEFAULT_JWT_SECRET,
   firstUserMessagePreview,
   handleRequest,
   jwtSecretFromEnv,
@@ -24,7 +23,7 @@ import {
 
 const CUST = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const OTHER = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
-const SECRET = DEFAULT_JWT_SECRET;
+const SECRET = "test-jwt-secret";
 
 type Store = {
   customers: Record<string, Record<string, unknown>>;
@@ -199,8 +198,8 @@ describe("path + jwt helpers", () => {
     assert.equal(parseSaveRoute(new URL("https://x.supabase.co/functions/v1/mh-v2-save/profile")).action, "profile");
   });
 
-  it("falls back to the same default secret as mh-v2-auth /me", () => {
-    assert.equal(jwtSecretFromEnv(() => undefined), DEFAULT_JWT_SECRET);
+  it("requires MH_JWT_SECRET and does not fall back to a built-in secret", () => {
+    assert.equal(jwtSecretFromEnv(() => undefined), "");
     assert.equal(jwtSecretFromEnv((k) => k === "MH_JWT_SECRET" ? "prod-secret" : undefined), "prod-secret");
   });
 

@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from "react";
-import { getMe, getVoiceCalls, getGrokbotKey, submitBugReport } from "../lib/api";
+import { SUPABASE_ANON_KEY, getMe, getVoiceCalls, getGrokbotKey, submitBugReport } from "../lib/api";
 import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { Phone, BookOpen, Zap, Check, ArrowRight, Bot, MessageSquare, DollarSign, PhoneIncoming, Play, Pause, Loader, ChevronDown, ChevronUp, Bug, Send, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 const EL_PROXY = `${"https://kouembkldbpdbhzeaoth.supabase.co"}/functions/v1/mhv2-el-proxy`;
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 
 function CallStats({ calls }: { calls: any[] }) {
   const rows = mergeCallLogRows(calls);

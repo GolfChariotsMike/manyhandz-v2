@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { DASHBOARD_ADMIN_PIN } from "../_shared/admin-dashboard-pin.ts";
+import { bearerToken } from "../_shared/admin-auth.ts";
+import type { AdminDecision } from "../_shared/admin-auth.ts";
 import {
-  DEFAULT_JWT_SECRET,
-  adminSecretsFromEnv,
   createJWT,
   handleRequest,
+  verifyJWT,
   jwtSecretFromEnv,
   serviceKeyFromEnv,
   type AdminClient,
@@ -18,8 +18,14 @@ import {
 } from "./handler.ts";
 
 const CUST = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-const SECRET = DEFAULT_JWT_SECRET;
-const ADMIN_PIN = "test-admin-pin";
+const SECRET = "test-jwt-secret";
+
+function requireAdminForTest(req: Request): Promise<AdminDecision> {
+  const token = bearerToken(req);
+  if (token === "admin-ok") return Promise.resolve({ ok: true, email: "admin@example.com" });
+  if (!token) return Promise.resolve({ ok: false, status: 401, error: "Unauthorized" });
+  return Promise.resolve({ ok: false, status: 403, error: "Forbidden" });
+}
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 type Store = {
@@ -155,7 +161,7 @@ function envFor(store: Store, emails: { email: string; url: string; isSetup: boo
     jwtSecret: SECRET,
     appUrl: "https://app.manyhandz.ai",
     admin: memoryAdmin(store),
-    adminSecrets: new Set([ADMIN_PIN]),
+    requireAdmin: requireAdminForTest,
     now: () => new Date("2026-09-02T01:00:00.000Z"),
     randomToken: () => "magic-token-1",
     sendMagicLinkEmail: async (email, url, isSetup) => {
@@ -203,13 +209,8 @@ describe("service role env — no management API token", () => {
       serviceKeyFromEnv((k) => k === "SUPABASE_SERVICE_ROLE_KEY" ? "sr-key" : k === "MH_SERVICE_KEY" ? "mh-key" : undefined),
       "sr-key",
     );
-    assert.equal(jwtSecretFromEnv(() => undefined), DEFAULT_JWT_SECRET);
-    const emptyEnv = adminSecretsFromEnv(() => undefined);
-    assert.equal(emptyEnv.has(DASHBOARD_ADMIN_PIN), true);
-    assert.equal(emptyEnv.size, 1);
-    const withEnvPin = adminSecretsFromEnv((k) => k === "MH_ADMIN_PIN" ? ADMIN_PIN : undefined);
-    assert.equal(withEnvPin.has(ADMIN_PIN), true);
-    assert.equal(withEnvPin.has(DASHBOARD_ADMIN_PIN), true);
+    assert.equal(jwtSecretFromEnv(() => undefined), "");
+    assert.equal(jwtSecretFromEnv((k) => k === "MH_JWT_SECRET" ? "from-env" : undefined), "from-env");
   });
 
   it("index and handler never mention SUPABASE_MGMT_TOKEN or the management query API", () => {
@@ -229,7 +230,9 @@ describe("service role env — no management API token", () => {
     assert.match(index, /@supabase\/supabase-js/);
     assert.match(handler, /\.from\("mh_v2_customers"\)/);
     assert.match(handler, /\.from\("mh_magic_tokens"\)/);
-    assert.match(handler, /admin-dashboard-pin/);
+    assert.doesNotMatch(handler, /admin-dashboard-pin/);
+    assert.doesNotMatch(handler, /DEFAULT_JWT_SECRET/);
+    assert.doesNotMatch(handler, /MH_JWT_SECRET"\)\s*\|\|\s*"/);
     assert.match(handler, /MAGIC_LINK_TTL_MS/);
     assert.match(index, /magicLinkEmailCopy/);
     assert.match(index, /TURNSTILE_SECRET_KEY|turnstileSecret/);
@@ -613,68 +616,56 @@ describe("verify / me / admin-assume", () => {
     assert.match(res.body.error, /No auth/);
   });
 
-  it("admin-assume issues an assumed jwt for a valid secret", async () => {
+  it("admin-assume issues an assumed jwt for an allowlisted bearer token", async () => {
     const res = await json(await handleRequest(
-      post("", { action: "admin-assume", secret: ADMIN_PIN, customer_id: CUST }),
+      post("", { action: "admin-assume", customer_id: CUST }, { Authorization: "Bearer admin-ok" }),
       envFor(seed()),
     ));
     assert.equal(res.status, 200);
     assert.equal(typeof res.body.token, "string");
     assert.equal(res.body.customer.id, CUST);
+    const payload = await verifyJWT(String(res.body.token), SECRET);
+    assert.equal(payload?.assumed, true);
   });
 
-  it("admin-assume with a bad secret is 404 and does not leak the account", async () => {
+  it("admin-assume ignores a body secret and returns 401 without a bearer token", async () => {
     const res = await json(await handleRequest(
-      post("admin-assume", { secret: "wrong", customer_id: CUST }),
+      post("admin-assume", { secret: "not-a-pin", customer_id: CUST }),
       envFor(seed()),
     ));
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, "Not found");
+    assert.equal(res.status, 401);
+    assert.equal(res.body.customer, undefined);
   });
 
-  it("admin-assume succeeds with the dashboard PIN when env secrets are empty", async () => {
-    const env = envFor(seed());
-    env.adminSecrets = adminSecretsFromEnv(() => undefined);
+  it("admin-assume returns 403 when the bearer token is not an admin", async () => {
     const res = await json(await handleRequest(
-      postAuthRoot({ action: "admin-assume", secret: DASHBOARD_ADMIN_PIN, customer_id: CUST }),
-      env,
+      postAuthRoot({ action: "admin-assume", customer_id: CUST }, { Authorization: "Bearer someone-else" }),
+      envFor(seed()),
     ));
-    assert.equal(res.status, 200);
-    assert.equal(typeof res.body.token, "string");
-    assert.equal(res.body.customer.id, CUST);
+    assert.equal(res.status, 403);
+    assert.equal(res.body.customer, undefined);
   });
 
-  it("admin-assume with a garbage secret is 404 Not found", async () => {
-    const env = envFor(seed());
-    env.adminSecrets = adminSecretsFromEnv(() => undefined);
+  it("admin-assume with an admin token and unknown customer is 400", async () => {
     const res = await json(await handleRequest(
-      postAuthRoot({ action: "admin-assume", secret: "garbage-not-a-pin", customer_id: CUST }),
-      env,
-    ));
-    assert.equal(res.status, 404);
-    assert.equal(res.body.error, "Not found");
-  });
-
-  it("admin-assume still succeeds with MH_ADMIN_PIN from env", async () => {
-    const env = envFor(seed());
-    env.adminSecrets = adminSecretsFromEnv((k) => k === "MH_ADMIN_PIN" ? ADMIN_PIN : undefined);
-    const res = await json(await handleRequest(
-      postAuthRoot({ action: "admin-assume", secret: ADMIN_PIN, customer_id: CUST }),
-      env,
-    ));
-    assert.equal(res.status, 200);
-    assert.equal(typeof res.body.token, "string");
-    assert.equal(res.body.customer.id, CUST);
-  });
-
-  it("admin-assume with a valid secret and unknown customer is 400 Account not found", async () => {
-    const env = envFor(seed());
-    env.adminSecrets = adminSecretsFromEnv(() => undefined);
-    const res = await json(await handleRequest(
-      postAuthRoot({ action: "admin-assume", secret: DASHBOARD_ADMIN_PIN, customer_id: "missing-customer" }),
-      env,
+      postAuthRoot(
+        { action: "admin-assume", customer_id: "missing-customer" },
+        { Authorization: "Bearer admin-ok" },
+      ),
+      envFor(seed()),
     ));
     assert.equal(res.status, 400);
     assert.equal(res.body.error, "Account not found");
+  });
+
+  it("returns 500 when MH_JWT_SECRET is missing and does not log a secret", async () => {
+    const logs: string[] = [];
+    const env = envFor(seed());
+    env.jwtSecret = "";
+    env.log = (msg) => logs.push(msg);
+    const res = await json(await handleRequest(post("me", {}), env));
+    assert.equal(res.status, 500);
+    assert.equal(res.body.error, "Server is not configured");
+    assert.deepEqual(logs, ["MH_JWT_SECRET is not set"]);
   });
 });

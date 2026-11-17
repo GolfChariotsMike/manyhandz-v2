@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { getMe, getVoiceCalls, getVoiceConfig, updateVoiceConfig } from "../lib/api";
+import { SUPABASE_ANON_KEY, getMe, getVoiceCalls, getVoiceConfig, updateVoiceConfig } from "../lib/api";
 import { conversationIdForCall, formatCallTime, mergeCallLogRows } from "../lib/call-log";
 import { provisionNumberBody } from "../lib/onboarding";
 import { VOICES } from "../lib/voices";
@@ -26,7 +26,6 @@ import {
 } from "../lib/voice-controls";
 import { Phone, PhoneIncoming, Plus, Trash2, Play, Pause, Check, Loader, ChevronDown, ChevronUp } from "lucide-react";
 
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw";
 const SUPABASE_URL = "https://kouembkldbpdbhzeaoth.supabase.co";
 const EL_PROXY = `${SUPABASE_URL}/functions/v1/mhv2-el-proxy`;
 const PREVIEW_TEXT = "Hi there! Thanks for calling. I'm your AI receptionist — how can I help you today?";
