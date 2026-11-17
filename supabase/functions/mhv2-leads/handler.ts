@@ -1,10 +1,10 @@
 /**
  * Admin /try leads API. verify_jwt is false (see supabase/config.toml).
- * Auth is the same x-admin-token Admin.tsx already sends to mhv2-admin.
+ * The admin UI sends the signed-in user's bearer token (isAdmin).
+ * MH_ADMIN_TOKEN, when set, still accepts x-admin-token for server callers.
+ * There is no hardcoded token fallback.
  * Reads and patches public.mh_demo_leads only — no Twilio / outreach keys.
  */
-
-export const FALLBACK_ADMIN_TOKEN = "mh_admin_mikek";
 
 export const LEAD_SELECT =
   "id,name,email,phone_e164,status,twilio_sid,created_at,followup_email_sent_at,followup_called_at";
@@ -27,16 +27,19 @@ export type LeadRow = {
   followup_called_at: string | null;
 };
 
+export type AdminGate = { ok: true } | { ok: false; status: number; error: string };
+
 export type LeadsEnv = {
   now: () => Date;
   adminToken: string;
   fetch: typeof fetch;
   supabaseUrl: string;
   serviceKey: string;
+  isAdmin?: (req: Request) => Promise<AdminGate>;
 };
 
 export function adminTokenFromEnv(getEnv: (key: string) => string | undefined): string {
-  return getEnv("MH_ADMIN_TOKEN") || FALLBACK_ADMIN_TOKEN;
+  return getEnv("MH_ADMIN_TOKEN") || "";
 }
 
 export function routePath(url: URL): string {
@@ -70,9 +73,11 @@ function jsonResponse(body: unknown, status: number): Response {
   });
 }
 
-function authorized(req: Request, token: string): boolean {
+async function authorized(req: Request, env: LeadsEnv): Promise<AdminGate> {
   const sent = req.headers.get("x-admin-token") || "";
-  return !!token && sent === token;
+  if (env.adminToken && sent === env.adminToken) return { ok: true };
+  if (env.isAdmin) return env.isAdmin(req);
+  return { ok: false, status: 401, error: "Unauthorized" };
 }
 
 function restHeaders(serviceKey: string): Record<string, string> {
@@ -89,8 +94,9 @@ export async function handleRequest(req: Request, env: LeadsEnv): Promise<Respon
     return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
-  if (!authorized(req, env.adminToken)) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
+  const gate = await authorized(req, env);
+  if (!gate.ok) {
+    return jsonResponse({ error: gate.error }, gate.status);
   }
 
   const path = routePath(new URL(req.url));

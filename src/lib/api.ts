@@ -14,6 +14,11 @@ function getToken(): string | null {
   }
 }
 
+/** Signed-in dashboard session (mh_token). Sent as Authorization: Bearer. */
+export function sessionAccessToken(): string | null {
+  return getToken();
+}
+
 export function setToken(token: string) {
   const prev = localStorage.getItem("mh_token");
   localStorage.setItem("mh_token", token);

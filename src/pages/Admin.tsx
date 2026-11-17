@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Users, Phone, CreditCard, Activity, RefreshCw, ChevronDown, ChevronUp, Search, PhoneCall, Clock, Radio, Mail } from "lucide-react";
-import { DASHBOARD_ADMIN_PIN as ADMIN_PIN } from "../../supabase/functions/_shared/admin-dashboard-pin.ts";
-import { setToken } from "../lib/api";
+import { sessionAccessToken, setToken } from "../lib/api";
 import { meCache } from "../lib/meCache";
 import {
   mergeRecentCalls,
@@ -13,7 +12,13 @@ import {
 } from "../lib/outreach-recent-calls";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || "https://kouembkldbpdbhzeaoth.supabase.co";
-const ADMIN_TOKEN = "mh_admin_mikek";
+
+function sessionHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${sessionAccessToken() || ""}`,
+    "Content-Type": "application/json",
+  };
+}
 
 type Customer = {
   id: string;
@@ -99,8 +104,7 @@ function fmtDateTime(date: string | null) {
 }
 
 export default function Admin() {
-  const [authed, setAuthed] = useState(() => sessionStorage.getItem("mh_admin") === ADMIN_TOKEN);
-  const [pin, setPin] = useState("");
+  const [denied, setDenied] = useState(false);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [unassigned, setUnassigned] = useState<UnassignedNumber[]>([]);
   const [demoCalls, setDemoCalls] = useState<DemoCall[]>([]);
@@ -137,13 +141,18 @@ export default function Admin() {
     setLoading(true);
     setError("");
     const adminReq = fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin`, {
-      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+      headers: { ...sessionHeaders() },
     });
     const leadsReq = fetch(`${SUPABASE_URL}/functions/v1/mhv2-leads`, {
-      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+      headers: { ...sessionHeaders() },
     });
     try {
       const res = await adminReq;
+      if (res.status === 401 || res.status === 403) {
+        setDenied(true);
+        setLoading(false);
+        return;
+      }
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       setCustomers(Array.isArray(data.customers) ? data.customers : []);
@@ -171,7 +180,7 @@ export default function Admin() {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
         method: "POST",
-        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        headers: { ...sessionHeaders() },
         body: JSON.stringify({ action: "status" }),
       });
       const d = await res.json();
@@ -186,7 +195,7 @@ export default function Admin() {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
         method: "POST",
-        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        headers: { ...sessionHeaders() },
         body: JSON.stringify({ action: enabled ? "start" : "stop" }),
       });
       const d = await res.json();
@@ -201,14 +210,15 @@ export default function Admin() {
   async function checkQueueStatus() {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
-        headers: { "x-admin-token": ADMIN_TOKEN },
+        headers: sessionHeaders(),
       });
       const d = await res.json();
+      if (!res.ok || d.error) return;
       setQueueStatus({ pending: d.pending, done: d.done, total: d.total });
       setQueueAttempts(queueFromAdminPayload(d));
       fetch(`${SUPABASE_URL}/functions/v1/mhv2-outreach-dialler`, {
         method: "POST",
-        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        headers: { ...sessionHeaders() },
         body: JSON.stringify({ action: "status" }),
       }).catch(() => undefined);
     } catch {
@@ -223,7 +233,7 @@ export default function Admin() {
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-leads`, {
         method: "PATCH",
-        headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+        headers: { ...sessionHeaders() },
         body: JSON.stringify({ id, followup_called }),
       });
       const data = await res.json();
@@ -237,29 +247,24 @@ export default function Admin() {
   }
 
   useEffect(() => {
-    if (!authed) return;
+    if (denied) return;
     load();
     loadDiallerStatus();
-  }, [authed]);
+  }, [denied]);
 
   useEffect(() => {
-    if (!authed || tab !== "outreach") return;
+    if (denied || tab !== "outreach") return;
     checkQueueStatus();
     const id = setInterval(checkQueueStatus, queueRunning ? 20000 : 45000);
     return () => clearInterval(id);
-  }, [authed, tab, queueRunning]);
+  }, [denied, tab, queueRunning]);
 
-  if (!authed) {
+  if (denied) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="aurora-card p-8 w-full max-w-sm">
-          <h1 className="text-xl font-bold mb-2 text-center">Admin</h1>
-          <p className="text-white/40 text-sm text-center mb-6">ManyHandz v2</p>
-          <input type="password" placeholder="PIN" value={pin} autoFocus
-            onChange={e => setPin(e.target.value)}
-            onKeyDown={e => { if (e.key === "Enter" && pin === ADMIN_PIN) { sessionStorage.setItem("mh_admin", ADMIN_TOKEN); setAuthed(true); } }}
-            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 focus:border-yellow-500/50 focus:outline-none mb-4" />
-          <button onClick={() => { if (pin === ADMIN_PIN) { sessionStorage.setItem("mh_admin", ADMIN_TOKEN); setAuthed(true); } }} className="btn-primary w-full">Enter</button>
+        <div className="aurora-card p-8 w-full max-w-sm text-center">
+          <h1 className="text-xl font-bold mb-2">Admin</h1>
+          <p className="text-white/50 text-sm">This account does not have admin access.</p>
         </div>
       </div>
     );
@@ -395,7 +400,7 @@ export default function Admin() {
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="font-semibold">Call Queue</h3>
-                <p className="text-white/40 text-xs mt-0.5">Jake Outbound — agent_0301m07zpn6eebwvy5p25j7kzeqh</p>
+                <p className="text-white/40 text-xs mt-0.5">Jake Outbound</p>
               </div>
               <div className="flex items-center gap-4 text-sm">
                 {queueStatus && (
@@ -433,7 +438,7 @@ export default function Admin() {
                   try {
                     const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
                       method: "POST",
-                      headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                      headers: { ...sessionHeaders() },
                       body: JSON.stringify({ category: queueCategory, status: "new", limit: queueLimit }),
                     });
                     const d = await res.json();
@@ -472,7 +477,7 @@ export default function Admin() {
                   if (!confirm("Clear the entire call queue?")) return;
                   await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
                     method: "POST",
-                    headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                    headers: { ...sessionHeaders() },
                     body: JSON.stringify({ clear: true }),
                   });
                   setQueueStatus({ pending: 0, done: 0, total: 0 });
@@ -596,11 +601,18 @@ export default function Admin() {
                           onClick={async () => {
                             setDialingId(c.id);
                             try {
-                              const SRK = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
-                              await fetch("https://qpmwjkcxfyreudexawpw.supabase.co/rest/v1/outreach_call_queue", {
+                              await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/queue`, {
                                 method: "POST",
-                                headers: { Authorization: `Bearer ${SRK}`, apikey: SRK, "Content-Type": "application/json", Prefer: "return=minimal" },
-                                body: JSON.stringify({ contact_id: c.id, name: c.name, phone: c.phone, business: c.business, category: c.category, status: "pending", position: 999 }),
+                                headers: sessionHeaders(),
+                                body: JSON.stringify({
+                                  enqueue: {
+                                    contact_id: c.id,
+                                    name: c.name,
+                                    phone: c.phone,
+                                    business: c.business,
+                                    category: c.category,
+                                  },
+                                }),
                               });
                             } catch {}
                             setTimeout(() => setDialingId(null), 1000);
@@ -643,7 +655,7 @@ export default function Admin() {
                 try {
                   await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/agent`, {
                     method: "PATCH",
-                    headers: { "x-admin-token": ADMIN_TOKEN, "Content-Type": "application/json" },
+                    headers: { ...sessionHeaders() },
                     body: JSON.stringify({ first_message: demoGreeting, prompt: demoPrompt }),
                   });
                 } catch {}
@@ -663,7 +675,7 @@ export default function Admin() {
               <PhoneCall size={16} className="text-yellow-400" />
               <div>
                 <div className="font-semibold">Inbound Calls — +61 485 021 312</div>
-                <div className="text-white/40 text-xs">agent_4701kzv3pb8sfkwrdbja7s22rk75</div>
+                <div className="text-white/40 text-xs">Inbound demo line</div>
               </div>
             </div>
           </div>
@@ -848,10 +860,10 @@ export default function Admin() {
                             onClick={async (e) => {
                               e.stopPropagation();
                               try {
-                                const res = await fetch(`${SUPABASE_URL}/functions/v1/mh-v2-auth`, {
+                                const res = await fetch(`${SUPABASE_URL}/functions/v1/mhv2-admin/assume`, {
                                   method: 'POST',
-                                  headers: { 'Content-Type': 'application/json', 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtvdWVtYmtsZGJwZGJoemVhb3RoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjk3NDAsImV4cCI6MjA5MDQwNTc0MH0.aMeh94o7Zd1zqIH8kprOMYdc4s1_2g9Ecxk0Es7TiJw' },
-                                  body: JSON.stringify({ action: 'admin-assume', secret: ADMIN_PIN, customer_id: c.id }),
+                                  headers: sessionHeaders(),
+                                  body: JSON.stringify({ customer_id: c.id }),
                                 });
                                 const data = await res.json();
                                 if (data.token) {

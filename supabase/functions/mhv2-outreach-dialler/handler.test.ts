@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FALLBACK_ADMIN_TOKEN,
   adminTokenFromEnv,
   controlAction,
   corsHeaders,
@@ -13,7 +12,7 @@ import {
 } from "./handler.ts";
 
 const NOW = new Date("2026-09-07T04:00:00.000Z");
-const TOKEN = FALLBACK_ADMIN_TOKEN;
+const TOKEN = "test-admin-token";
 
 function envFor(opts: {
   enabled?: boolean;
@@ -73,8 +72,8 @@ async function json(res: Response) {
 }
 
 describe("admin token + helpers", () => {
-  it("falls back to the Admin.tsx token when MH_ADMIN_TOKEN is unset", () => {
-    assert.equal(adminTokenFromEnv(() => undefined), "mh_admin_mikek");
+  it("does not fall back to a hardcoded token when MH_ADMIN_TOKEN is unset", () => {
+    assert.equal(adminTokenFromEnv(() => undefined), "");
     assert.equal(
       adminTokenFromEnv((key) => key === "MH_ADMIN_TOKEN" ? "from-env" : undefined),
       "from-env",

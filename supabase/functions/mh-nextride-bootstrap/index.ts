@@ -7,7 +7,7 @@ import { handleNextRideBootstrap, type NextRideBootstrapEnv } from "./handler.ts
 function envFromDeno(): NextRideBootstrapEnv {
   return {
     supabaseUrl: Deno.env.get("SUPABASE_URL") || "https://kouembkldbpdbhzeaoth.supabase.co",
-    adminToken: Deno.env.get("MH_ADMIN_TOKEN") || "mh_admin_mikek",
+    adminToken: Deno.env.get("MH_ADMIN_TOKEN") || "",
     elApiKey: Deno.env.get("ELEVENLABS_API_KEY") || Deno.env.get("EL_API_KEY") || "",
     twilioSid: Deno.env.get("TWILIO_ACCOUNT_SID") || "",
     twilioToken: Deno.env.get("TWILIO_AUTH_TOKEN") || "",
