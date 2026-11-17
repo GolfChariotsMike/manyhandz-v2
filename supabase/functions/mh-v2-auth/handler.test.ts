@@ -235,8 +235,9 @@ describe("service role env — no management API token", () => {
     assert.match(index, /TURNSTILE_SECRET_KEY|turnstileSecret/);
     assert.doesNotMatch(index, /15 minutes/);
     const adminPage = readFileSync(join(HERE, "../../../src/pages/Admin.tsx"), "utf8");
-    assert.match(adminPage, /admin-dashboard-pin/);
+    assert.doesNotMatch(adminPage, /admin-dashboard-pin/);
     assert.doesNotMatch(adminPage, /const ADMIN_PIN\s*=/);
+    assert.doesNotMatch(adminPage, /mh_admin_/);
   });
 });
 

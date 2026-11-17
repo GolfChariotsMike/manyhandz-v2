@@ -12,8 +12,6 @@ import {
 export const AGENT_ID = "agent_0301m07zpn6eebwvy5p25j7kzeqh";
 export const FALLBACK_TWILIO_FROM = "+61485021312";
 export const FALLBACK_OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
-export const FALLBACK_OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",

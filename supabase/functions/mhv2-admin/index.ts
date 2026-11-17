@@ -1,13 +1,13 @@
+import { requireAdminUser } from "../_shared/admin-auth-live.ts";
+import { createJWT, jwtSecretFromEnv } from "../mh-v2-auth/handler.ts";
+
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SRK = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-const ADMIN_TOKEN = "mh_admin_mikek";
 const DEMO_AGENT_ID = "agent_4701kzv3pb8sfkwrdbja7s22rk75";
 const OUTBOUND_AGENT_ID = "agent_0301m07zpn6eebwvy5p25j7kzeqh";
 const EL_API_KEY = Deno.env.get("ELEVENLABS_API_KEY") || Deno.env.get("EL_API_KEY") || "";
 
-const OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
-const OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
+const OUTREACH_URL = Deno.env.get("OUTREACH_URL") || "https://qpmwjkcxfyreudexawpw.supabase.co";
 
 const TWILIO_ACCOUNTS = [
   {
@@ -25,29 +25,83 @@ const TWILIO_ACCOUNTS = [
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-admin-token",
+    "authorization, x-client-info, apikey, content-type",
 };
 
+function outreachKey(): string {
+  return Deno.env.get("OUTREACH_SERVICE_ROLE_KEY") || "";
+}
+
 function outreachHeaders(): Record<string, string> {
-  return { Authorization: `Bearer ${OUTREACH_SRK}`, apikey: OUTREACH_SRK };
+  const key = outreachKey();
+  return { Authorization: `Bearer ${key}`, apikey: key };
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  const adminToken = req.headers.get("x-admin-token");
-  if (adminToken !== ADMIN_TOKEN) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), {
-      status: 401,
-      headers: cors,
-    });
+  const admin = await requireAdminUser(req);
+  if (!admin.ok) {
+    return json({ error: admin.error }, admin.status);
   }
 
   const url = new URL(req.url);
 
+  // Assume a customer dashboard session. Same { token, customer } shape as mh-v2-auth admin-assume.
+  if (req.method === "POST" && url.pathname.endsWith("/assume")) {
+    const body = await req.json().catch(() => ({}));
+    const customerId = String(body.customer_id || "").trim();
+    if (!customerId) return json({ error: "customer_id required" }, 400);
+    if (!SUPABASE_URL || !SUPABASE_SRK) return json({ error: "Not configured" }, 500);
+    const custRes = await fetch(
+      `${SUPABASE_URL}/rest/v1/mh_v2_customers?id=eq.${encodeURIComponent(customerId)}&select=*&limit=1`,
+      { headers: { Authorization: `Bearer ${SUPABASE_SRK}`, apikey: SUPABASE_SRK } },
+    );
+    const rows = await custRes.json().catch(() => null);
+    const customer = Array.isArray(rows) ? rows[0] : null;
+    if (!customer?.id) return json({ error: "Account not found" }, 404);
+    const token = await createJWT(
+      { sub: customer.id, email: customer.email, assumed: true },
+      jwtSecretFromEnv((key) => Deno.env.get(key)),
+    );
+    return json({ token, customer });
+  }
+
   // Queue action — POST /mhv2-admin/queue
   if (req.method === "POST" && url.pathname.endsWith("/queue")) {
     const body = await req.json().catch(() => ({}));
+    if (!outreachKey()) return json({ error: "Outreach is not configured" }, 500);
+    if (body.enqueue && typeof body.enqueue === "object") {
+      const row = body.enqueue as Record<string, unknown>;
+      const contactId = String(row.contact_id || "").trim();
+      const phone = String(row.phone || "").trim();
+      if (!contactId || !phone) return json({ error: "contact_id and phone required" }, 400);
+      await fetch(`${OUTREACH_URL}/rest/v1/outreach_call_queue`, {
+        method: "POST",
+        headers: {
+          ...outreachHeaders(),
+          "Content-Type": "application/json",
+          Prefer: "return=minimal",
+        },
+        body: JSON.stringify({
+          contact_id: contactId,
+          name: String(row.name || ""),
+          phone,
+          business: String(row.business || ""),
+          category: String(row.category || ""),
+          status: "pending",
+          position: 999,
+        }),
+      });
+      return json({ queued: 1 });
+    }
     const { category, status = "new", limit = 50, clear } = body;
     if (clear) {
       await fetch(
@@ -145,6 +199,7 @@ Deno.serve(async (req) => {
 
   // Queue status — GET /mhv2-admin/queue
   if (req.method === "GET" && url.pathname.endsWith("/queue")) {
+    if (!outreachKey()) return json({ error: "Outreach is not configured" }, 500);
     const qRes = await fetch(
       `${OUTREACH_URL}/rest/v1/outreach_call_queue?select=*&order=position.asc&limit=500`,
       { headers: outreachHeaders() },

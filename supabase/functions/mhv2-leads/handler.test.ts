@@ -1,7 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-  FALLBACK_ADMIN_TOKEN,
   LEAD_SELECT,
   adminTokenFromEnv,
   corsHeaders,
@@ -13,7 +12,7 @@ import {
 } from "./handler.ts";
 
 const NOW = new Date("2026-08-31T04:00:00.000Z");
-const TOKEN = FALLBACK_ADMIN_TOKEN;
+const TOKEN = "test-admin-token";
 const LEAD: LeadRow = {
   id: "lead-1",
   name: "Alex",
@@ -74,8 +73,8 @@ async function json(res: Response) {
 }
 
 describe("admin token + routing + CORS", () => {
-  it("falls back to the Admin.tsx token when MH_ADMIN_TOKEN is unset", () => {
-    assert.equal(adminTokenFromEnv(() => undefined), "mh_admin_mikek");
+  it("does not fall back to a hardcoded token when MH_ADMIN_TOKEN is unset", () => {
+    assert.equal(adminTokenFromEnv(() => undefined), "");
     assert.equal(
       adminTokenFromEnv((key) => key === "MH_ADMIN_TOKEN" ? "from-env" : undefined),
       "from-env",

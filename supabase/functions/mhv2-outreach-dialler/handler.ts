@@ -1,7 +1,8 @@
 /**
  * mhv2-outreach-dialler — walks Admin Outreach Call Queue (outreach_call_queue).
  * Same dial path as Test Cold Call (mhv2-outbound-call / Sam Outbound).
- * Auth: x-admin-token. Start/Stop persist on public.mh_outreach_dialler (one row).
+ * Auth: signed-in admin bearer token, or x-admin-token when MH_ADMIN_TOKEN is set.
+ * No hardcoded token fallback. Start/Stop persist on public.mh_outreach_dialler.
  */
 import {
   OUTBOUND_AGENT_ID,
@@ -17,10 +18,7 @@ import {
 
 export { normAuPhone, normMobile, skipReason } from "./outreach-outcome.ts";
 
-export const FALLBACK_ADMIN_TOKEN = "mh_admin_mikek";
 export const FALLBACK_OUTREACH_URL = "https://qpmwjkcxfyreudexawpw.supabase.co";
-export const FALLBACK_OUTREACH_SRK =
-  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwbXdqa2N4ZnlyZXVkZXhhd3B3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDU2MTQwNSwiZXhwIjoyMDk2MTM3NDA1fQ.R2zD0a-_2uU12EMQ2O_LBzJah0Cx9NulrJswpI1iQkI";
 
 export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -28,10 +26,13 @@ export const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
+export type AdminGate = { ok: true } | { ok: false; status: number; error: string };
+
 export type DiallerEnv = {
   now: () => Date;
   adminToken: string;
   fetch: typeof fetch;
+  isAdmin?: (req: Request) => Promise<AdminGate>;
   supabaseUrl: string;
   serviceKey: string;
   outreachUrl: string;
@@ -46,7 +47,14 @@ export type DiallerEnv = {
 export type ControlAction = "start" | "stop" | "status";
 
 export function adminTokenFromEnv(getEnv: (key: string) => string | undefined): string {
-  return getEnv("MH_ADMIN_TOKEN") || FALLBACK_ADMIN_TOKEN;
+  return getEnv("MH_ADMIN_TOKEN") || "";
+}
+
+async function authorized(req: Request, env: DiallerEnv): Promise<AdminGate> {
+  const sent = req.headers.get("x-admin-token") || "";
+  if (env.adminToken && sent === env.adminToken) return { ok: true };
+  if (env.isAdmin) return env.isAdmin(req);
+  return { ok: false, status: 401, error: "Unauthorized" };
 }
 
 export function jsonResponse(body: unknown, status = 200): Response {
@@ -275,9 +283,9 @@ export async function handleRequest(req: Request, env: DiallerEnv): Promise<Resp
     return new Response("ok", { status: 200, headers: corsHeaders });
   }
 
-  const adminToken = req.headers.get("x-admin-token") || "";
-  if (!env.adminToken || adminToken !== env.adminToken) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
+  const gate = await authorized(req, env);
+  if (!gate.ok) {
+    return jsonResponse({ error: gate.error }, gate.status);
   }
 
   if (req.method !== "GET" && req.method !== "POST") {
